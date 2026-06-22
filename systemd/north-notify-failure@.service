@@ -1,0 +1,6 @@
+[Unit]
+Description=North failure notification for %i
+
+[Service]
+Type=oneshot
+ExecStart=@@WORKING_DIR@@/scripts/notify-failure.sh %i
