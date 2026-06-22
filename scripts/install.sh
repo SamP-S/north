@@ -13,13 +13,7 @@ if [[ -f "$HOME/.north/.env" ]]; then
 fi
 
 NORTH_HOME="${NORTH_HOME:-$HOME/.north}"
-AURORA_HOME="${AURORA_HOME:-$NORTH_HOME/aurora}"
-AURORA_PORT="${AURORA_PORT:-8000}"
-BOREALIS_PORT="${BOREALIS_PORT:-8001}"
-HEADLESS="${HEADLESS:-0}"
-
-AURORA_DIR="$REPO_ROOT/aurora"
-BOREALIS_DIR="$REPO_ROOT/borealis"
+NORTH_PORT="${NORTH_PORT:-8001}"
 
 echo "=== North Install ==="
 
@@ -28,55 +22,24 @@ if ! command -v uv &>/dev/null; then
     echo "ERROR: uv not found. Install uv (https://docs.astral.sh/uv/) before running this script."
     exit 1
 fi
-echo "[1/10] uv: $(uv --version)"
+echo "[1/6] uv: $(uv --version)"
 
 # Step 2: uv sync (--all-extras pulls in the dev tools: ruff, mypy, pytest)
-echo "[2/10] Installing dependencies with uv..."
+echo "[2/6] Installing dependencies with uv..."
 cd "$REPO_ROOT"
 uv sync --all-extras
 
-# Step 3: Claude Code CLI
-if command -v claude &>/dev/null; then
-    echo "[3/10] Claude Code CLI already installed: $(claude --version 2>/dev/null || echo 'unknown version')"
-else
-    echo "[3/10] Installing Claude Code CLI..."
-    curl -fsSL https://claude.ai/install.sh | bash
-fi
+# Step 3: Install the `north` CLI as a local tool (exposes `north` on PATH)
+echo "[3/6] Installing the north CLI..."
+uv tool install --force "$REPO_ROOT"
 
-# Step 4: Opencode CLI (pinned agent runtime)
-OPENCODE_VERSION="${OPENCODE_VERSION:-1.15.13}"
-if command -v opencode &>/dev/null && [[ "$(opencode --version 2>/dev/null)" == "$OPENCODE_VERSION" ]]; then
-    echo "[4/10] Opencode $OPENCODE_VERSION already installed"
-else
-    echo "[4/10] Installing opencode $OPENCODE_VERSION..."
-    curl -fsSL https://opencode.ai/install | VERSION="$OPENCODE_VERSION" bash
-fi
-
-# Step 5: Auth
-if claude auth status &>/dev/null 2>&1; then
-    echo "[5/10] Already authenticated with Claude."
-elif [[ "$HEADLESS" == "1" ]]; then
-    echo "[5/10] Headless mode: set CLAUDE_CODE_OAUTH_TOKEN in $NORTH_HOME/.env before starting the service."
-else
-    echo "[5/10] Authentication..."
-    claude auth login
-fi
-
-# Step 6: Create aurora home dirs
-if [[ -d "$AURORA_HOME/repos" && -d "$AURORA_HOME/worktrees" ]]; then
-    echo "[6/10] Aurora home directories already exist at $AURORA_HOME"
-else
-    echo "[6/10] Creating aurora home directories at $AURORA_HOME..."
-    mkdir -p "$AURORA_HOME/repos" "$AURORA_HOME/worktrees"
-fi
-
-# Step 7: Clone board repo
-BOARD_PATH="${BOARD_PATH:-$NORTH_HOME/borealis/board}"
+# Step 4: Clone board repo
+BOARD_PATH="${BOARD_PATH:-$NORTH_HOME/board}"
 mkdir -p "$(dirname "$BOARD_PATH")"
 if [[ -d "$BOARD_PATH/.git" ]]; then
-    echo "[7/10] Board repo already present at $BOARD_PATH"
+    echo "[4/6] Board repo already present at $BOARD_PATH"
 else
-    echo "[7/10] Setting up board repo..."
+    echo "[4/6] Setting up board repo..."
     if [[ -z "${BOARD_REPO_SSH_URL:-}" ]]; then
         echo "ERROR: BOARD_REPO_SSH_URL is not set. Add it to $NORTH_HOME/.env and re-run install."
         exit 1
@@ -88,15 +51,15 @@ else
     fi
 fi
 
-# Step 8: Enable linger
+# Step 5: Enable linger (so the user service keeps running across logout/boot)
 if loginctl show-user "$(whoami)" 2>/dev/null | grep -q "Linger=yes"; then
-    echo "[8/10] User linger already enabled"
+    echo "[5/6] User linger already enabled"
 else
-    echo "[8/10] Enabling user linger..."
+    echo "[5/6] Enabling user linger..."
     loginctl enable-linger "$(whoami)"
 fi
 
-# Step 9: Install systemd units
+# Step 6: Install + enable systemd units
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR"
 UNITS_CHANGED=0
@@ -114,56 +77,18 @@ _install_unit() {
     fi
 }
 
-_install_unit "$REPO_ROOT/systemd/aurora.service"   "$SYSTEMD_USER_DIR/aurora.service"   "$AURORA_DIR"
-_install_unit "$REPO_ROOT/systemd/borealis.service" "$SYSTEMD_USER_DIR/borealis.service" "$BOREALIS_DIR"
-# failure-notification template (OnFailure= on all North units); the curl
-# script lives in the repo, so the repo root is its working-dir substitution
-_install_unit "$REPO_ROOT/systemd/north-notify-failure@.service" \
-    "$SYSTEMD_USER_DIR/north-notify-failure@.service" "$REPO_ROOT"
-# ollama is NOT managed by North — it's an optional external provider (see plan 029)
-cp "$REPO_ROOT/systemd/opencode.service" "$SYSTEMD_USER_DIR/opencode.service"
+_install_unit "$REPO_ROOT/systemd/north.service" "$SYSTEMD_USER_DIR/north.service" "$REPO_ROOT"
 
 if [[ "$UNITS_CHANGED" == "1" ]]; then
-    echo "[9/10] Systemd units updated, reloading..."
+    echo "[6/6] Systemd units updated, reloading..."
     systemctl --user daemon-reload
 else
-    echo "[9/10] Systemd units already up to date"
+    echo "[6/6] Systemd units already up to date"
 fi
-systemctl --user enable --now aurora.service borealis.service opencode.service
-
-# Step 10: Check optional ollama provider (warn only — ollama is external + optional)
-echo "[10/10] Checking ollama (optional, for local models)..."
-OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
-if curl -fsS -m 5 "${OLLAMA_URL}/api/tags" -o /tmp/north-ollama-tags 2>/dev/null; then
-    for model in "mistral:7b" "codellama:7b"; do
-        if ! grep -q "$model" /tmp/north-ollama-tags; then
-            echo "WARNING: ollama model '$model' not pulled. Run: ollama pull $model"
-        fi
-    done
-    rm -f /tmp/north-ollama-tags
-else
-    echo "NOTE: no ollama reachable at ${OLLAMA_URL}. Local-model pipelines will defer"
-    echo "      until you start ollama (see README); cloud pipelines are unaffected."
-fi
-
-# OAuth smoke test
-echo "Running OAuth smoke test..."
-if ! uv run --package aurora python -c "
-import asyncio
-from claude_agent_sdk import query
-async def _test():
-    async for _ in query(prompt='Say hello'):
-        pass
-asyncio.run(_test())
-"; then
-    echo "ERROR: OAuth smoke test FAILED. Check your Claude credentials and re-run install."
-    exit 1
-fi
-echo "OAuth smoke test passed."
+systemctl --user enable --now north.service
 
 echo ""
 echo "=== North installed successfully ==="
-echo "Aurora:   http://127.0.0.1:${AURORA_PORT}"
-echo "Borealis: http://127.0.0.1:${BOREALIS_PORT}"
-echo "Logs:     journalctl --user -u aurora.service -f"
-echo "          journalctl --user -u borealis.service -f"
+echo "North: http://127.0.0.1:${NORTH_PORT}"
+echo "Logs:  journalctl --user -u north.service -f"
+echo "CLI:   north --help"

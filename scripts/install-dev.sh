@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # Development convenience: expose the `north` CLI on your PATH by symlinking the
-# editable console script from the workspace virtualenv. Source edits to
-# north/aurora/borealis are picked up immediately (no reinstall) and there's no
-# `uv run` overhead at call time.
+# editable console script from the project virtualenv. Source edits to north are
+# picked up immediately (no reinstall) and there's no `uv run` overhead at call
+# time.
 #
 # Production/operator installs do NOT use this — the systemd services run via
 # uvicorn and don't need the CLI. Operators who want it should instead run:

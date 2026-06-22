@@ -1,6 +1,6 @@
 # CRITICAL RULES - MUST FOLLOW
 
-This is project "North", a Python monorepo containing two background services (Aurora and Borealis) that together form an agentic development assistant — Aurora runs AI pipelines to execute tasks, Borealis manages the git-backed task board via REST API.
+This is project "North", a Python package providing a background service that manages a git-backed task board via a REST API (plus an MCP surface), together with a companion `north` CLI. The service code lives under `north/service/` and the CLI under `north/cli/`.
 
 ## RESPONSES
 - Keep responses concise and to the point - unless the user asks otherwise
