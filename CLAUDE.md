@@ -1,6 +1,6 @@
 # CRITICAL RULES - MUST FOLLOW
 
-This is project "North", a Python package providing a background service that manages a git-backed task board via a REST API (plus an MCP surface), together with a companion `north` CLI. The service code lives under `north/service/` and the CLI under `north/cli/`.
+This is project "North", a Python package providing an **in-repo Markdown task board** (modeled on Backlog.md): a `north/` directory committed inside the user's project repo, where each task is a plain Markdown file and its status is the folder it lives in. It ships a `north` CLI and an optional on-demand MCP server. There is no daemon and no REST API; git is the user's responsibility (North never pushes/pulls). The board logic lives under `north/core/`, the MCP server under `north/service/`, and the CLI under `north/cli/`.
 
 ## RESPONSES
 - Keep responses concise and to the point - unless the user asks otherwise

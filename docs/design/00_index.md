@@ -1,23 +1,21 @@
-# North — Design Specification
+# North — Design
 
-North is the git-backed task board service and its companion CLI. It owns board
-state — projects, epics, features, tasks, conversations, and comment threads —
-and enforces their lifecycle over a REST API and a parallel MCP surface. North
-does not execute tasks; an external agent runtime (if any) drives work by talking
-to North over HTTP/MCP.
+North is an **in-repo Markdown task board** with a CLI and an optional MCP
+server, modeled on [Backlog.md](https://github.com/MrLesk/Backlog.md). The board
+is a `north/` directory committed inside your project repo; each task is a plain
+Markdown file. There is no daemon and no central state — `north <cmd>` operates
+directly on the files.
 
 ## Sections
 
 | File | Contents |
 |---|---|
-| [01_overview.md](01_overview.md) | Purpose, goals, and governing principles |
-| [02_architecture.md](02_architecture.md) | Process topology, source of truth, board flow |
-| [03_repository-layout.md](03_repository-layout.md) | Board repo and project repo layout, runtime dirs |
-| [04_board-data-model.md](04_board-data-model.md) | Hierarchy, frontmatter schemas, task state machine, feature lifecycle |
-| [05_git-conventions.md](05_git-conventions.md) | Commit prefixes, merge flow, push cadence |
-| [06_backend-api.md](06_backend-api.md) | FastAPI conventions, endpoints, SSE, MCP surface |
-| [07_cli.md](07_cli.md) | The `north` CLI |
-| [08_notifications.md](08_notifications.md) | Telegram outbound events |
-| [09_configuration.md](09_configuration.md) | `.env` variables and the `projects.yaml` registry |
-| [10_testing.md](10_testing.md) | Unit, integration, and smoke test strategy |
-| [99_planned-features.md](99_planned-features.md) | Board-scoped roadmap |
+| [01_overview.md](01_overview.md) | Purpose, principles, what North is/ isn't |
+| [02_board-data-model.md](02_board-data-model.md) | The task object, statuses, lifecycle by folder |
+| [03_cli.md](03_cli.md) | The `north` CLI |
+| [04_mcp.md](04_mcp.md) | The optional MCP server |
+| [05_configuration.md](05_configuration.md) | `north/config.yml` and the `MCP_TOKEN` env var |
+| [06_testing.md](06_testing.md) | Test strategy |
+
+History: the previous board-service design lives under
+`docs/archive/design/` (v1, v2-board-service).

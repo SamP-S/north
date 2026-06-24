@@ -538,14 +538,11 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "gitpython" },
-    { name = "httpx" },
     { name = "mcp" },
-    { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "python-frontmatter" },
     { name = "pyyaml" },
-    { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -561,10 +558,8 @@ dev = [
 requires-dist = [
     { name = "fastapi" },
     { name = "gitpython" },
-    { name = "httpx" },
     { name = "mcp" },
     { name = "mypy", marker = "extra == 'dev'" },
-    { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
@@ -572,7 +567,6 @@ requires-dist = [
     { name = "python-frontmatter" },
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "sse-starlette" },
     { name = "uvicorn", extras = ["standard"] },
 ]
 provides-extras = ["dev"]

@@ -1,27 +1,17 @@
-"""Root logging setup for the North service.
+"""Root logging setup for the North MCP server.
 
-uvicorn's default config only wires its own loggers; without this, North
-app logs reach stderr through `logging.lastResort` at WARNING+ only. Called
-once from the app lifespan; also attaches the WARNING+ notify forwarder
-(service-health notifications, layer a).
+uvicorn only wires its own loggers; without this, North app logs reach stderr
+through ``logging.lastResort`` at WARNING+ only. Called once from the app
+lifespan.
 """
 
 import logging
 
-from north.service.config import settings
-from north.service.events import get_notifier
-from north.service.notify import NotifyLogHandler
-
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Configure root logging with a stream handler + WARNING+ notify forwarding."""
+    """Configure root logging with a single stream handler."""
     stream = logging.StreamHandler()
-    stream.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
-    notify_handler = NotifyLogHandler(
-        get_notifier(), dedupe_window_s=settings.log_notify_dedupe_window_s
-    )
+    stream.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers = [stream, notify_handler]
+    root.handlers = [stream]

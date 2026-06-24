@@ -5,9 +5,8 @@
 # picked up immediately (no reinstall) and there's no `uv run` overhead at call
 # time.
 #
-# Production/operator installs do NOT use this — the systemd services run via
-# uvicorn and don't need the CLI. Operators who want it should instead run:
-#     uv tool install north      # or: pipx install north
+# For a normal install use scripts/install.sh (or `uv tool install .`). This is
+# only a dev convenience for working on north itself.
 #
 set -euo pipefail
 

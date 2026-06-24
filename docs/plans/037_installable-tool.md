@@ -185,23 +185,23 @@ precedent (which archived v1 under `docs/archive/design/v1/`):
 ## Ordered todo
 - [x] 1. Save this plan into the repo as `docs/plans/037_installable-tool.md` (working copy lived at
        `~/.claude/plans/synthetic-chasing-kettle.md`; keep `037` updated as implementation proceeds).
-- [ ] 2. **Core:** `errors.py`; `board.py` (locate/init/next_id); slim `models` (TaskStatus + Task);
+- [x] 2. **Core:** `errors.py`; `board.py` (locate/init/next_id); slim `models` (TaskStatus + Task);
        `tasks.py` (frontmatter read/write + file moves; transition table).
-- [ ] 3. **MCP:** rewrite `mcp.py` (one `/mcp`, ~5 tools, single token); `main.py` mounts it.
+- [x] 3. **MCP:** rewrite `mcp.py` (one `/mcp`, ~5 tools, single token); `main.py` mounts it.
        Delete `service/api/`, `orchestrator/`, `events.py`, `notify.py`, old board/loader/parser/writer.
-- [ ] 4. **CLI:** `commands/{init,task,board,cleanup,instructions,mcp}.py` (incl. `task move/view/
+- [x] 4. **CLI:** `commands/{init,task,board,cleanup,instructions,mcp}.py` (incl. `task move/view/
        archive`, `--plain`/`--json`, `--archived`); `main.py` subcommands; delete dead command +
        client modules.
-- [ ] 4b. **Backlog.md parity adds:** `updated_at` (bump on edit/move/archive); `archive/` +
+- [x] 4b. **Backlog.md parity adds:** `updated_at` (bump on edit/move/archive); `archive/` +
        `archive_task`/`cleanup`; `core/instructions.py` + `AGENTS.md` write at init + `north
        instructions`; agent-friendly `--plain`/`--json` rendering.
-- [ ] 5. **Config/scripts/systemd:** `north/config.yml` schema (`mcp_port`, `auto_commit`) +
+- [x] 5. **Config/scripts/systemd:** `north/config.yml` schema (`mcp_port`, `auto_commit`) +
        `load_config()`; `core/git.py` (auto-commit); `service/config.py` → `MCP_TOKEN` only;
        `install.sh` → `uv tool install .` only; delete `systemd/north.service`.
-- [ ] 6. **Tests:** delete/rewrite/add per above.
-- [ ] 7. **Docs:** archive old `docs/design/` → `docs/archive/design/v2-board-service/`; write the
+- [x] 6. **Tests:** delete/rewrite/add per above.
+- [x] 7. **Docs:** archive old `docs/design/` → `docs/archive/design/v2-board-service/`; write the
        fresh `docs/design/` set; rewrite README.md + CLAUDE.md (see "Documentation & old-doc removal").
-- [ ] 8. **Verify** (below); fix lint/type/test fallout.
+- [x] 8. **Verify** (below); fix lint/type/test fallout.
 
 ## Change history
 - [2026-06-23] Drafted (installable tool, function core, drop REST, derived cooldown).
@@ -219,6 +219,20 @@ precedent (which archived v1 under `docs/archive/design/v1/`):
   `--plain`/`--json` output; `AGENTS.md` + `north instructions` (agent guidance); `archive/` +
   `north task archive` / `north cleanup`.
 - [2026-06-24] Plan approved and persisted to `docs/plans/037_installable-tool.md`.
+- [2026-06-24] Implemented end-to-end. Built `north/core/` (errors, models, board, tasks, git,
+  instructions); rewrote `north/service/` to a single MCP server at `/mcp` (config, logsetup,
+  main, mcp) and deleted `api/`, `orchestrator/`, `events.py`, `notify.py`, `board/`,
+  `models.py`, `startup.py`; rewrote `north/cli/` (init, task, board, cleanup, instructions, mcp;
+  render helpers) and deleted the HTTP client + old command modules; `install.sh` → `uv tool
+  install`; removed `systemd/`; pruned pyproject deps (dropped httpx, sse-starlette, pydantic;
+  kept pydantic-settings for MCP_TOKEN). Tests rewritten against a tmp board. Docs: archived old
+  `docs/design/` → `docs/archive/design/v2-board-service/`, wrote new `docs/design/` set, rewrote
+  README + CLAUDE.md.
+  Verified: `ruff` clean, `mypy north` clean (strict), 32 tests pass; manual e2e (init → create →
+  move → board → cleanup), `north mcp start/status/stop` (health 200), and `auto_commit` all OK.
+  Deviations from the plan: task model lives in `north/core/models.py` (not `service/models.py`);
+  added `north/cli/render.py` for `--plain`/`--json` rendering; `service/config.py` keeps
+  pydantic-settings for the `MCP_TOKEN` env var.
 
 ---
 

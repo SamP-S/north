@@ -1,40 +1,34 @@
-## 1. Overview
+# 1. Overview
 
-### 1.1 Purpose
+North is a task board that lives **inside your project repo**. It is a CLI tool,
+not a service: every command reads and writes Markdown files under a `north/`
+directory found by walking up from the current directory (like `.git`).
 
-A self-hosted, single-operator, multi-project task board. It maintains a
-Git-backed, Markdown-based project board and exposes it over a REST API and an
-MCP surface. It runs persistently on a Linux host as a systemd user service.
+## Principles
+- **Files are the source of truth.** A task is a Markdown file; its status is the
+  folder it sits in. Anything can read the board without North.
+- **Git is yours.** North never pushes or pulls. By default it does not even
+  commit (`auto_commit: false`) — your changes show up in `git status`. Opt in to
+  per-change local commits with `auto_commit: true`.
+- **Agent-first.** North exists to let humans and agents share one board. Output
+  has `--plain`/`--json` modes, and `north init` writes an `AGENTS.md` describing
+  how to drive the board.
+- **Small and un-rigid.** One object (the task), a fixed six-state lifecycle, a
+  free-form body the user structures however they like.
 
-### 1.2 Intent
+## What North is not
+- Not a server/daemon (the MCP server is optional and on-demand).
+- Not a multi-project/feature/epic tracker — just a flat list of tasks. Group and
+  sequence with `depends_on` and notes in the body.
+- Not opinionated about the body — acceptance criteria, plans, logs, etc. are
+  conventions you choose, not schema North enforces.
 
-Give structured, well-documented, auditable project state a single home: a board
-derived from Git, editable directly on the filesystem and over a typed API. North
-owns the board and its lifecycle rules; task execution is delegated to external
-clients (the operator, an agent runtime, or any MCP client), which read the queue
-and write board state through the same endpoints.
-
-### 1.3 Goals
-
-- A board (Project → Epic → Feature → Task) derived from Git, editable directly
-  on the filesystem.
-- Every board mutation is exactly one Git commit through the API, so the board is
-  fully auditable and recoverable from its remote.
-- A server-enforced lifecycle: a draft gate before work begins, a transition
-  table that rejects illegal status jumps, and a feature review gate.
-- A typed interface — REST plus an MCP surface mounted in the same process — so
-  external clients can drive work without North knowing how tasks are executed.
-- A CLI for inspecting and editing board state and managing the service.
-
-### 1.4 Governing principles
-
-- Git is the source of truth; the board is a derived view.
-- Humans always resolve conflicts.
-- Commits run under the operator's Git identity; the writer's identity lives in
-  the commit-message prefix only.
-- Markdown is the interface.
-- **Project context is self-contained** — `docs/ctx/` lives in the project repo
-  and travels with a clone; the board lives in the board repo.
-- **Project repos carry only code, `CLAUDE.md`, and context** — no board files.
-- **Main changes only via merges** — feature work never edits main directly.
-- No Docker — systemd only.
+## Layout
+```
+<your-repo>/
+  AGENTS.md            # written by `north init`
+  north/
+    config.yml         # board marker + settings
+    draft/ ready/ in_progress/ done/ failed/ blocked/
+    archive/
+```

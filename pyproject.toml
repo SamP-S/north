@@ -1,19 +1,16 @@
 [project]
 name = "north"
 version = "0.1.0"
-description = "North — a git-backed task board service with a companion CLI."
+description = "North — an in-repo Markdown task board CLI with an optional MCP server."
 requires-python = ">=3.12"
 dependencies = [
+    "python-frontmatter",
+    "pyyaml",
+    "gitpython",
+    "pydantic-settings",
+    "python-dotenv",
     "fastapi",
     "uvicorn[standard]",
-    "python-frontmatter",
-    "gitpython",
-    "pydantic",
-    "pydantic-settings",
-    "httpx",
-    "python-dotenv",
-    "sse-starlette",
-    "pyyaml",
     "mcp",
 ]
 

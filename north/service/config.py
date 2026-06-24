@@ -1,26 +1,16 @@
-from pathlib import Path
+"""Service settings for the optional MCP server.
+
+The board itself is discovered on disk and configured via ``north/config.yml``
+(e.g. ``mcp_port``). The only thing here is the optional bearer token, which is
+a secret and so lives in the environment, never in the committed board config.
+"""
 
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    board_repo_ssh_url: str = ""
-    north_home: Path = Path("~/.north").expanduser()
-    board_path: Path = Path("~/.north/board").expanduser()
-    poll_interval_s: int = 5
-    cooldown_seconds: int = 300
-    north_port: int = 8001
-    # MCP grant tokens, "grant:token,grant:token" (empty = no token required)
-    mcp_tokens: str = ""
-    # notifications: "log" (default) or "telegram"; telegram degrades to log
-    # when token/chat id are missing
-    notify_transport: str = "log"
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    notify_dedupe_window_s: int = 300
-    notify_rate_limit_per_min: int = 20
-    # WARNING+ log forwarding dedupes per logger+template over its own window
-    log_notify_dedupe_window_s: int = 3600
+    # Optional bearer token required on MCP requests (empty = no auth).
+    mcp_token: str = ""
 
     model_config = {
         "env_file": ".env",
