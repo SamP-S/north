@@ -16,7 +16,6 @@ non-zero.
 | `north task delete <id> [-y]` | Delete a task |
 | `north board` | Counts per status |
 | `north cleanup [--older-than DAYS]` | Bulk-archive done tasks |
-| `north instructions` | Print the agent guidance (same text as `AGENTS.md`) |
 | `north mcp start \| stop \| status \| run` | Manage the on-demand MCP server |
 
 ## Output modes

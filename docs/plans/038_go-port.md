@@ -2,39 +2,46 @@
 
 ## Context
 
-North is currently a Python CLI + optional MCP server (~1050 lines). The goal is a total rewrite in Go to produce a single compiled binary with no runtime dependency. The Python source in this repo is the reference implementation. This plan covers a new standalone repo; the Python repo is kept as-is for reference.
+North is currently a Python CLI + optional MCP server (~1050 lines). The goal is a total **in-place rewrite** in Go: the Go sources replace the Python ones in this same repo, producing a single compiled binary with no runtime dependency. The Python package, `pyproject.toml`, `uv.lock`, `tests/`, and `scripts/install*.sh` are removed (recoverable via git history); `docs/` and `CLAUDE.md`/`README.md` are updated. The deleted Python tree remains the behavioural reference (read from git history during the port).
+
+### Decisions locked with the user
+1. **In-place rewrite** — no parallel/`python/` directory; Python sources deleted entirely.
+2. **Standard Go layout** — `cmd/north` is the only `main` package (the only installable binary); *all* library code lives under `internal/` so nothing else is importable externally.
+3. **Module path `github.com/SamP-S/north`** — git-style path so `go install github.com/SamP-S/north/cmd/north@latest` works. Internal imports still resolve locally on disk; the prefix is just the module identity.
+4. **Task-file format** — keep the same frontmatter schema (`id, title, status, agent, labels, depends_on, created_at, updated_at` + body); emit valid YAML. Byte-for-byte match with PyYAML output is **not** required. Timestamps are full ISO-8601 datetimes with timezone (matching the actual Python code, e.g. `2026-06-25T00:08:00Z`, not the date-only form shown in plan 037's schema example).
 
 ---
 
-## Target repo layout
+## Target repo layout (standard Go)
 
 ```
-north/                     <- new repo root
-  cmd/north/main.go        <- entry point, calls cli.Execute()
+<repo root>
+  cmd/north/main.go        <- the only main package; calls internal/cli.Execute()
   internal/
     errors/errors.go       <- BoardError, NotFound, Conflict, Invalid
-    models/models.go       <- TaskStatus (iota), Task struct, TRANSITIONS map, STATUS_DIRS
+    models/models.go       <- TaskStatus, Task struct, TRANSITIONS map, STATUS_DIRS
     board/board.go         <- LocateBoard, InitBoard, LoadConfig, WriteConfig, NextID, TaskFiles, Slug, TaskFilename
-    tasks/tasks.go         <- Create, Get, List, Edit, Move, Archive, Cleanup, Delete, StatusCounts
+    tasks/tasks.go         <- Create, Get, List, Edit, Move, Archive, Cleanup, Delete, StatusCounts (+ frontmatter read/write)
     git/git.go             <- CommitBoard (go-git; no-op if not in a git repo)
     instructions/instructions.go  <- AgentsMD() string (same text as Python source)
-  cli/
-    root.go                <- cobra root command, error handling
-    commands/
+    render/render.go       <- RenderTaskList, RenderTask (human / --plain / --json)
+    cli/
+      root.go              <- cobra root command, Execute(), error handling
       init.go              <- `north init`
       task.go              <- `north task {create,view,list,edit,move,archive,delete}`
       board.go             <- `north board`
       cleanup.go           <- `north cleanup [--older-than DAYS]`
-      instructions.go      <- `north instructions`
       mcp.go               <- `north mcp {start,stop,status,run}`
-    render/render.go       <- RenderTaskList, RenderTask (human / --plain / --json)
-  service/
-    server.go              <- net/http server: POST /mcp (mcp-go handler) + GET /health
-    config.go              <- load MCP_TOKEN via godotenv + os.Getenv
-    mcp.go                 <- build mcp-go server, register 5 tools
+    service/
+      server.go            <- net/http server: /mcp (mcp-go handler) + GET /health
+      config.go            <- load MCP_TOKEN via godotenv + os.Getenv
+      mcp.go               <- build mcp-go server, register 5 tools
   go.mod
   go.sum
+  README.md  CLAUDE.md  docs/  .gitignore
 ```
+
+**Removed:** `north/` (Python package), `pyproject.toml`, `uv.lock`, `tests/` (Python), `scripts/install*.sh`, `.venv/`.
 
 ---
 
@@ -70,21 +77,22 @@ Frontmatter parsing is hand-rolled (~20 lines: split on `---` delimiters, parse 
 
 ## Ordered todo
 
-- [ ] 1. Init repo: `go mod init github.com/SamP-S/north`, add all deps, scaffold directory tree
-- [ ] 2. `internal/errors` — BoardError interface + NotFound/Conflict/Invalid types
-- [ ] 3. `internal/models` — TaskStatus, Task struct, STATUS_DIRS, TRANSITIONS
-- [ ] 4. `internal/board` — LocateBoard, InitBoard, LoadConfig, WriteConfig, NextID, TaskFiles, Slug, TaskFilename
-- [ ] 5. `internal/tasks` — full CRUD: Create, Get, List, Edit, Move, Archive, Cleanup, Delete, StatusCounts (+ hand-rolled frontmatter read/write)
-- [ ] 6. `internal/git` — CommitBoard via go-git (best-effort, no-op outside git repo)
-- [ ] 7. `internal/instructions` — AgentsMD() returning the AGENTS.md text
-- [ ] 8. `cli/render` — RenderTaskList, RenderTask (human/plain/json)
-- [ ] 9. `cli/commands` — all cobra commands: init, task (create/view/list/edit/move/archive/delete), board, cleanup, instructions, mcp (start/stop/status/run)
-- [ ] 10. `cli/root.go` + `cmd/north/main.go` — wire cobra root, error unwrapping, exit codes
-- [ ] 11. `service/config.go` — godotenv load + MCP_TOKEN from env
-- [ ] 12. `service/mcp.go` — register 5 mcp-go tools (list_tasks, get_task, create_task, set_task_status, edit_task)
-- [ ] 13. `service/server.go` — net/http mux: mount mcp-go handler at `/mcp`, GET `/health`
-- [ ] 14. Tests — mirror the 32 Python tests using `testing` + `t.TempDir()` tmp boards; one `_test.go` per internal package + CLI command tests
-- [ ] 15. `go build ./cmd/north` — verify clean compile; `go test ./...`; e2e smoke test
+- [x] 1. `go mod init github.com/SamP-S/north`; add deps; scaffold `cmd/` + `internal/` tree; `.gitignore` for Go
+- [x] 2. `internal/errors` — BoardError interface + NotFound/Conflict/Invalid types
+- [x] 3. `internal/models` — TaskStatus, Task struct, STATUS_DIRS, TRANSITIONS
+- [x] 4. `internal/board` — LocateBoard, InitBoard, LoadConfig, WriteConfig, NextID, TaskFiles, Slug, TaskFilename
+- [x] 5. `internal/tasks` — full CRUD: Create, Get, List, Edit, Move, Archive, Cleanup, Delete, StatusCounts (+ hand-rolled frontmatter read/write)
+- [x] 6. `internal/git` — CommitBoard via go-git (best-effort, no-op outside git repo)
+- [x] 7. `internal/instructions` — AgentsMD() returning the AGENTS.md text
+- [x] 8. `internal/render` — RenderTaskList, RenderTask (human/plain/json)
+- [x] 9. `internal/cli` — all cobra commands: root + init, task (create/view/list/edit/move/archive/delete), board, cleanup, mcp (start/stop/status/run)
+- [x] 10. `cmd/north/main.go` — call `cli.Execute()`; wire exit codes / error unwrapping
+- [x] 11. `internal/service/config.go` — godotenv load + MCP_TOKEN from env
+- [x] 12. `internal/service/mcp.go` — register 5 mcp-go tools (list_tasks, get_task, create_task, set_task_status, edit_task)
+- [x] 13. `internal/service/server.go` — net/http mux: mount mcp-go handler at `/mcp`, GET `/health`
+- [x] 14. Tests — 32 Go tests using `testing` + `t.TempDir()` tmp boards; one `_test.go` per internal package + CLI command tests
+- [x] 15. `go build ./cmd/north` — clean compile; `go test ./...`; `go vet ./...`; e2e smoke test
+- [x] 16. **Remove Python**: `git rm -r north/ tests/ pyproject.toml uv.lock scripts/install*.sh`; updated `README.md` + `CLAUDE.md` + `docs/design/`; added a Go `Makefile`
 
 ---
 
@@ -104,4 +112,7 @@ Frontmatter parsing is hand-rolled (~20 lines: split on `---` delimiters, parse 
 
 ## Change history
 
-- [2026-06-25] Drafted
+- [2026-06-25] Drafted (separate repo).
+- [2026-06-25] Reworked to an **in-place rewrite**: standard Go layout with all library code under `internal/` (only `cmd/north` installable); module `github.com/SamP-S/north`; Python sources removed via git; task-file schema kept, valid-YAML (not byte-identical) output, full ISO-8601 timestamps.
+- [2026-06-25] Implemented end-to-end on branch `go-port`. Built `internal/{errors,models,board,tasks,git,instructions,render,cli,service}` + `cmd/north`; deps cobra, yaml.v3, go-git/v5, mcp-go, godotenv. Removed the Python package, `tests/`, `pyproject.toml`, `uv.lock`, `scripts/install*.sh`; rewrote `.gitignore`, README, CLAUDE.md, `docs/design/{04_mcp,06_testing}`; added a `Makefile`. Verified: `go build ./...` + `go vet ./...` clean, `gofmt` clean, **32 tests pass**; manual e2e (init → create → move chain → board → list --json/--plain), discovery from a subdir, illegal-transition / unknown-status / not-found errors, `auto_commit` local commits (incl. file moves), and the MCP server (`mcp start/status/stop`, health 200, `tools/list` = 5 tools, `tools/call list_tasks` returns data). Deviations: YAML lists render block-style (4-space indent) vs PyYAML's flow `[...]` — valid YAML, round-trips, as agreed.
+- [2026-06-25] Removed the `north instructions` CLI command (not relevant to this build): dropped `newInstructionsCmd` + its registration and test, updated `README` + `docs/design/03_cli.md`. `AGENTS.md` is still written by `north init`, so the `internal/instructions` package stays.

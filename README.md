@@ -10,14 +10,16 @@ pushes or pulls).
 ---
 
 ## Requirements
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
+- [Go](https://go.dev/dl/) 1.25+ (to build/install)
 
 ## Install
 ```bash
-bash scripts/install.sh        # or: uv tool install .
+go install github.com/SamP-S/north/cmd/north@latest   # installs to $GOBIN / $GOPATH/bin
+# or, from a clone:
+make install          # go install ./cmd/north
 ```
-This puts `north` on your PATH. Nothing else to provision.
+This puts a single self-contained `north` binary on your PATH. Nothing else to
+provision — no runtime, no daemon.
 
 ## Quick start
 ```bash
@@ -84,7 +86,6 @@ board` and `north task list` unless you pass `--archived`.
 | `north task delete <id> [-y]` | Delete a task |
 | `north board` | Counts per status |
 | `north cleanup [--older-than DAYS]` | Archive done tasks |
-| `north instructions` | Print agent guidance (same as `AGENTS.md`) |
 | `north mcp start \| stop \| status \| run` | Manage the optional MCP server |
 
 `--plain` and `--json` give agents and scripts stable, parseable output.
@@ -110,21 +111,25 @@ A single MCP endpoint exposing the task tools (`list_tasks`, `get_task`,
 
 ## Development
 ```bash
-uv sync --all-extras
-scripts/install-dev.sh         # put the editable `north` on your PATH (dev only)
-uv run ruff check .
-uv run mypy north
-uv run pytest
+make build         # go build -o north ./cmd/north
+make test          # go test ./...
+make vet           # go vet ./... + gofmt check
+make install       # go install ./cmd/north
 ```
 
 ## Repository layout
 ```
 north/
-  north/
-    core/          # the board: discovery, tasks, config, optional git commit
-    service/       # the optional MCP server (FastAPI + FastMCP)
-    cli/           # the `north` CLI
-  tests/
-  scripts/install.sh
-  docs/design/     # design spec
+  cmd/north/         # main package — the only installable binary
+  internal/
+    errors/          # BoardError (NotFound / Conflict / Invalid)
+    models/          # Task + status state machine
+    board/           # discovery, scaffolding, config, ids
+    tasks/           # task CRUD + frontmatter read/write
+    git/             # optional local auto-commit (go-git)
+    instructions/    # AGENTS.md text
+    render/          # human / --plain / --json output
+    cli/             # the `north` cobra command tree
+    service/         # the optional MCP server (net/http + mcp-go)
+  docs/design/       # design spec
 ```

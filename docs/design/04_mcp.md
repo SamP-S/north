@@ -4,14 +4,15 @@ For agents that speak MCP, North can expose the board over a **single** MCP
 endpoint. It is off by default and started on demand:
 
 ```
-north mcp start     # detached uvicorn; pid/log under ~/.north/
+north mcp start     # detached `north mcp run`; pid/log under ~/.north/
 north mcp status
 north mcp stop
 north mcp run        # foreground
 ```
 
-- One FastMCP instance mounted at `http://127.0.0.1:<mcp_port>/mcp`
-  (`mcp_port` from `north/config.yml`, default 8001).
+- One MCP server (mcp-go) served over `net/http` at
+  `http://127.0.0.1:<mcp_port>/mcp` (`mcp_port` from `north/config.yml`, default
+  8001), streamable-HTTP transport.
 - The board is passed to the server via the `NORTH_BOARD` env var (set by
   `north mcp`); otherwise the server walks up from its working directory.
 - Optional bearer token via the `MCP_TOKEN` environment variable (a secret —

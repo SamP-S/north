@@ -1,6 +1,6 @@
 # CRITICAL RULES - MUST FOLLOW
 
-This is project "North", a Python package providing an **in-repo Markdown task board** (modeled on Backlog.md): a `north/` directory committed inside the user's project repo, where each task is a plain Markdown file and its status is the folder it lives in. It ships a `north` CLI and an optional on-demand MCP server. There is no daemon and no REST API; git is the user's responsibility (North never pushes/pulls). The board logic lives under `north/core/`, the MCP server under `north/service/`, and the CLI under `north/cli/`.
+This is project "North", a Go program providing an **in-repo Markdown task board** (modeled on Backlog.md): a `north/` directory committed inside the user's project repo, where each task is a plain Markdown file and its status is the folder it lives in. It ships a single `north` binary (CLI) and an optional on-demand MCP server. There is no daemon and no REST API; git is the user's responsibility (North never pushes/pulls). It builds to one static binary with no runtime dependency. The only installable package is `cmd/north`; all library code lives under `internal/` (board logic in `internal/board` + `internal/tasks`, the MCP server in `internal/service`, the CLI in `internal/cli`).
 
 ## RESPONSES
 - Keep responses concise and to the point - unless the user asks otherwise
@@ -42,10 +42,9 @@ This is project "North", a Python package providing an **in-repo Markdown task b
 - If the project does not have any testing tools, scripts, MCP tools, skills, etc. available for testing, ask the user whether testing should be skipped.
 
 ## CODE STYLE
-- Python 3.12+, use type hints on everything, docstrings for public functions.
-- Naming: `snake_case` for variables/functions, `PascalCase` for classes, `_prefix` for private members.
-- Strings use double quotation marks.
-- Minimize imports
-- Prioritize standard packages over community packages.
-- Use "uv" for package management and virtual environment
-- Use "ruff" for linting
+- Go 1.25+, doc comments on exported identifiers (start with the identifier name).
+- Naming: Go conventions — `MixedCaps` exported, `mixedCaps` unexported; short, idiomatic names; package names lower-case, no underscores.
+- Errors: return `error`; domain failures use `internal/errors` (`NotFound`/`Conflict`/`Invalid`).
+- Minimize imports; prioritize the standard library over third-party packages.
+- Use `go build` / `go test` for builds and tests; `go mod` for dependencies.
+- Format with `gofmt`; check with `go vet` (see the `Makefile`: `make build|test|vet|fmt`).

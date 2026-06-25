@@ -1,10 +1,10 @@
+# Go
+/north
+/bin/
+*.exe
+*.out
+*.test
+
+# Env / local
 .env
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
-dist/
 tmp/
