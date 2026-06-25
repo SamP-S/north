@@ -273,7 +273,7 @@ func newTaskDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !yes && !confirm(fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
+			if !yes && !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
 				cmd.Println("Aborted.")
 				return errAborted
 			}
@@ -313,9 +313,9 @@ func changedSlice(cmd *cobra.Command, name string, val []string) *[]string {
 	return nil
 }
 
-func confirm(prompt string) bool {
-	fmt.Printf("%s [y/N] ", prompt)
-	scanner := bufio.NewScanner(os.Stdin)
+func confirm(cmd *cobra.Command, prompt string) bool {
+	fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", prompt)
+	scanner := bufio.NewScanner(cmd.InOrStdin())
 	if !scanner.Scan() {
 		return false
 	}

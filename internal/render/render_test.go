@@ -79,3 +79,52 @@ func TestTaskDetailHumanShowsBody(t *testing.T) {
 		t.Errorf("human detail: %q", out)
 	}
 }
+
+func TestTaskListHuman(t *testing.T) {
+	out, err := render.TaskList([]*models.Task{sample()}, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Human output shows id, state, status, and title.
+	for _, want := range []string{"task-1", "active", "ready", "Add login"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("human list missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestTaskListEmpty(t *testing.T) {
+	out, err := render.TaskList(nil, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "(no tasks)" {
+		t.Errorf("empty list: %q", out)
+	}
+}
+
+func TestTaskDetailNoBody(t *testing.T) {
+	task := sample()
+	task.Body = ""
+	out, err := render.TaskDetail(task, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "--- body ---") {
+		t.Errorf("should omit body separator when body empty: %q", out)
+	}
+	if !strings.Contains(out, "state:      active") {
+		t.Errorf("detail should show state: %q", out)
+	}
+}
+
+func TestTaskDetailPlainBody(t *testing.T) {
+	out, err := render.TaskDetail(sample(), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// --plain shows the body without the decorative separator.
+	if strings.Contains(out, "--- body ---") || !strings.Contains(out, "do the thing") {
+		t.Errorf("plain detail: %q", out)
+	}
+}

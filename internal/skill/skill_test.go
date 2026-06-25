@@ -46,6 +46,32 @@ func TestInstallProject(t *testing.T) {
 	}
 }
 
+func TestInstallIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	if _, err := skill.Install(root, false); err != nil {
+		t.Fatal(err)
+	}
+	// Re-installing overwrites cleanly without error.
+	targets, err := skill.Install(root, false)
+	if err != nil {
+		t.Fatalf("re-install: %v", err)
+	}
+	data, err := os.ReadFile(targets[0].Path)
+	if err != nil || !strings.Contains(string(data), "name: north") {
+		t.Errorf("re-installed file wrong: %v", err)
+	}
+}
+
+func TestAgentsRegistry(t *testing.T) {
+	names := map[string]bool{}
+	for _, a := range skill.Agents() {
+		names[a.Name] = true
+	}
+	if !names["claude"] || !names["opencode"] {
+		t.Errorf("expected claude and opencode agents, got %v", names)
+	}
+}
+
 func TestInstallGlobalTargetsHome(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

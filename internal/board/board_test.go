@@ -86,3 +86,65 @@ func TestLocateMissingRaises(t *testing.T) {
 		t.Fatalf("expected BoardError, got %v", err)
 	}
 }
+
+func TestSlug(t *testing.T) {
+	cases := map[string]string{
+		"Add login form": "Add-login-form",
+		"  spaced  ":     "spaced",
+		"a/b:c":          "a-b-c",
+		"Café déjà":      "Caf-d-j", // non-ascii collapses to separators
+		"!!!":            "task",    // all punctuation falls back
+		"--leading--":    "leading",
+	}
+	for in, want := range cases {
+		if got := board.Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTaskFilename(t *testing.T) {
+	if got := board.TaskFilename("task-12", "Add login"); got != "task-12 - Add-login.md" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestConfigRoundTrip(t *testing.T) {
+	boardDir := newBoard(t)
+	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AutoCommit {
+		t.Error("auto_commit not round-tripped")
+	}
+}
+
+func TestLoadConfigTolerant(t *testing.T) {
+	boardDir := newBoard(t)
+	// Malformed YAML falls back to defaults instead of erroring.
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte("auto_commit: [oops"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatalf("should be tolerant: %v", err)
+	}
+	if cfg.AutoCommit {
+		t.Error("expected default false on malformed config")
+	}
+}
+
+func TestLoadConfigStringBool(t *testing.T) {
+	boardDir := newBoard(t)
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte(`auto_commit: "true"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := board.LoadConfig(boardDir)
+	if !cfg.AutoCommit {
+		t.Error("string 'true' should parse as true")
+	}
+}

@@ -95,6 +95,17 @@ func TestCLIDeleteWithYes(t *testing.T) {
 	}
 }
 
+func TestCLISkillShow(t *testing.T) {
+	dir := t.TempDir()
+	out, err := run(t, dir, "skill", "show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "name: north") || !strings.Contains(out, "north-skill-version:") {
+		t.Errorf("skill show output: %q", out)
+	}
+}
+
 func TestCLISkillInstall(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
@@ -117,5 +128,103 @@ func TestCLINoBoardErrors(t *testing.T) {
 	_, err := run(t, dir, "task", "list")
 	if err == nil {
 		t.Error("expected error when no board present")
+	}
+}
+
+// runIn is like run but feeds stdin for interactive prompts.
+func runIn(t *testing.T, dir, stdin string, args ...string) (string, error) {
+	t.Helper()
+	wd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+
+	root := newRootCmd()
+	buf := &bytes.Buffer{}
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetIn(strings.NewReader(stdin))
+	root.SetArgs(args)
+	err := root.Execute()
+	return buf.String(), err
+}
+
+func TestCLIView(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "Add login")
+	out, err := run(t, dir, "task", "view", "task-1", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"state": "draft"`) || !strings.Contains(out, `"status": "ready"`) {
+		t.Errorf("view json: %q", out)
+	}
+	if pl, _ := run(t, dir, "task", "view", "task-1", "--plain"); !strings.Contains(pl, "state:") {
+		t.Errorf("view plain: %q", pl)
+	}
+}
+
+func TestCLIEditBodyFile(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	bodyFile := filepath.Join(dir, "body.txt")
+	if err := os.WriteFile(bodyFile, []byte("from a file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, dir, "task", "edit", "task-1", "--body-file", bodyFile); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	out, _ := run(t, dir, "task", "view", "task-1", "--plain")
+	if !strings.Contains(out, "from a file") {
+		t.Errorf("body not applied: %q", out)
+	}
+	// A missing body file is a clean error, not a panic.
+	if _, err := run(t, dir, "task", "edit", "task-1", "--body-file", filepath.Join(dir, "nope.txt")); err == nil {
+		t.Error("expected error for missing body file")
+	}
+}
+
+func TestCLICleanupMessages(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	if out, _ := run(t, dir, "cleanup"); !strings.Contains(out, "Nothing to clean up") {
+		t.Errorf("empty cleanup: %q", out)
+	}
+	run(t, dir, "task", "create", "x")
+	run(t, dir, "task", "promote", "task-1")
+	run(t, dir, "task", "move", "task-1", "in_progress")
+	run(t, dir, "task", "move", "task-1", "done")
+	if out, _ := run(t, dir, "cleanup"); !strings.Contains(out, "Archived 1") {
+		t.Errorf("cleanup: %q", out)
+	}
+}
+
+func TestCLIDeleteDeclined(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	out, err := runIn(t, dir, "n\n", "task", "delete", "task-1")
+	if err == nil {
+		t.Error("declining should exit non-zero")
+	}
+	if !strings.Contains(out, "Aborted.") {
+		t.Errorf("expected Aborted: %q", out)
+	}
+	// Task still exists.
+	if _, err := run(t, dir, "task", "view", "task-1"); err != nil {
+		t.Errorf("task should survive a declined delete: %v", err)
+	}
+}
+
+func TestCLIDeleteConfirmed(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	out, err := runIn(t, dir, "y\n", "task", "delete", "task-1")
+	if err != nil || !strings.Contains(out, "Deleted task-1") {
+		t.Errorf("confirmed delete: %q %v", out, err)
 	}
 }
