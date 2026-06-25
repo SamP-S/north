@@ -1,18 +1,49 @@
-// Package models holds the board data model: a single task object and its
-// status.
+// Package models holds the board data model: a single task, its lifecycle
+// state, and its workflow status.
 //
-// Statuses are hardcoded for the MVP (configurable statuses are deferred). The
-// status of a task is the folder it lives in; the "status" frontmatter key is a
-// synced mirror.
+// North uses two orthogonal axes:
+//   - State is the lifecycle location — the folder a task lives in
+//     (drafts/ tasks/ archive/). It is the source of truth for "where" a task is.
+//   - Status is the workflow column (ready/in_progress/done/failed/blocked),
+//     stored only in frontmatter. It only changes while the task is active.
+//
+// Both are hardcoded for the MVP (configurable statuses are deferred).
 package models
 
 import "time"
 
-// TaskStatus is one of the six hardcoded board states.
+// TaskState is the lifecycle location of a task — the folder it lives in.
+type TaskState string
+
+const (
+	StateDraft   TaskState = "draft"
+	StateActive  TaskState = "active"
+	StateArchive TaskState = "archive"
+)
+
+// StateDirs maps each state to its on-disk folder name (in board order).
+var StateDirs = map[TaskState]string{
+	StateDraft:   "drafts",
+	StateActive:  "tasks",
+	StateArchive: "archive",
+}
+
+// StateOrder lists the states in board order (drafts → tasks → archive).
+var StateOrder = []TaskState{StateDraft, StateActive, StateArchive}
+
+// StateTransitions is the legal state-change table (the lifecycle machine):
+// promote (draft→active), demote (active→draft), archive (draft/active→archive),
+// restore (archive→active).
+var StateTransitions = map[TaskState]map[TaskState]bool{
+	StateDraft:   {StateActive: true, StateArchive: true},
+	StateActive:  {StateDraft: true, StateArchive: true},
+	StateArchive: {StateActive: true},
+}
+
+// TaskStatus is the workflow column, stored in frontmatter.
 type TaskStatus string
 
 const (
-	Draft      TaskStatus = "draft"
 	Ready      TaskStatus = "ready"
 	InProgress TaskStatus = "in_progress"
 	Done       TaskStatus = "done"
@@ -20,14 +51,16 @@ const (
 	Blocked    TaskStatus = "blocked"
 )
 
-// StatusDirs lists the status folders created by `north init`, in board order.
-var StatusDirs = []TaskStatus{Draft, Ready, InProgress, Done, Failed, Blocked}
+// Statuses lists every workflow status in board order.
+var Statuses = []TaskStatus{Ready, InProgress, Done, Failed, Blocked}
 
-// Transitions is the legal status transition table. draft→ready is the human
-// gate; failed/blocked/done return to ready for rework. Illegal jumps are
-// rejected (Conflict).
+// DefaultStatus is the status a new (or freshly promoted) task carries.
+const DefaultStatus = Ready
+
+// Transitions is the legal status transition table (workflow). It only applies
+// to active tasks. failed/blocked/done return to ready for rework. Illegal
+// jumps are rejected (Conflict).
 var Transitions = map[TaskStatus]map[TaskStatus]bool{
-	Draft:      {Ready: true},
 	Ready:      {InProgress: true},
 	InProgress: {Done: true, Failed: true, Blocked: true},
 	Done:       {Ready: true},
@@ -41,10 +74,38 @@ func IsStatus(s TaskStatus) bool {
 	return ok
 }
 
-// Task is one board task. Path is where the file currently lives on disk.
+// IsState reports whether s is a known state.
+func IsState(s TaskState) bool {
+	_, ok := StateDirs[s]
+	return ok
+}
+
+// StateForDir returns the state whose folder is dir.
+func StateForDir(dir string) (TaskState, bool) {
+	for s, d := range StateDirs {
+		if d == dir {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// StateIndex returns the board-order position of a state (for stable sorting).
+func StateIndex(s TaskState) int {
+	for i, st := range StateOrder {
+		if st == s {
+			return i
+		}
+	}
+	return len(StateOrder)
+}
+
+// Task is one board task. Path is where the file currently lives on disk;
+// State is derived from its folder, Status from its frontmatter.
 type Task struct {
 	ID        string
 	Title     string
+	State     TaskState
 	Status    TaskStatus
 	Path      string
 	Agent     string
@@ -53,7 +114,6 @@ type Task struct {
 	CreatedAt *time.Time
 	UpdatedAt *time.Time
 	Body      string
-	Archived  bool
 }
 
 func isoOrNil(t *time.Time) any {
@@ -63,7 +123,7 @@ func isoOrNil(t *time.Time) any {
 	return t.Format(time.RFC3339)
 }
 
-// ToMap returns a stable, JSON-serialisable view used by --json and MCP tools.
+// ToMap returns a stable, JSON-serialisable view used by --json output.
 func (t *Task) ToMap() map[string]any {
 	labels := t.Labels
 	if labels == nil {
@@ -76,13 +136,13 @@ func (t *Task) ToMap() map[string]any {
 	return map[string]any{
 		"id":         t.ID,
 		"title":      t.Title,
+		"state":      string(t.State),
 		"status":     string(t.Status),
 		"agent":      t.Agent,
 		"labels":     labels,
 		"depends_on": deps,
 		"created_at": isoOrNil(t.CreatedAt),
 		"updated_at": isoOrNil(t.UpdatedAt),
-		"archived":   t.Archived,
 		"body":       t.Body,
 	}
 }

@@ -6,17 +6,26 @@ non-zero.
 
 | Command | Description |
 |---|---|
-| `north init` | Scaffold `north/config.yml`, the status folders + `archive/`, and `AGENTS.md` |
-| `north task create <title> [--agent A] [--labels ...] [--depends-on ...] [--body \| --body-file]` | Create a task (lands in `draft/`) |
-| `north task list [--status S] [--archived] [--plain \| --json]` | List/filter tasks |
-| `north task view <id> [--plain \| --json]` | Show one task (frontmatter + body) |
+| `north init` | Scaffold `north/config.yml` + the `drafts/ tasks/ archive/` folders |
+| `north task create <title> [--agent A] [--labels ...] [--depends-on ...] [--body \| --body-file]` | Create a task (lands in `drafts/`, status `ready`) |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--plain \| --json]` | List tasks (default: active) |
+| `north task view <id> [--plain \| --json]` | Show one task (state, status, fields + body) |
 | `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file]` | Edit fields/body (bumps `updated_at`) |
-| `north task move <id> <status>` | Change status (validates the transition; moves the file) |
-| `north task archive <id>` | Move a task into `archive/` |
+| `north task move <id> <status>` | Set status of an **active** task (in place) |
+| `north task promote <id>` | draft → active |
+| `north task demote <id>` | active → draft |
+| `north task archive <id>` | draft/active → archive |
+| `north task restore <id>` | archive → active |
 | `north task delete <id> [-y]` | Delete a task |
-| `north board` | Counts per status |
-| `north cleanup [--older-than DAYS]` | Bulk-archive done tasks |
-| `north mcp start \| stop \| status \| run` | Manage the on-demand MCP server |
+| `north board` | Active counts per status + draft/archive tally |
+| `north cleanup [--older-than DAYS]` | Archive active `done` tasks |
+| `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
+| `north skill show` | Print the embedded skill |
+
+## State vs. status
+`move` changes **status** (the workflow column) and only works on active tasks.
+promote / demote / archive / restore change **state** (the lifecycle folder) and
+preserve status. See [02_board-data-model.md](02_board-data-model.md).
 
 ## Output modes
 `task list` and `task view` support `--plain` (stable, line/tab-oriented text for

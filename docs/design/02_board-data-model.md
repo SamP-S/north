@@ -1,49 +1,68 @@
 # 2. Board data model
 
 The board has exactly one object: the **task**. Each task is a Markdown file
-named `task-<n> - <Title-Slug>.md`, stored in the folder for its status.
+named `task-<n> - <Title-Slug>.md`. A task has two orthogonal axes:
+
+- **State** — its lifecycle *location*, i.e. the folder it lives in:
+  `drafts/` (draft), `tasks/` (active), `archive/` (archive). State is the
+  source of truth for "where" a task is.
+- **Status** — its workflow *column*, stored only in frontmatter:
+  `ready, in_progress, done, failed, blocked`. Status only changes while the
+  task is **active**.
 
 ## Task schema (frontmatter)
 ```yaml
 id: task-12              # task-<n>, unique across the board
 title: Add login form
-status: ready            # mirrors the folder; the folder is the source of truth
+status: ready            # workflow status (frontmatter is the source of truth)
 agent: opus4.8           # optional, free-form, opaque (executor/provider tag)
 labels: [auth, backend]  # optional free-form tags
 depends_on: [task-4]     # task ids
 created_at: 2026-06-24T...
-updated_at: 2026-06-24T...   # bumped on every edit/move/archive
+updated_at: 2026-06-24T...   # bumped on every mutation
 ```
-The **body** (everything after the frontmatter) is free text — description,
-plan, notes, blockers, results — structured however the user/agent likes. North
-imposes nothing on it.
+State is **not** stored in frontmatter — it is the folder. The **body**
+(everything after the frontmatter) is free text — description, plan, notes,
+blockers, results — structured however the user/agent likes.
 
-## Lifecycle by folder
-Status is represented by the folder the file lives in. Changing status moves the
-file; the `status` frontmatter key is kept in sync as a readable mirror.
-
+## State (lifecycle by folder)
 ```
-draft ──▶ ready ──▶ in_progress ──▶ done
-            ▲              ├──▶ failed ──┐
-            └──── resolve ─┴──▶ blocked ─┘
+drafts/  ──promote──▶  tasks/  ──archive──▶  archive/
+   ▲                     │                      │
+   └──────demote─────────┘   ◀────restore───────┘
+   (also: drafts/ ──archive──▶ archive/)
+```
+
+| Verb | From → To | Command |
+|---|---|---|
+| promote | draft → active | `north task promote <id>` |
+| demote | active → draft | `north task demote <id>` |
+| archive | draft/active → archive | `north task archive <id>` |
+| restore | archive → active | `north task restore <id>` |
+
+State moves relocate the file between folders and **preserve** status. New tasks
+are created as **drafts** (status `ready`); promote them before working.
+
+## Status (workflow, active-only)
+```
+ready ──▶ in_progress ──▶ done
+              ├──▶ failed ──┐
+              └──▶ blocked ─┘
+   ▲                        │
+   └────── reopen ──────────┘   (done/failed/blocked → ready)
 ```
 
 | From | Allowed to |
 |---|---|
-| `draft` | `ready` (the human gate) |
 | `ready` | `in_progress` |
 | `in_progress` | `done`, `failed`, `blocked` |
 | `done` / `failed` / `blocked` | `ready` (rework / reopen) |
 
-Illegal transitions are rejected. Statuses are hardcoded for now; making them
+`north task move <id> <status>` sets status. It rewrites frontmatter **in place**
+(the file stays in `tasks/`) and is rejected unless the task is active and the
+transition legal. Statuses and states are hardcoded for now; making them
 configurable per board is future work.
 
-## Archive
-`north/archive/` holds tasks taken off the active board. Archive is **orthogonal
-to status**: an archived file keeps its last `status` in frontmatter and is
-excluded from `north board` and the default `north task list` (use `--archived`).
-`north task archive <id>` archives one; `north cleanup` archives done tasks.
-
 ## IDs
-`task-<n>`, allocated as `max(existing) + 1` across every folder including
-archive, so ids are never reused.
+`task-<n>`, allocated as `max(existing) + 1` across every folder (drafts, tasks,
+archive), so ids are never reused.

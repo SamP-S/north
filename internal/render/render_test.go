@@ -15,7 +15,8 @@ func sample() *models.Task {
 	return &models.Task{
 		ID:        "task-1",
 		Title:     "Add login",
-		Status:    models.Draft,
+		State:     models.StateActive,
+		Status:    models.Ready,
 		Agent:     "opus4.8",
 		Labels:    []string{"auth"},
 		DependsOn: []string{"task-4"},
@@ -30,7 +31,7 @@ func TestTaskListPlain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "task-1\tdraft\tAdd login" {
+	if out != "task-1\tactive\tready\tAdd login" {
 		t.Errorf("plain output: %q", out)
 	}
 }

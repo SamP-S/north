@@ -1,4 +1,4 @@
-// Command north is an in-repo Markdown task board CLI with an optional MCP server.
+// Command north is an in-repo Markdown task board CLI.
 package main
 
 import (

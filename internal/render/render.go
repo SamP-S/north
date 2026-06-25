@@ -26,7 +26,7 @@ func TaskList(tasks []*models.Task, plain, asJSON bool) (string, error) {
 	if plain {
 		lines := make([]string, len(tasks))
 		for i, t := range tasks {
-			lines[i] = fmt.Sprintf("%s\t%s\t%s", t.ID, t.Status, t.Title)
+			lines[i] = fmt.Sprintf("%s\t%s\t%s\t%s", t.ID, t.State, t.Status, t.Title)
 		}
 		return strings.Join(lines, "\n"), nil
 	}
@@ -41,11 +41,7 @@ func TaskList(tasks []*models.Task, plain, asJSON bool) (string, error) {
 	}
 	var lines []string
 	for _, t := range tasks {
-		flag := ""
-		if t.Archived {
-			flag = " (archived)"
-		}
-		lines = append(lines, fmt.Sprintf("%-*s  %-12s %s%s", width, t.ID, t.Status, t.Title, flag))
+		lines = append(lines, fmt.Sprintf("%-*s  %-8s %-12s %s", width, t.ID, t.State, t.Status, t.Title))
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -55,14 +51,11 @@ func TaskDetail(task *models.Task, plain, asJSON bool) (string, error) {
 	if asJSON {
 		return marshalJSON(task.ToMap())
 	}
-	archivedFlag := ""
-	if task.Archived {
-		archivedFlag = " (archived)"
-	}
 	fields := []string{
 		fmt.Sprintf("id:         %s", task.ID),
 		fmt.Sprintf("title:      %s", task.Title),
-		fmt.Sprintf("status:     %s%s", task.Status, archivedFlag),
+		fmt.Sprintf("state:      %s", task.State),
+		fmt.Sprintf("status:     %s", task.Status),
 		fmt.Sprintf("agent:      %s", task.Agent),
 		fmt.Sprintf("labels:     %s", strings.Join(task.Labels, ", ")),
 		fmt.Sprintf("depends_on: %s", strings.Join(task.DependsOn, ", ")),

@@ -1,11 +1,10 @@
 # North
 
-North is an **in-repo Markdown task board** with a CLI and an optional MCP
-server, modeled on [Backlog.md](https://github.com/MrLesk/Backlog.md). The board
-lives in a `north/` directory committed inside your own project repo — each task
-is a plain Markdown file. There is no daemon and no central state: `north <cmd>`
-operates directly on the files, and **git is entirely yours** (North never
-pushes or pulls).
+North is an **in-repo Markdown task board** with a CLI, modeled on
+[Backlog.md](https://github.com/MrLesk/Backlog.md). The board lives in a `north/`
+directory committed inside your own project repo — each task is a plain Markdown
+file. There is no daemon and no central state: `north <cmd>` operates directly on
+the files, and **git is entirely yours** (North never pushes or pulls).
 
 ---
 
@@ -24,33 +23,47 @@ provision — no runtime, no daemon.
 ## Quick start
 ```bash
 cd your-project
-north init                                  # create the north/ board + AGENTS.md
-north task create "Add login form" --agent opus4.8 --labels auth
-north task move task-1 ready                # draft -> ready (the human gate)
-north task move task-1 in_progress
+north init                                  # create the north/ board
+north task create "Add login form" --agent opus4.8 --labels auth   # lands in drafts/
+north task promote task-1                   # drafts -> tasks (onto the active board)
+north task move task-1 in_progress          # change status (active tasks only)
 north task view task-1
 north task move task-1 done
-north board                                 # counts per status
+north board                                 # active counts per status
 ```
 
 ---
+
+## Two axes: state and status
+A task has two independent properties:
+
+- **State** — its lifecycle *location* (the folder): `draft` → `active` →
+  `archive`. Changed with `promote` / `demote` / `archive` / `restore`.
+- **Status** — its workflow *column* (frontmatter, active-only):
+  `ready → in_progress → done | failed | blocked`, with
+  `done/failed/blocked → ready` for rework. Changed with `north task move`.
+
+New tasks start as a **draft** (status `ready`); `promote` them before changing
+status. State moves relocate the file and preserve status; `move` rewrites status
+in place.
 
 ## The board
 `north init` scaffolds, inside your repo:
 ```
 north/
-  config.yml                              # board marker + settings
-  draft/ ready/ in_progress/ done/ failed/ blocked/
-  archive/
+  config.yml         # board marker + settings (auto_commit)
+  drafts/            # state: draft
+  tasks/             # state: active   (status in frontmatter)
+  archive/           # state: archive
 ```
-A task is one file, `task-<n> - <Title-Slug>.md`, in the folder for its status.
+A task is one file, `task-<n> - <Title-Slug>.md`, in its state folder.
 
 ### Task file
 ```yaml
 ---
 id: task-12
 title: Add login form
-status: ready            # mirrors the folder (the folder is the source of truth)
+status: ready            # workflow status (frontmatter is the source of truth)
 agent: opus4.8           # optional, free-form, opaque executor/provider tag
 labels: [auth]           # optional free-form tags
 depends_on: [task-4]     # task ids
@@ -60,33 +73,23 @@ updated_at: 2026-06-24T...
 Free-form body: description, plan, notes, blockers, results — your structure.
 ```
 
-### Lifecycle
-`draft → ready → in_progress → done | failed | blocked`, with
-`failed/blocked/done → ready` for rework. Status is the folder; `north task move`
-validates the transition and moves the file. Statuses are fixed for now
-(configurable per board is future work).
-
-### Archive
-`north task archive <id>` (or `north cleanup` for done tasks) moves files into
-`north/archive/`, off the active board. Archived tasks are hidden from `north
-board` and `north task list` unless you pass `--archived`.
-
 ---
 
 ## CLI
 | Command | Description |
 |---|---|
-| `north init` | Scaffold the board + `AGENTS.md` |
-| `north task create <title> [--agent --labels --depends-on --body \| --body-file]` | Create a task (draft) |
-| `north task list [--status S] [--archived] [--plain \| --json]` | List/filter tasks |
+| `north init` | Scaffold the board (`drafts/ tasks/ archive/`) |
+| `north task create <title> [--agent --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--plain \| --json]` | List tasks (default active) |
 | `north task view <id> [--plain \| --json]` | Show a task |
 | `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file]` | Edit a task |
-| `north task move <id> <status>` | Change status |
-| `north task archive <id>` | Archive a task |
+| `north task move <id> <status>` | Set status (active tasks only) |
+| `north task promote \| demote \| archive \| restore <id>` | Change state |
 | `north task delete <id> [-y]` | Delete a task |
-| `north board` | Counts per status |
-| `north cleanup [--older-than DAYS]` | Archive done tasks |
-| `north mcp start \| stop \| status \| run` | Manage the optional MCP server |
+| `north board` | Active counts per status + draft/archive tally |
+| `north cleanup [--older-than DAYS]` | Archive active done tasks |
+| `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
+| `north skill show` | Print the embedded skill |
 
 `--plain` and `--json` give agents and scripts stable, parseable output.
 
@@ -98,14 +101,14 @@ you commit them with the rest of your work. Set `auto_commit: true` in
 `north/config.yml` to have North make a local commit per change. It never pushes
 or pulls.
 
-## MCP (optional, for agents)
+## Agents
+North ships an installable **skill** that teaches agents the CLI:
 ```bash
-north mcp start    # serves http://127.0.0.1:8001/mcp (port from config.yml)
-north mcp stop
+north skill install            # ./.claude/skills + ./.opencode/skills
+north skill install --global   # ~/.claude/skills + ~/.config/opencode/skills
 ```
-A single MCP endpoint exposing the task tools (`list_tasks`, `get_task`,
-`create_task`, `set_task_status`, `edit_task`). Optional bearer token via the
-`MCP_TOKEN` env var; the server binds loopback only.
+The skill describes the state/status model and the commands. It works with Claude
+Code and opencode (and any agent that reads `.claude/skills`).
 
 ---
 
@@ -123,13 +126,12 @@ north/
   cmd/north/         # main package — the only installable binary
   internal/
     errors/          # BoardError (NotFound / Conflict / Invalid)
-    models/          # Task + status state machine
+    models/          # Task + state & status machines
     board/           # discovery, scaffolding, config, ids
-    tasks/           # task CRUD + frontmatter read/write
+    tasks/           # task ops + frontmatter read/write
     git/             # optional local auto-commit (go-git)
-    instructions/    # AGENTS.md text
     render/          # human / --plain / --json output
+    skill/           # embedded agent skill + installer
     cli/             # the `north` cobra command tree
-    service/         # the optional MCP server (net/http + mcp-go)
   docs/design/       # design spec
 ```

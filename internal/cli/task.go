@@ -8,6 +8,7 @@ import (
 
 	"github.com/SamP-S/north/internal/board"
 	nerrors "github.com/SamP-S/north/internal/errors"
+	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
 	"github.com/spf13/cobra"
@@ -24,7 +25,10 @@ func newTaskCmd() *cobra.Command {
 		newTaskListCmd(),
 		newTaskEditCmd(),
 		newTaskMoveCmd(),
+		newTaskPromoteCmd(),
+		newTaskDemoteCmd(),
 		newTaskArchiveCmd(),
+		newTaskRestoreCmd(),
 		newTaskDeleteCmd(),
 	)
 	return cmd
@@ -70,7 +74,7 @@ func newTaskCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cmd.Printf("Created %s (%s): %s\n", task.ID, task.Status, task.Title)
+			cmd.Printf("Created %s (%s): %s\n", task.ID, task.State, task.Title)
 			return nil
 		},
 	}
@@ -110,18 +114,22 @@ func newTaskViewCmd() *cobra.Command {
 }
 
 func newTaskListCmd() *cobra.Command {
-	var plain, asJSON, archived bool
-	var status string
+	var plain, asJSON bool
+	var status, state string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "list tasks",
+		Short: "list tasks (default: active)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			ts, err := tasks.List(boardDir, status, archived)
+			states, err := listStates(state)
+			if err != nil {
+				return err
+			}
+			ts, err := tasks.List(boardDir, states, status)
 			if err != nil {
 				return err
 			}
@@ -134,9 +142,25 @@ func newTaskListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
-	cmd.Flags().BoolVar(&archived, "archived", false, "include archived tasks")
+	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
+}
+
+// listStates maps the --state flag to the states to list (default: active).
+func listStates(state string) ([]models.TaskState, error) {
+	switch state {
+	case "":
+		return []models.TaskState{models.StateActive}, nil
+	case "all":
+		return models.StateOrder, nil
+	default:
+		s, err := tasks.ParseState(state)
+		if err != nil {
+			return nil, err
+		}
+		return []models.TaskState{s}, nil
+	}
 }
 
 func newTaskEditCmd() *cobra.Command {
@@ -180,14 +204,14 @@ func newTaskEditCmd() *cobra.Command {
 func newTaskMoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "move <id> <status>",
-		Short: "change a task's status",
+		Short: "change an active task's status",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			task, err := tasks.Move(boardDir, args[0], args[1])
+			task, err := tasks.SetStatus(boardDir, args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -197,24 +221,41 @@ func newTaskMoveCmd() *cobra.Command {
 	}
 }
 
-func newTaskArchiveCmd() *cobra.Command {
+// stateCmd builds a simple `task <verb> <id>` lifecycle command.
+func stateCmd(use, short, doneWord string, op func(boardDir, id string) (*models.Task, error)) *cobra.Command {
 	return &cobra.Command{
-		Use:   "archive <id>",
-		Short: "move a task to archive/",
+		Use:   use,
+		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			task, err := tasks.Archive(boardDir, args[0])
+			task, err := op(boardDir, args[0])
 			if err != nil {
 				return err
 			}
-			cmd.Printf("Archived %s\n", task.ID)
+			cmd.Printf("%s %s (%s)\n", doneWord, task.ID, task.State)
 			return nil
 		},
 	}
+}
+
+func newTaskPromoteCmd() *cobra.Command {
+	return stateCmd("promote <id>", "promote a draft onto the active board", "Promoted", tasks.Promote)
+}
+
+func newTaskDemoteCmd() *cobra.Command {
+	return stateCmd("demote <id>", "send an active task back to drafts", "Demoted", tasks.Demote)
+}
+
+func newTaskArchiveCmd() *cobra.Command {
+	return stateCmd("archive <id>", "move a task to archive/", "Archived", tasks.Archive)
+}
+
+func newTaskRestoreCmd() *cobra.Command {
+	return stateCmd("restore <id>", "restore an archived task to the active board", "Restored", tasks.Restore)
 }
 
 func newTaskDeleteCmd() *cobra.Command {

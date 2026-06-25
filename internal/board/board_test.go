@@ -26,41 +26,41 @@ func TestInitScaffoldsEverything(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(boardDir, "config.yml")); err != nil {
 		t.Errorf("config.yml missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
-		t.Errorf("AGENTS.md missing: %v", err)
-	}
-	for _, name := range append([]models.TaskStatus{}, models.StatusDirs...) {
-		if fi, err := os.Stat(filepath.Join(boardDir, string(name))); err != nil || !fi.IsDir() {
-			t.Errorf("status dir %s missing", name)
+	// State folders exist.
+	for _, state := range models.StateOrder {
+		if fi, err := os.Stat(board.StateDir(boardDir, state)); err != nil || !fi.IsDir() {
+			t.Errorf("state dir for %s missing", state)
 		}
 	}
-	if fi, err := os.Stat(filepath.Join(boardDir, "archive")); err != nil || !fi.IsDir() {
-		t.Errorf("archive dir missing")
+	// No AGENTS.md is written any more.
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Errorf("AGENTS.md should not be written by init")
 	}
 	cfg, err := board.LoadConfig(boardDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.MCPPort != 8001 || cfg.AutoCommit {
-		t.Errorf("unexpected config: %+v", cfg)
+	if cfg.AutoCommit {
+		t.Errorf("auto_commit should default false")
 	}
 }
 
 func TestInitIsIdempotent(t *testing.T) {
 	root := t.TempDir()
+	boardDir, err := board.InitBoard(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A custom config must survive a re-init.
+	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := board.InitBoard(root); err != nil {
 		t.Fatal(err)
 	}
-	agents := filepath.Join(root, "AGENTS.md")
-	if err := os.WriteFile(agents, []byte("custom"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := board.InitBoard(root); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(agents)
-	if string(data) != "custom" {
-		t.Errorf("AGENTS.md overwritten: %q", data)
+	cfg, _ := board.LoadConfig(boardDir)
+	if !cfg.AutoCommit {
+		t.Errorf("re-init overwrote existing config")
 	}
 }
 

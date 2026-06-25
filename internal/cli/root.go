@@ -42,7 +42,7 @@ func newRootCmd() *cobra.Command {
 		newTaskCmd(),
 		newBoardCmd(),
 		newCleanupCmd(),
-		newMCPCmd(),
+		newSkillCmd(),
 	)
 	return root
 }

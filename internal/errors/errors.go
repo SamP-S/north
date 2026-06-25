@@ -1,8 +1,7 @@
 // Package errors defines the domain errors for the board.
 //
-// Surfaces translate these: the CLI renders them as "error: <message>" and the
-// MCP layer turns them into plain tool errors. Keeping them out of any HTTP
-// framework means the core stays a plain library.
+// The CLI renders them as "error: <message>" and exits non-zero. Keeping a small
+// typed error set means the core stays a plain library.
 package errors
 
 // BoardError is the interface implemented by all board errors. Each carries a

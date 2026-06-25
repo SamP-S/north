@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,18 +46,25 @@ func TestCLIInitAndCreate(t *testing.T) {
 	}
 }
 
-func TestCLIMoveAndBoard(t *testing.T) {
+func TestCLIPromoteMoveBoard(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
 	run(t, dir, "task", "create", "x")
-	if out, err := run(t, dir, "task", "move", "task-1", "ready"); err != nil || !strings.Contains(out, "task-1 → ready") {
+	// Status change on a draft is rejected.
+	if _, err := run(t, dir, "task", "move", "task-1", "in_progress"); err == nil {
+		t.Error("expected move on draft to fail")
+	}
+	if out, err := run(t, dir, "task", "promote", "task-1"); err != nil || !strings.Contains(out, "Promoted task-1 (active)") {
+		t.Errorf("promote: %q %v", out, err)
+	}
+	if out, err := run(t, dir, "task", "move", "task-1", "in_progress"); err != nil || !strings.Contains(out, "task-1 → in_progress") {
 		t.Errorf("move: %q %v", out, err)
 	}
 	out, err := run(t, dir, "board")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "ready") || !strings.Contains(out, "total") {
+	if !strings.Contains(out, "in_progress") || !strings.Contains(out, "total") {
 		t.Errorf("board output: %q", out)
 	}
 }
@@ -65,11 +73,12 @@ func TestCLIListJSON(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
 	run(t, dir, "task", "create", "x")
-	out, err := run(t, dir, "task", "list", "--json")
+	// Created tasks are drafts; default list (active) is empty.
+	out, err := run(t, dir, "task", "list", "--state", "draft", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id"`) || !strings.Contains(out, "task-1") {
+	if !strings.Contains(out, `"id"`) || !strings.Contains(out, "task-1") || !strings.Contains(out, `"state": "draft"`) {
 		t.Errorf("json output: %q", out)
 	}
 }
@@ -81,8 +90,25 @@ func TestCLIDeleteWithYes(t *testing.T) {
 	if out, err := run(t, dir, "task", "delete", "task-1", "--yes"); err != nil || !strings.Contains(out, "Deleted task-1") {
 		t.Errorf("delete: %q %v", out, err)
 	}
-	if out, _ := run(t, dir, "task", "list", "--plain"); strings.TrimSpace(out) != "" {
+	if out, _ := run(t, dir, "task", "list", "--state", "all", "--plain"); strings.TrimSpace(out) != "" {
 		t.Errorf("expected empty list, got %q", out)
+	}
+}
+
+func TestCLISkillInstall(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	out, err := run(t, dir, "skill", "install")
+	if err != nil {
+		t.Fatalf("skill install: %v (%s)", err, out)
+	}
+	for _, p := range []string{
+		filepath.Join(dir, ".claude", "skills", "north", "SKILL.md"),
+		filepath.Join(dir, ".opencode", "skills", "north", "SKILL.md"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected %s: %v", p, err)
+		}
 	}
 }
 

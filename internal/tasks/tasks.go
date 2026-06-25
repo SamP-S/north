@@ -1,9 +1,11 @@
 // Package tasks holds task operations over the board: create, read, list, edit,
-// move, archive, delete.
+// status changes, lifecycle (promote/demote/archive/restore), delete.
 //
-// Every task is one Markdown file. Its status is the folder it lives in; the
-// "status" frontmatter key is kept in sync. Each mutation optionally makes a
-// local git commit when auto_commit is set.
+// Every task is one Markdown file. North uses two orthogonal axes: the task's
+// state is the folder it lives in (drafts/ tasks/ archive/), and its status is a
+// frontmatter key (ready/in_progress/done/failed/blocked) that only changes
+// while the task is active. Each mutation optionally makes a local git commit
+// when auto_commit is set.
 package tasks
 
 import (
@@ -28,8 +30,8 @@ func now() time.Time { return time.Now().UTC() }
 func ParseStatus(value string) (models.TaskStatus, error) {
 	s := models.TaskStatus(value)
 	if !models.IsStatus(s) {
-		allowed := make([]string, len(models.StatusDirs))
-		for i, d := range models.StatusDirs {
+		allowed := make([]string, len(models.Statuses))
+		for i, d := range models.Statuses {
 			allowed[i] = string(d)
 		}
 		return "", errors.Invalid(fmt.Sprintf("unknown status %q (expected one of: %s)", value, strings.Join(allowed, ", ")))
@@ -37,9 +39,22 @@ func ParseStatus(value string) (models.TaskStatus, error) {
 	return s, nil
 }
 
+// ParseState coerces a string to a TaskState, raising Invalid on unknown values.
+func ParseState(value string) (models.TaskState, error) {
+	s := models.TaskState(value)
+	if !models.IsState(s) {
+		allowed := make([]string, len(models.StateOrder))
+		for i, d := range models.StateOrder {
+			allowed[i] = string(d)
+		}
+		return "", errors.Invalid(fmt.Sprintf("unknown state %q (expected one of: %s)", value, strings.Join(allowed, ", ")))
+	}
+	return s, nil
+}
+
 // --- frontmatter -----------------------------------------------------------------
 
-// frontMeta mirrors the task frontmatter, in board order.
+// frontMeta mirrors the task frontmatter, in field order.
 type frontMeta struct {
 	ID        string   `yaml:"id"`
 	Title     string   `yaml:"title"`
@@ -76,13 +91,13 @@ func loadTask(path string) (*models.Task, error) {
 	if err := yaml.Unmarshal([]byte(meta), &fm); err != nil {
 		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: %v", filepath.Base(path), err))
 	}
-	archived := filepath.Base(filepath.Dir(path)) == board.ArchiveDir
-	var status models.TaskStatus
-	if archived {
-		status, err = ParseStatus(fm.Status)
-	} else {
-		status, err = ParseStatus(filepath.Base(filepath.Dir(path)))
+	// State comes from the folder; status always comes from frontmatter.
+	dirName := filepath.Base(filepath.Dir(path))
+	state, ok := models.StateForDir(dirName)
+	if !ok {
+		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: unknown state folder %q", filepath.Base(path), dirName))
 	}
+	status, err := ParseStatus(fm.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +107,7 @@ func loadTask(path string) (*models.Task, error) {
 	return &models.Task{
 		ID:        fm.ID,
 		Title:     fm.Title,
+		State:     state,
 		Status:    status,
 		Path:      path,
 		Agent:     fm.Agent,
@@ -100,7 +116,6 @@ func loadTask(path string) (*models.Task, error) {
 		CreatedAt: parseDT(fm.CreatedAt),
 		UpdatedAt: parseDT(fm.UpdatedAt),
 		Body:      strings.TrimSpace(body),
-		Archived:  archived,
 	}, nil
 }
 
@@ -167,11 +182,7 @@ func render(task *models.Task) (string, error) {
 // --- persist ---------------------------------------------------------------------
 
 func targetPath(boardDir string, task *models.Task) string {
-	folder := string(task.Status)
-	if task.Archived {
-		folder = board.ArchiveDir
-	}
-	return filepath.Join(boardDir, folder, board.TaskFilename(task.ID, task.Title))
+	return filepath.Join(board.StateDir(boardDir, task.State), board.TaskFilename(task.ID, task.Title))
 }
 
 func save(boardDir string, task *models.Task, oldPath, message string) (*models.Task, error) {
@@ -214,7 +225,7 @@ func commit(boardDir string, paths, removed []string, message string) error {
 }
 
 func find(boardDir, taskID string) (*models.Task, error) {
-	files, err := board.TaskFiles(boardDir, true)
+	files, err := board.TaskFiles(boardDir)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +246,7 @@ func find(boardDir, taskID string) (*models.Task, error) {
 
 // --- public operations -----------------------------------------------------------
 
-// Create makes a task in draft/.
+// Create makes a task in drafts/ with status ready.
 func Create(boardDir, title, agent string, labels, dependsOn []string, body string) (*models.Task, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.Invalid("task title must not be empty")
@@ -248,7 +259,8 @@ func Create(boardDir, title, agent string, labels, dependsOn []string, body stri
 	task := &models.Task{
 		ID:        id,
 		Title:     strings.TrimSpace(title),
-		Status:    models.Draft,
+		State:     models.StateDraft,
+		Status:    models.DefaultStatus,
 		Agent:     agent,
 		Labels:    labels,
 		DependsOn: dependsOn,
@@ -259,14 +271,14 @@ func Create(boardDir, title, agent string, labels, dependsOn []string, body stri
 	return save(boardDir, task, "", fmt.Sprintf("north: create %s", task.ID))
 }
 
-// Get returns one task by id (searches all folders incl. archive).
+// Get returns one task by id (searches all state folders).
 func Get(boardDir, taskID string) (*models.Task, error) {
 	return find(boardDir, taskID)
 }
 
-// List returns active tasks (add archived ones with archived=true). status may
-// be "" for no filter.
-func List(boardDir, status string, archived bool) ([]*models.Task, error) {
+// List returns tasks in the given states (all states if none given), optionally
+// filtered by status ("" for any). Results are ordered by state then id.
+func List(boardDir string, states []models.TaskState, status string) ([]*models.Task, error) {
 	var wanted *models.TaskStatus
 	if status != "" {
 		s, err := ParseStatus(status)
@@ -275,7 +287,7 @@ func List(boardDir, status string, archived bool) ([]*models.Task, error) {
 		}
 		wanted = &s
 	}
-	files, err := board.TaskFiles(boardDir, archived)
+	files, err := board.TaskFiles(boardDir, states...)
 	if err != nil {
 		return nil, err
 	}
@@ -291,8 +303,9 @@ func List(boardDir, status string, archived bool) ([]*models.Task, error) {
 		out = append(out, task)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Archived != out[j].Archived {
-			return !out[i].Archived
+		si, sj := models.StateIndex(out[i].State), models.StateIndex(out[j].State)
+		if si != sj {
+			return si < sj
 		}
 		return idNum(out[i].ID) < idNum(out[j].ID)
 	})
@@ -300,7 +313,7 @@ func List(boardDir, status string, archived bool) ([]*models.Task, error) {
 }
 
 // Edit changes a task's fields/body. UpdatedAt is bumped. Pass nil for a field
-// to leave it unchanged.
+// to leave it unchanged. Status and state are not edited here.
 func Edit(boardDir, taskID string, title, agent *string, labels, dependsOn *[]string, body *string) (*models.Task, error) {
 	task, err := find(boardDir, taskID)
 	if err != nil {
@@ -330,8 +343,9 @@ func Edit(boardDir, taskID string, title, agent *string, labels, dependsOn *[]st
 	return save(boardDir, task, oldPath, fmt.Sprintf("north: edit %s", task.ID))
 }
 
-// Move changes a task's status (validates the transition; moves the file).
-func Move(boardDir, taskID string, newStatus string) (*models.Task, error) {
+// SetStatus changes an active task's workflow status (frontmatter only; the file
+// stays in tasks/). Rejected unless the task is active and the transition legal.
+func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) {
 	target, err := ParseStatus(newStatus)
 	if err != nil {
 		return nil, err
@@ -340,50 +354,93 @@ func Move(boardDir, taskID string, newStatus string) (*models.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if task.Archived {
-		return nil, errors.Conflict(fmt.Sprintf("task %q is archived; cannot change its status", taskID))
+	if task.State != models.StateActive {
+		return nil, errors.Conflict(fmt.Sprintf(
+			"task %q is %s; promote it to active before changing status", taskID, task.State))
 	}
 	if target == task.Status {
 		return task, nil
 	}
 	if !models.Transitions[task.Status][target] {
-		allowed := allowedTransitions(task.Status)
 		return nil, errors.Conflict(fmt.Sprintf(
 			"illegal transition %s → %s (from %s you can go to: %s)",
-			task.Status, target, task.Status, allowed))
+			task.Status, target, task.Status, allowedStatuses(task.Status)))
 	}
-	oldPath := task.Path
 	task.Status = target
 	n := now()
 	task.UpdatedAt = &n
-	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s → %s", task.ID, target))
+	return save(boardDir, task, task.Path, fmt.Sprintf("north: %s → %s", task.ID, target))
 }
 
-// Archive moves a task into archive/ (off the active board).
+// Promote moves a draft onto the active board (drafts/ → tasks/).
+func Promote(boardDir, taskID string) (*models.Task, error) {
+	task, err := find(boardDir, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.State != models.StateDraft {
+		return nil, errors.Conflict(fmt.Sprintf("only draft tasks can be promoted (task %q is %s)", taskID, task.State))
+	}
+	return changeState(boardDir, task, models.StateActive, "promote")
+}
+
+// Demote sends an active task back to drafts/ (tasks/ → drafts/).
+func Demote(boardDir, taskID string) (*models.Task, error) {
+	task, err := find(boardDir, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.State != models.StateActive {
+		return nil, errors.Conflict(fmt.Sprintf("only active tasks can be demoted (task %q is %s)", taskID, task.State))
+	}
+	return changeState(boardDir, task, models.StateDraft, "demote")
+}
+
+// Archive moves a task into archive/ (off the active board), preserving status.
 func Archive(boardDir, taskID string) (*models.Task, error) {
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return nil, err
 	}
-	if task.Archived {
+	if task.State == models.StateArchive {
 		return nil, errors.Conflict(fmt.Sprintf("task %q is already archived", taskID))
 	}
-	oldPath := task.Path
-	task.Archived = true
-	n := now()
-	task.UpdatedAt = &n
-	return save(boardDir, task, oldPath, fmt.Sprintf("north: archive %s", task.ID))
+	return changeState(boardDir, task, models.StateArchive, "archive")
 }
 
-// Cleanup archives all done/ tasks (optionally only those older than N days).
-// olderThanDays <= 0 means archive all done tasks.
+// Restore brings an archived task back onto the active board (archive/ → tasks/).
+func Restore(boardDir, taskID string) (*models.Task, error) {
+	task, err := find(boardDir, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.State != models.StateArchive {
+		return nil, errors.Conflict(fmt.Sprintf("only archived tasks can be restored (task %q is %s)", taskID, task.State))
+	}
+	return changeState(boardDir, task, models.StateActive, "restore")
+}
+
+// changeState moves a task's file between state folders, preserving status.
+func changeState(boardDir string, task *models.Task, target models.TaskState, verb string) (*models.Task, error) {
+	if !models.StateTransitions[task.State][target] {
+		return nil, errors.Conflict(fmt.Sprintf("cannot %s task %q from %s", verb, task.ID, task.State))
+	}
+	oldPath := task.Path
+	task.State = target
+	n := now()
+	task.UpdatedAt = &n
+	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s %s", verb, task.ID))
+}
+
+// Cleanup archives active done tasks (optionally only those older than N days).
+// olderThanDays <= 0 means archive all active done tasks.
 func Cleanup(boardDir string, olderThanDays int) ([]*models.Task, error) {
 	var cutoff *time.Time
 	if olderThanDays > 0 {
 		c := now().Add(-time.Duration(olderThanDays) * 24 * time.Hour)
 		cutoff = &c
 	}
-	done, err := List(boardDir, string(models.Done), false)
+	done, err := List(boardDir, []models.TaskState{models.StateActive}, string(models.Done))
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +472,7 @@ func Delete(boardDir, taskID string) error {
 
 // StatusCounts returns counts of active tasks per status, in board order.
 func StatusCounts(boardDir string) ([]StatusCount, error) {
-	tasks, err := List(boardDir, "", false)
+	tasks, err := List(boardDir, []models.TaskState{models.StateActive}, "")
 	if err != nil {
 		return nil, err
 	}
@@ -423,8 +480,8 @@ func StatusCounts(boardDir string) ([]StatusCount, error) {
 	for _, t := range tasks {
 		counts[t.Status]++
 	}
-	out := make([]StatusCount, len(models.StatusDirs))
-	for i, s := range models.StatusDirs {
+	out := make([]StatusCount, len(models.Statuses))
+	for i, s := range models.Statuses {
 		out[i] = StatusCount{Status: string(s), Count: counts[s]}
 	}
 	return out, nil
@@ -436,7 +493,16 @@ type StatusCount struct {
 	Count  int
 }
 
-func allowedTransitions(from models.TaskStatus) string {
+// StateCount reports how many tasks are in a given state.
+func StateCount(boardDir string, state models.TaskState) (int, error) {
+	ts, err := List(boardDir, []models.TaskState{state}, "")
+	if err != nil {
+		return 0, err
+	}
+	return len(ts), nil
+}
+
+func allowedStatuses(from models.TaskStatus) string {
 	var ss []string
 	for s := range models.Transitions[from] {
 		ss = append(ss, string(s))

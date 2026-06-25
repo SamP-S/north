@@ -1,0 +1,63 @@
+package skill_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/SamP-S/north/internal/skill"
+)
+
+func TestContentHasVersionAndFrontmatter(t *testing.T) {
+	c := skill.Content()
+	if !strings.HasPrefix(c, "---\n") {
+		t.Error("skill should start with frontmatter")
+	}
+	if !strings.Contains(c, "north-skill-version: "+skill.Version) {
+		t.Error("version comment not injected")
+	}
+	if !strings.Contains(c, "name: north") {
+		t.Error("missing skill name")
+	}
+}
+
+func TestInstallProject(t *testing.T) {
+	root := t.TempDir()
+	targets, err := skill.Install(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) == 0 {
+		t.Fatal("no targets written")
+	}
+	for _, want := range []string{
+		filepath.Join(root, ".claude", "skills", "north", "SKILL.md"),
+		filepath.Join(root, ".opencode", "skills", "north", "SKILL.md"),
+	} {
+		data, err := os.ReadFile(want)
+		if err != nil {
+			t.Errorf("missing %s: %v", want, err)
+			continue
+		}
+		if !strings.Contains(string(data), "north-skill-version:") {
+			t.Errorf("%s missing version comment", want)
+		}
+	}
+}
+
+func TestInstallGlobalTargetsHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	targets, err := skill.Targets("", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tg := range targets {
+		if !strings.HasPrefix(tg.Dir, home) {
+			t.Errorf("global target not under home: %s", tg.Dir)
+		}
+	}
+}

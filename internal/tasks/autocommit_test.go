@@ -45,7 +45,7 @@ func commitMessages(t *testing.T, repo *gogit.Repository) []string {
 
 func TestAutoCommitCreatesCommit(t *testing.T) {
 	boardDir, repo := initRepo(t)
-	if _, err := board.WriteConfig(boardDir, board.Config{MCPPort: 8001, AutoCommit: true}); err != nil {
+	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tasks.Create(boardDir, "committed task", "", nil, nil, ""); err != nil {

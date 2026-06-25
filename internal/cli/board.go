@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/SamP-S/north/internal/board"
+	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
 	"github.com/spf13/cobra"
 )
@@ -22,18 +23,25 @@ func newBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			width := len("total")
+			drafts, err := tasks.StateCount(boardDir, models.StateDraft)
+			if err != nil {
+				return err
+			}
+			archived, err := tasks.StateCount(boardDir, models.StateArchive)
+			if err != nil {
+				return err
+			}
+			width := len("in_progress")
 			total := 0
 			for _, c := range counts {
-				if len(c.Status) > width {
-					width = len(c.Status)
-				}
 				total += c.Count
 			}
+			cmd.Println("active:")
 			for _, c := range counts {
-				cmd.Printf("%-*s  %d\n", width, c.Status, c.Count)
+				cmd.Printf("  %-*s  %d\n", width, c.Status, c.Count)
 			}
-			cmd.Printf("%-*s  %d\n", width, "total", total)
+			cmd.Printf("  %-*s  %d\n", width, "total", total)
+			cmd.Printf("draft: %d   archive: %d\n", drafts, archived)
 			return nil
 		},
 	}
