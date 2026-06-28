@@ -1,8 +1,8 @@
 .PHONY: build install test vet fmt clean
 
-# Build the north binary into the repo root.
+# Build the north binary into bin/.
 build:
-	go build -o north ./cmd/north
+	go build -o bin/north ./cmd/north
 
 # Install north onto your PATH ($GOBIN / $GOPATH/bin).
 install:
@@ -25,4 +25,4 @@ fmt:
 	gofmt -w cmd internal
 
 clean:
-	rm -f north
+	rm -f bin/north
