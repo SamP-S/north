@@ -53,6 +53,7 @@ func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
 func newTaskCreateCmd() *cobra.Command {
 	var agent, body, bodyFile string
 	var labels, dependsOn []string
+	var plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "create <title>",
 		Short: "create a task (lands in draft)",
@@ -74,6 +75,14 @@ func newTaskCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if plain || asJSON {
+				out, err := render.TaskDetail(task, plain, asJSON)
+				if err != nil {
+					return err
+				}
+				cmd.Println(out)
+				return nil
+			}
 			cmd.Printf("Created %s (%s): %s\n", task.ID, task.State, task.Title)
 			return nil
 		},
@@ -83,6 +92,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "task ids this depends on")
 	cmd.Flags().StringVar(&body, "body", "", "task body text")
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read task body from a file")
+	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
 
@@ -164,8 +174,9 @@ func listStates(state string) ([]models.TaskState, error) {
 }
 
 func newTaskEditCmd() *cobra.Command {
-	var title, agent, body, bodyFile string
+	var title, agent, body string
 	var labels, dependsOn []string
+	var plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "edit <id>",
 		Short: "edit a task's fields/body",
@@ -175,7 +186,7 @@ func newTaskEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bodyPtr, err := readBody(cmd, body, bodyFile)
+			bodyPtr, err := readBody(cmd, body, "")
 			if err != nil {
 				return err
 			}
@@ -188,21 +199,30 @@ func newTaskEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if plain || asJSON {
+				out, err := render.TaskDetail(task, plain, asJSON)
+				if err != nil {
+					return err
+				}
+				cmd.Println(out)
+				return nil
+			}
 			cmd.Printf("Edited %s\n", task.ID)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&title, "title", "", "")
-	cmd.Flags().StringVar(&agent, "agent", "", "")
+	cmd.Flags().StringVar(&title, "title", "", "new title")
+	cmd.Flags().StringVar(&agent, "agent", "", "executor or provider tag")
 	cmd.Flags().StringSliceVar(&labels, "labels", nil, "replace labels (empty to clear)")
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "replace dependencies (empty to clear)")
-	cmd.Flags().StringVar(&body, "body", "", "")
-	cmd.Flags().StringVar(&bodyFile, "body-file", "", "")
+	cmd.Flags().StringVar(&body, "body", "", "replace body text")
+	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
 
 func newTaskMoveCmd() *cobra.Command {
-	return &cobra.Command{
+	var plain, asJSON bool
+	cmd := &cobra.Command{
 		Use:   "move <id> <status>",
 		Short: "change an active task's status",
 		Args:  cobra.ExactArgs(2),
@@ -215,15 +235,26 @@ func newTaskMoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if plain || asJSON {
+				out, err := render.TaskDetail(task, plain, asJSON)
+				if err != nil {
+					return err
+				}
+				cmd.Println(out)
+				return nil
+			}
 			cmd.Printf("%s → %s\n", task.ID, task.Status)
 			return nil
 		},
 	}
+	addOutputFlags(cmd, &plain, &asJSON)
+	return cmd
 }
 
 // stateCmd builds a simple `task <verb> <id>` lifecycle command.
 func stateCmd(use, short, doneWord string, op func(boardDir, id string) (*models.Task, error)) *cobra.Command {
-	return &cobra.Command{
+	var plain, asJSON bool
+	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args:  cobra.ExactArgs(1),
@@ -236,10 +267,20 @@ func stateCmd(use, short, doneWord string, op func(boardDir, id string) (*models
 			if err != nil {
 				return err
 			}
+			if plain || asJSON {
+				out, err := render.TaskDetail(task, plain, asJSON)
+				if err != nil {
+					return err
+				}
+				cmd.Println(out)
+				return nil
+			}
 			cmd.Printf("%s %s (%s)\n", doneWord, task.ID, task.State)
 			return nil
 		},
 	}
+	addOutputFlags(cmd, &plain, &asJSON)
+	return cmd
 }
 
 func newTaskPromoteCmd() *cobra.Command {
@@ -259,7 +300,7 @@ func newTaskRestoreCmd() *cobra.Command {
 }
 
 func newTaskDeleteCmd() *cobra.Command {
-	var yes bool
+	var yes, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
 		Short: "delete a task",
@@ -280,11 +321,16 @@ func newTaskDeleteCmd() *cobra.Command {
 			if err := tasks.Delete(boardDir, args[0]); err != nil {
 				return err
 			}
+			if asJSON {
+				cmd.Printf("{\"id\":%q}\n", task.ID)
+				return nil
+			}
 			cmd.Printf("Deleted %s\n", task.ID)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "JSON output")
 	return cmd
 }
 

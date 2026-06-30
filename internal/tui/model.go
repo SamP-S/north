@@ -216,7 +216,7 @@ func (m Model) helpView() string {
 		{"c", "create task in $EDITOR"},
 		{"e", "edit task in $EDITOR"},
 		{"m", "move status (active tasks only)"},
-		{"p", "promote draft→active / demote active→draft"},
+		{"p", "promote draft→active / demote active→draft / restore archive→draft"},
 		{"a", "archive task / restore if already archived"},
 		{"d", "delete task"},
 		{"/", "search / filter tasks"},

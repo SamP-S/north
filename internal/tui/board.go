@@ -458,7 +458,7 @@ func (m boardModel) renderBoard() string {
 
 func (m boardModel) renderFooter() string {
 	info := fmt.Sprintf("  drafts: %d  archive: %d", m.draftCount, m.archiveCount)
-	hints := "↵ view  c create  e edit  m move  p promote/demote  a archive  d delete  tab→list  ? help  q quit"
+	hints := "↵ view  c create  e edit  m move  p promote/demote/restore  a archive  d delete  tab→list  ? help  q quit"
 
 	infoW := lipgloss.Width(info)
 	hintsW := lipgloss.Width(hints)

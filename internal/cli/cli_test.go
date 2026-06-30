@@ -166,24 +166,16 @@ func TestCLIView(t *testing.T) {
 	}
 }
 
-func TestCLIEditBodyFile(t *testing.T) {
+func TestCLIEditBody(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
 	run(t, dir, "task", "create", "x")
-	bodyFile := filepath.Join(dir, "body.txt")
-	if err := os.WriteFile(bodyFile, []byte("from a file"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run(t, dir, "task", "edit", "task-1", "--body-file", bodyFile); err != nil {
+	if _, err := run(t, dir, "task", "edit", "task-1", "--body", "updated body"); err != nil {
 		t.Fatalf("edit: %v", err)
 	}
 	out, _ := run(t, dir, "task", "view", "task-1", "--plain")
-	if !strings.Contains(out, "from a file") {
+	if !strings.Contains(out, "updated body") {
 		t.Errorf("body not applied: %q", out)
-	}
-	// A missing body file is a clean error, not a panic.
-	if _, err := run(t, dir, "task", "edit", "task-1", "--body-file", filepath.Join(dir, "nope.txt")); err == nil {
-		t.Error("expected error for missing body file")
 	}
 }
 

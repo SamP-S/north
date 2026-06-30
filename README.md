@@ -56,7 +56,7 @@ north/
   tasks/             # state: active   (status in frontmatter)
   archive/           # state: archive
 ```
-A task is one file, `task-<n> - <Title-Slug>.md`, in its state folder.
+A task is one file, `task-<n>-<title-slug>.md`, in its state folder.
 
 ### Task file
 ```yaml
