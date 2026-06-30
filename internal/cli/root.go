@@ -10,6 +10,7 @@ import (
 	"os"
 
 	nerrors "github.com/SamP-S/north/internal/errors"
+	"github.com/SamP-S/north/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -34,9 +35,11 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "north",
 		Short:         "North task board CLI",
+		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.SetVersionTemplate("north {{.Version}}\n")
 	root.AddCommand(
 		newInitCmd(),
 		newTaskCmd(),
@@ -44,6 +47,7 @@ func newRootCmd() *cobra.Command {
 		newCleanupCmd(),
 		newSkillCmd(),
 		newTuiCmd(),
+		newVersionCmd(),
 	)
 	return root
 }

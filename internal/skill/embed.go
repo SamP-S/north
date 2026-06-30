@@ -5,6 +5,8 @@ package skill
 import (
 	_ "embed"
 	"strings"
+
+	"github.com/SamP-S/north/internal/version"
 )
 
 // Name is the skill's directory name and identifier.
@@ -12,7 +14,7 @@ const Name = "north"
 
 // Version is the embedded skill's version, stamped into installed SKILL.md
 // files so `north skill` can detect outdated installs.
-const Version = "0.1.0"
+var Version = version.Version
 
 const versionPrefix = "<!-- north-skill-version: "
 const versionSuffix = " -->"

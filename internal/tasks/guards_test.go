@@ -54,8 +54,8 @@ func TestCleanupRespectsOlderThan(t *testing.T) {
 	boardDir := newBoard(t)
 	old := time.Now().UTC().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
 	recent := time.Now().UTC().Format(time.RFC3339)
-	writeRaw(t, boardDir, "tasks", "task-1 - old.md", doneTask("task-1", "old", old))
-	writeRaw(t, boardDir, "tasks", "task-2 - fresh.md", doneTask("task-2", "fresh", recent))
+	writeRaw(t, boardDir, "tasks", "task-1-old.md", doneTask("task-1", "old", old))
+	writeRaw(t, boardDir, "tasks", "task-2-fresh.md", doneTask("task-2", "fresh", recent))
 
 	archived, err := tasks.Cleanup(boardDir, 5) // only tasks older than 5 days
 	if err != nil {

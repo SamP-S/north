@@ -92,6 +92,7 @@ Free-form body: description, plan, notes, blockers, results — your structure.
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
 | `north skill show` | Print the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
+| `north version` | Print the north version |
 
 `--plain` and `--json` give agents and scripts stable, parseable output.
 
@@ -131,7 +132,7 @@ Code and opencode (and any agent that reads `.claude/skills`).
 
 ## Development
 ```bash
-make build         # go build -o north ./cmd/north
+make build         # go build -o bin/north ./cmd/north
 make test          # go test ./...
 make vet           # go vet ./... + gofmt check
 make install       # go install ./cmd/north

@@ -229,7 +229,7 @@ func find(boardDir, taskID string) (*models.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	prefix := taskID + " - "
+	prefix := taskID + "-"
 	for _, path := range files {
 		if strings.HasPrefix(filepath.Base(path), prefix) {
 			task, err := loadTask(path)

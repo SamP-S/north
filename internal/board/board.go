@@ -193,16 +193,16 @@ func NextID(board string) (string, error) {
 
 // Slug builds a filename-safe slug from a title (Backlog.md-style, dash-separated).
 func Slug(title string) string {
-	cleaned := strings.Trim(nonAlnumRe.ReplaceAllString(title, "-"), "-")
+	cleaned := strings.Trim(nonAlnumRe.ReplaceAllString(strings.ToLower(title), "-"), "-")
 	if cleaned == "" {
 		return "task"
 	}
 	return cleaned
 }
 
-// TaskFilename is the on-disk filename for a task: "task-12 - Add-login.md".
+// TaskFilename is the on-disk filename for a task: "task-12-add-login.md".
 func TaskFilename(taskID, title string) string {
-	return fmt.Sprintf("%s - %s.md", taskID, Slug(title))
+	return fmt.Sprintf("%s-%s.md", taskID, Slug(title))
 }
 
 func toBool(v any, fallback bool) bool {

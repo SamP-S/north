@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/SamP-S/north/internal/models"
@@ -408,10 +409,7 @@ func (m listModel) renderDetail(t *models.Task) string {
 	if strings.TrimSpace(t.Body) == "" {
 		sb.WriteString("(no body)\n")
 	} else {
-		sb.WriteString(t.Body)
-		if !strings.HasSuffix(t.Body, "\n") {
-			sb.WriteString("\n")
-		}
+		sb.WriteString(renderMarkdown(t.Body, m.vp.Width))
 	}
 
 	return sb.String()
@@ -496,6 +494,23 @@ func (m *listModel) syncViewport() {
 		m.vp.SetContent("(no tasks)")
 	}
 	m.vp.GotoTop()
+}
+
+// renderMarkdown renders body text as styled Markdown via Glamour. Falls back
+// to plain text if the renderer cannot be initialised or rendering fails.
+func renderMarkdown(body string, width int) string {
+	r, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return body
+	}
+	out, err := r.Render(body)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // paneWidths returns the outer dimensions (borders included) of each pane and

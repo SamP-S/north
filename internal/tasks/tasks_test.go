@@ -70,7 +70,7 @@ func TestCreateLandsInDrafts(t *testing.T) {
 	if filepath.Base(filepath.Dir(task.Path)) != "drafts" {
 		t.Errorf("not in drafts: %s", task.Path)
 	}
-	if filepath.Base(task.Path) != "task-1 - Add-login-form.md" {
+	if filepath.Base(task.Path) != "task-1-add-login-form.md" {
 		t.Errorf("bad filename: %s", filepath.Base(task.Path))
 	}
 	if task.CreatedAt == nil || task.UpdatedAt == nil {
@@ -108,7 +108,7 @@ func TestPromoteActivates(t *testing.T) {
 	if active.Status != models.Ready {
 		t.Errorf("promote should preserve status ready, got %s", active.Status)
 	}
-	if _, err := os.Stat(filepath.Join(boardDir, "drafts", "task-1 - x.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(boardDir, "drafts", "task-1-x.md")); !os.IsNotExist(err) {
 		t.Error("old draft file still present")
 	}
 }
@@ -170,10 +170,10 @@ func TestEditRenamesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(edited.Path) != "task-1 - new-title.md" {
+	if filepath.Base(edited.Path) != "task-1-new-title.md" {
 		t.Errorf("not renamed: %s", filepath.Base(edited.Path))
 	}
-	if _, err := os.Stat(filepath.Join(boardDir, "drafts", "task-1 - old-title.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(boardDir, "drafts", "task-1-old-title.md")); !os.IsNotExist(err) {
 		t.Error("old file still present")
 	}
 	if len(edited.Labels) != 2 || edited.Labels[0] != "a" {

@@ -1,12 +1,19 @@
-.PHONY: build install test vet fmt clean
+.PHONY: build install test vet fmt clean version
+
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS  := -ldflags "-X github.com/SamP-S/north/internal/version.Version=$(VERSION)"
 
 # Build the north binary into bin/.
 build:
-	go build -o bin/north ./cmd/north
+	go build $(LDFLAGS) -o bin/north ./cmd/north
 
 # Install north onto your PATH ($GOBIN / $GOPATH/bin).
 install:
-	go install ./cmd/north
+	go install $(LDFLAGS) ./cmd/north
+
+# Print the version that would be stamped into the binary.
+version:
+	@echo $(VERSION)
 
 # Run the test suite.
 test:

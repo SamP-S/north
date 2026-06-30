@@ -24,11 +24,11 @@ func TestLoadRejectsMalformedFiles(t *testing.T) {
 	cases := []struct {
 		name, file, content string
 	}{
-		{"unterminated frontmatter", "task-1 - a.md", "---\nid: task-1\ntitle: a\n"},
-		{"missing id", "task-2 - a.md", "---\ntitle: a\nstatus: ready\n---\n"},
-		{"missing title", "task-3 - a.md", "---\nid: task-3\nstatus: ready\n---\n"},
-		{"unknown status", "task-4 - a.md", "---\nid: task-4\ntitle: a\nstatus: bogus\n---\n"},
-		{"broken yaml", "task-5 - a.md", "---\nid: [unclosed\n---\n"},
+		{"unterminated frontmatter", "task-1-a.md", "---\nid: task-1\ntitle: a\n"},
+		{"missing id", "task-2-a.md", "---\ntitle: a\nstatus: ready\n---\n"},
+		{"missing title", "task-3-a.md", "---\nid: task-3\nstatus: ready\n---\n"},
+		{"unknown status", "task-4-a.md", "---\nid: task-4\ntitle: a\nstatus: bogus\n---\n"},
+		{"broken yaml", "task-5-a.md", "---\nid: [unclosed\n---\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestLoadRejectsMalformedFiles(t *testing.T) {
 
 func TestLoadAcceptsMinimalValidFile(t *testing.T) {
 	boardDir := newBoard(t)
-	writeRaw(t, boardDir, "tasks", "task-7 - hand.md",
+	writeRaw(t, boardDir, "tasks", "task-7-hand.md",
 		"---\nid: task-7\ntitle: hand written\nstatus: in_progress\n---\n\nbody text\n")
 	task, err := tasks.Get(boardDir, "task-7")
 	if err != nil {

@@ -89,10 +89,10 @@ func TestLocateMissingRaises(t *testing.T) {
 
 func TestSlug(t *testing.T) {
 	cases := map[string]string{
-		"Add login form": "Add-login-form",
+		"Add login form": "add-login-form",
 		"  spaced  ":     "spaced",
 		"a/b:c":          "a-b-c",
-		"Café déjà":      "Caf-d-j", // non-ascii collapses to separators
+		"Café déjà":      "caf-d-j", // non-ascii collapses to separators
 		"!!!":            "task",    // all punctuation falls back
 		"--leading--":    "leading",
 	}
@@ -104,7 +104,7 @@ func TestSlug(t *testing.T) {
 }
 
 func TestTaskFilename(t *testing.T) {
-	if got := board.TaskFilename("task-12", "Add login"); got != "task-12 - Add-login.md" {
+	if got := board.TaskFilename("task-12", "Add login"); got != "task-12-add-login.md" {
 		t.Errorf("got %q", got)
 	}
 }
