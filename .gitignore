@@ -7,3 +7,6 @@
 # Env / local
 .env
 tmp/
+
+# North board (dogfooding — not committed)
+north/
