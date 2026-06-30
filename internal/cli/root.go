@@ -43,6 +43,7 @@ func newRootCmd() *cobra.Command {
 		newBoardCmd(),
 		newCleanupCmd(),
 		newSkillCmd(),
+		newTuiCmd(),
 	)
 	return root
 }

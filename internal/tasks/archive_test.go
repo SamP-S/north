@@ -25,13 +25,13 @@ func TestArchiveAndRestore(t *testing.T) {
 	if arc, _ := tasks.List(boardDir, []models.TaskState{models.StateArchive}, ""); len(arc) != 1 {
 		t.Errorf("archive list: %v", arc)
 	}
-	// Restore brings it back to active.
+	// Restore brings it back to drafts for review, not straight to active.
 	restored, err := tasks.Restore(boardDir, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.State != models.StateActive {
-		t.Errorf("not restored: %+v", restored)
+	if restored.State != models.StateDraft {
+		t.Errorf("restore should land in drafts, got %+v", restored)
 	}
 }
 

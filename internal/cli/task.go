@@ -255,7 +255,7 @@ func newTaskArchiveCmd() *cobra.Command {
 }
 
 func newTaskRestoreCmd() *cobra.Command {
-	return stateCmd("restore <id>", "restore an archived task to the active board", "Restored", tasks.Restore)
+	return stateCmd("restore <id>", "restore an archived task to drafts", "Restored", tasks.Restore)
 }
 
 func newTaskDeleteCmd() *cobra.Command {

@@ -33,11 +33,11 @@ var StateOrder = []TaskState{StateDraft, StateActive, StateArchive}
 
 // StateTransitions is the legal state-change table (the lifecycle machine):
 // promote (draft→active), demote (active→draft), archive (draft/active→archive),
-// restore (archive→active).
+// restore (archive→draft).
 var StateTransitions = map[TaskState]map[TaskState]bool{
 	StateDraft:   {StateActive: true, StateArchive: true},
 	StateActive:  {StateDraft: true, StateArchive: true},
-	StateArchive: {StateActive: true},
+	StateArchive: {StateDraft: true},
 }
 
 // TaskStatus is the workflow column, stored in frontmatter.

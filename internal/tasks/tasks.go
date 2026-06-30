@@ -408,7 +408,8 @@ func Archive(boardDir, taskID string) (*models.Task, error) {
 	return changeState(boardDir, task, models.StateArchive, "archive")
 }
 
-// Restore brings an archived task back onto the active board (archive/ → tasks/).
+// Restore brings an archived task back to drafts (archive/ → drafts/), giving
+// the human a chance to review it before promoting to active.
 func Restore(boardDir, taskID string) (*models.Task, error) {
 	task, err := find(boardDir, taskID)
 	if err != nil {
@@ -417,7 +418,7 @@ func Restore(boardDir, taskID string) (*models.Task, error) {
 	if task.State != models.StateArchive {
 		return nil, errors.Conflict(fmt.Sprintf("only archived tasks can be restored (task %q is %s)", taskID, task.State))
 	}
-	return changeState(boardDir, task, models.StateActive, "restore")
+	return changeState(boardDir, task, models.StateDraft, "restore")
 }
 
 // changeState moves a task's file between state folders, preserving status.

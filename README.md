@@ -84,14 +84,31 @@ Free-form body: description, plan, notes, blockers, results — your structure.
 | `north task view <id> [--plain \| --json]` | Show a task |
 | `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file]` | Edit a task |
 | `north task move <id> <status>` | Set status (active tasks only) |
-| `north task promote \| demote \| archive \| restore <id>` | Change state |
+| `north task promote \| demote \| archive <id>` | Change state |
+| `north task restore <id>` | Restore from archive → drafts (for review) |
 | `north task delete <id> [-y]` | Delete a task |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS]` | Archive active done tasks |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
 | `north skill show` | Print the embedded skill |
+| `north tui` | Interactive terminal UI (human use only) |
 
 `--plain` and `--json` give agents and scripts stable, parseable output.
+
+---
+
+## TUI
+
+`north tui` opens a full-screen interactive terminal UI:
+
+- **Board view** — kanban columns (`ready | in_progress | done | failed | blocked`) for active tasks, with draft/archive counts in the footer.
+- **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail.
+- **Tab** switches between the two views; **Enter** on a board card jumps to its detail.
+- **`e`** opens the selected task in `$EDITOR`; **`c`** creates a new task the same way.
+- **`m`** opens a status picker (active tasks); **`p`** promotes/demotes; **`a`** archives or restores; **`d`** deletes.
+- **`/`** live-filters the task list; **`?`** shows the full key reference.
+
+The TUI is for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 
 ---
 
@@ -132,6 +149,7 @@ north/
     git/             # optional local auto-commit (go-git)
     render/          # human / --plain / --json output
     skill/           # embedded agent skill + installer
+    tui/             # interactive terminal UI (bubbletea)
     cli/             # the `north` cobra command tree
   docs/design/       # design spec
 ```

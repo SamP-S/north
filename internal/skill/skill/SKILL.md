@@ -44,7 +44,7 @@ north task create "<title>" [--agent A] [--labels a,b] [--depends-on task-3] [--
 north task promote <id>     # draft   → active
 north task demote <id>      # active  → draft
 north task archive <id>     # draft/active → archive
-north task restore <id>     # archive → active
+north task restore <id>     # archive → draft (for review before re-activating)
 north task delete <id> -y   # remove permanently
 ```
 
@@ -62,6 +62,12 @@ north task view <id> [--plain | --json]
 north board                     # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS]   # archive active 'done' tasks
 ```
+
+## TUI
+
+`north tui` launches an interactive terminal UI for human use. **Agents must not
+use it** — it requires a real TTY and provides no machine-readable output. Use
+the CLI commands above for all agent-driven board interaction.
 
 ## Rules for agents
 
