@@ -342,7 +342,7 @@ func (m boardModel) updateStatusPicker(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			return reloadMsg{}
 		}
 
-	case key.Matches(msg, keys.Esc) || msg.String() == "q":
+	case key.Matches(msg, keys.Esc):
 		m.modal = modalNone
 	}
 	return m, nil
@@ -372,7 +372,7 @@ func (m boardModel) updateConfirm(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			return reloadMsg{}
 		}
 
-	case msg.String() == "n" || msg.String() == "N" || msg.String() == "q" || key.Matches(msg, keys.Esc):
+	case msg.String() == "n" || msg.String() == "N" || key.Matches(msg, keys.Esc):
 		m.modal = modalNone
 		m.pending = confirmNone
 		m.pendingID = ""

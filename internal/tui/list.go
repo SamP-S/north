@@ -136,7 +136,7 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 					}
 				}
 				return m, func() tea.Msg { return reloadMsg{} }
-			case "n", "esc", "q":
+			case "n", "esc":
 				m.confirm = confirmNone
 				m.pendingFn = nil
 				m.confirmText = ""
@@ -275,7 +275,7 @@ func (m listModel) updateStatusPicker(km tea.KeyMsg) (listModel, tea.Cmd) {
 			return reloadMsg{}
 		}
 
-	case key.Matches(km, keys.Esc) || km.String() == "q":
+	case key.Matches(km, keys.Esc):
 		m.modal = modalNone
 	}
 	return m, nil

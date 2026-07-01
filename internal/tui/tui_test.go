@@ -287,10 +287,10 @@ func isQuit(cmd tea.Cmd) bool {
 	return ok
 }
 
-// TestQuitCancelsOpenBoardModal verifies that pressing 'q' while the board's
-// status-picker modal is open closes the modal instead of quitting the app —
-// q should behave like esc whenever a modal/confirm is active.
-func TestQuitCancelsOpenBoardModal(t *testing.T) {
+// TestQuitIsNoOpOnOpenBoardModal verifies that pressing 'q' while the board's
+// status-picker modal is open neither quits the app nor closes the modal —
+// esc is the only cancel key. esc still closes it.
+func TestQuitIsNoOpOnOpenBoardModal(t *testing.T) {
 	dir, err := board.InitBoard(t.TempDir())
 	if err != nil {
 		t.Fatalf("init board: %v", err)
@@ -313,17 +313,23 @@ func TestQuitCancelsOpenBoardModal(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	um := updated.(Model)
 
-	if um.board.modal != modalNone {
-		t.Errorf("expected modal closed by q, got %v", um.board.modal)
+	if um.board.modal != modalStatusPicker {
+		t.Errorf("expected modal to stay open after q, got %v", um.board.modal)
 	}
 	if isQuit(cmd) {
-		t.Error("q should cancel the open modal, not quit the app")
+		t.Error("q should not quit the app while a modal is open")
+	}
+
+	// esc still cancels.
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(Model).board.modal != modalNone {
+		t.Error("expected esc to close the modal")
 	}
 }
 
-// TestQuitCancelsOpenListConfirm verifies the same for the list view's
+// TestQuitIsNoOpOnOpenListConfirm verifies the same for the list view's
 // delete/archive confirm.
-func TestQuitCancelsOpenListConfirm(t *testing.T) {
+func TestQuitIsNoOpOnOpenListConfirm(t *testing.T) {
 	dir, err := board.InitBoard(t.TempDir())
 	if err != nil {
 		t.Fatalf("init board: %v", err)
@@ -344,11 +350,17 @@ func TestQuitCancelsOpenListConfirm(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	um := updated.(Model)
 
-	if um.list.confirm != confirmNone {
-		t.Errorf("expected confirm cleared by q, got %v", um.list.confirm)
+	if um.list.confirm != confirmDelete {
+		t.Errorf("expected confirm to stay pending after q, got %v", um.list.confirm)
 	}
 	if isQuit(cmd) {
-		t.Error("q should cancel the pending confirm, not quit the app")
+		t.Error("q should not quit the app while a confirm is pending")
+	}
+
+	// esc still cancels.
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(Model).list.confirm != confirmNone {
+		t.Error("expected esc to cancel the pending confirm")
 	}
 }
 
