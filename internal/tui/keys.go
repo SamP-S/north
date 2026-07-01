@@ -2,17 +2,17 @@ package tui
 
 import "github.com/charmbracelet/bubbles/key"
 
-// keyMap holds all key bindings used across the TUI.
+// keyMap holds all key bindings used across the TUI. It excludes q, ctrl+c,
+// tab, and ? — those are global meta-keys with their own modal-aware
+// branching in Model.Update, handled by a plain switch on msg.String()
+// rather than key.Matches.
 type keyMap struct {
 	Up      key.Binding
 	Down    key.Binding
 	Left    key.Binding
 	Right   key.Binding
-	Tab     key.Binding
 	Enter   key.Binding
 	Esc     key.Binding
-	Quit    key.Binding
-	Help    key.Binding
 	Create  key.Binding
 	Edit    key.Binding
 	Move    key.Binding
@@ -40,10 +40,6 @@ var keys = keyMap{
 		key.WithKeys("right", "l"),
 		key.WithHelp("→/l", "right"),
 	),
-	Tab: key.NewBinding(
-		key.WithKeys("tab"),
-		key.WithHelp("tab", "switch view"),
-	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
@@ -51,14 +47,6 @@ var keys = keyMap{
 	Esc: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "cancel"),
-	),
-	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
-	),
-	Help: key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "help"),
 	),
 	Create: key.NewBinding(
 		key.WithKeys("c"),

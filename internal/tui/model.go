@@ -88,14 +88,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			// While a modal/confirm is open, q is a no-op — esc is the only way
-			// to cancel a modal, so don't quit and don't fall through to a
-			// handler that would treat it as cancel either.
-			if !m.list.searching && !m.modalOpen() {
-				return m, tea.Quit
-			}
-			if m.modalOpen() {
+			switch {
+			case m.list.searching:
+				// let it fall through so the search field gets the character
+			case m.modalOpen():
+				// no-op — esc is the only way to cancel a modal
 				return m, nil
+			default:
+				return m, tea.Quit
 			}
 		case "tab":
 			if !m.list.searching {
