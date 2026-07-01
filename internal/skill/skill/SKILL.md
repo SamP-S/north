@@ -40,7 +40,7 @@ to active before you can change its status.
 Lifecycle (move between states):
 
 ```bash
-north task create "<title>" [--agent A] [--labels a,b] [--depends-on task-3] [--body "..."]
+north task create "<title>" [--agent A] [--labels a,b] [--depends-on task-3] [--body "..." | --body-file F]
 north task promote <id>     # draft   → active
 north task demote <id>      # active  → draft
 north task archive <id>     # draft/active → archive
@@ -48,19 +48,30 @@ north task restore <id>     # archive → draft (for review before re-activating
 north task delete <id> -y   # remove permanently
 ```
 
+All lifecycle commands accept `[--plain | --json]`.
+
 Status (active tasks only):
 
 ```bash
-north task move <id> <status>   # ready | in_progress | done | failed | blocked
+north task move <id> <status> [--plain | --json]   # ready | in_progress | done | failed | blocked
 ```
+
+Edit fields (rename, retag, or rewrite — does not touch state or status):
+
+```bash
+north task edit <id> [--title T] [--agent A] [--labels a,b] [--depends-on task-3] [--body "..."] [--plain | --json]
+```
+
+`--labels`/`--depends-on` replace the full list (pass an empty value to clear).
+Unlike `create`, `edit` has no `--body-file`.
 
 Query:
 
 ```bash
-north task list [--state draft|active|archive] [--status S] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--plain | --json]
 north task view <id> [--plain | --json]
-north board                     # counts per status (active) + draft/archive tally
-north cleanup [--older-than DAYS]   # archive active 'done' tasks
+north board [--plain | --json]                     # counts per status (active) + draft/archive tally
+north cleanup [--older-than DAYS] [--plain | --json]   # archive active 'done' tasks
 ```
 
 ## TUI
@@ -72,12 +83,15 @@ the CLI commands above for all agent-driven board interaction.
 ## Rules for agents
 
 - Run `north board` before acting to understand the current state.
-- Use `--plain` (tab-separated) or `--json` for parseable output when listing or
-  viewing; the default is human-formatted.
+- Every command supports `--plain` (tab-separated) or `--json` for parseable
+  output; the default is human-formatted. This is uniform across the board:
+  `board`, `cleanup`, and every `task` subcommand (`create`, `view`, `list`,
+  `edit`, `move`, `promote`, `demote`, `archive`, `restore`, `delete`).
 - A freshly created task is a **draft** — `promote` it before `move`-ing its
   status. `north task move` on a draft/archived task is rejected.
 - `move` changes status in place (the file stays in `tasks/`). promote / demote /
-  archive / restore move the file between folders and preserve status.
+  archive / restore move the file between folders and preserve status. `edit`
+  changes title/agent/labels/depends_on/body in place and touches neither.
 - Put descriptions, plans, blockers, and results in the task **body** — north
   does not impose body structure.
 - Prefer driving the board through these commands rather than editing task files

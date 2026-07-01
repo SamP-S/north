@@ -82,13 +82,13 @@ Free-form body: description, plan, notes, blockers, results — your structure.
 | `north task create <title> [--agent --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
 | `north task list [--state draft\|active\|archive\|all] [--status S] [--plain \| --json]` | List tasks (default active) |
 | `north task view <id> [--plain \| --json]` | Show a task |
-| `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file]` | Edit a task |
-| `north task move <id> <status>` | Set status (active tasks only) |
-| `north task promote \| demote \| archive <id>` | Change state |
-| `north task restore <id>` | Restore from archive → drafts (for review) |
-| `north task delete <id> [-y]` | Delete a task |
-| `north board` | Active counts per status + draft/archive tally |
-| `north cleanup [--older-than DAYS]` | Archive active done tasks |
+| `north task edit <id> [--title --agent --labels --depends-on --body] [--plain \| --json]` | Edit a task |
+| `north task move <id> <status> [--plain \| --json]` | Set status (active tasks only) |
+| `north task promote \| demote \| archive <id> [--plain \| --json]` | Change state |
+| `north task restore <id> [--plain \| --json]` | Restore from archive → drafts (for review) |
+| `north task delete <id> [-y] [--plain \| --json]` | Delete a task |
+| `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
+| `north cleanup [--older-than DAYS] [--plain \| --json]` | Archive active done tasks |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
 | `north skill show` | Print the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
@@ -152,5 +152,6 @@ north/
     skill/           # embedded agent skill + installer
     tui/             # interactive terminal UI (bubbletea)
     cli/             # the `north` cobra command tree
+    version/         # build-time version string
   docs/design/       # design spec
 ```

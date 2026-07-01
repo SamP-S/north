@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/SamP-S/north/internal/board"
@@ -34,40 +33,11 @@ func newBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if asJSON {
-				active := make(map[string]int, len(counts))
-				for _, c := range counts {
-					active[c.Status] = c.Count
-				}
-				out, err := json.MarshalIndent(map[string]any{
-					"active":  active,
-					"drafts":  drafts,
-					"archive": archived,
-				}, "", "  ")
-				if err != nil {
-					return err
-				}
-				cmd.Println(string(out))
-				return nil
+			out, err := render.Board(counts, drafts, archived, plain, asJSON)
+			if err != nil {
+				return err
 			}
-			if plain {
-				for _, c := range counts {
-					cmd.Printf("%s\t%d\n", c.Status, c.Count)
-				}
-				cmd.Printf("drafts\t%d\narchive\t%d\n", drafts, archived)
-				return nil
-			}
-			width := len("in_progress")
-			total := 0
-			for _, c := range counts {
-				total += c.Count
-			}
-			cmd.Println("active:")
-			for _, c := range counts {
-				cmd.Printf("  %-*s  %d\n", width, c.Status, c.Count)
-			}
-			cmd.Printf("  %-*s  %d\n", width, "total", total)
-			cmd.Printf("draft: %d   archive: %d\n", drafts, archived)
+			cmd.Println(out)
 			return nil
 		},
 	}

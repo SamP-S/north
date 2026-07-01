@@ -1,7 +1,7 @@
 # 2. Board data model
 
 The board has exactly one object: the **task**. Each task is a Markdown file
-named `task-<n> - <Title-Slug>.md`. A task has two orthogonal axes:
+named `task-<n>-<title-slug>.md`. A task has two orthogonal axes:
 
 - **State** — its lifecycle *location*, i.e. the folder it lives in:
   `drafts/` (draft), `tasks/` (active), `archive/` (archive). State is the
@@ -29,7 +29,9 @@ blockers, results — structured however the user/agent likes.
 ```
 drafts/  ──promote──▶  tasks/  ──archive──▶  archive/
    ▲                     │                      │
-   └──────demote─────────┘   ◀────restore───────┘
+   └──────demote─────────┘                      │
+   ▲                                             │
+   └──────────────────restore───────────────────┘
    (also: drafts/ ──archive──▶ archive/)
 ```
 
@@ -38,7 +40,7 @@ drafts/  ──promote──▶  tasks/  ──archive──▶  archive/
 | promote | draft → active | `north task promote <id>` |
 | demote | active → draft | `north task demote <id>` |
 | archive | draft/active → archive | `north task archive <id>` |
-| restore | archive → active | `north task restore <id>` |
+| restore | archive → draft | `north task restore <id>` |
 
 State moves relocate the file between folders and **preserve** status. New tasks
 are created as **drafts** (status `ready`); promote them before working.

@@ -246,10 +246,48 @@ func find(boardDir, taskID string) (*models.Task, error) {
 
 // --- public operations -----------------------------------------------------------
 
+// validateDeps checks that every task ID in ids exists somewhere on the board
+// (any state folder). Returns Invalid if an ID is missing. Returns nil
+// immediately for a nil or empty ids slice.
+func validateDeps(boardDir string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	for _, id := range ids {
+		if _, err := find(boardDir, id); err != nil {
+			return errors.Invalid(fmt.Sprintf("depends_on: task %q not found", id))
+		}
+	}
+	return nil
+}
+
+// Dependents returns every task whose DependsOn slice contains taskID (exact
+// match), scanning all state folders. Returns an empty non-nil slice if none
+// are found.
+func Dependents(boardDir, taskID string) ([]*models.Task, error) {
+	all, err := List(boardDir, models.StateOrder, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*models.Task, 0)
+	for _, t := range all {
+		for _, dep := range t.DependsOn {
+			if dep == taskID {
+				out = append(out, t)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 // Create makes a task in drafts/ with status ready.
 func Create(boardDir, title, agent string, labels, dependsOn []string, body string) (*models.Task, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.Invalid("task title must not be empty")
+	}
+	if err := validateDeps(boardDir, dependsOn); err != nil {
+		return nil, err
 	}
 	id, err := board.NextID(boardDir)
 	if err != nil {
@@ -333,6 +371,9 @@ func Edit(boardDir, taskID string, title, agent *string, labels, dependsOn *[]st
 		task.Labels = *labels
 	}
 	if dependsOn != nil {
+		if err := validateDeps(boardDir, *dependsOn); err != nil {
+			return nil, err
+		}
 		task.DependsOn = *dependsOn
 	}
 	if body != nil {

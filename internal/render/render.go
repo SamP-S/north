@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/SamP-S/north/internal/models"
+	"github.com/SamP-S/north/internal/tasks"
 )
 
 // TaskList renders a list of tasks.
@@ -71,6 +72,42 @@ func TaskDetail(task *models.Task, plain, asJSON bool) (string, error) {
 		return fmt.Sprintf("%s\n\n%s", head, body), nil
 	}
 	return fmt.Sprintf("%s\n\n--- body ---\n%s", head, body), nil
+}
+
+// Board renders a board summary: per-status counts plus draft/archive totals.
+func Board(counts []tasks.StatusCount, drafts, archived int, plain, asJSON bool) (string, error) {
+	if asJSON {
+		active := make(map[string]int, len(counts))
+		for _, c := range counts {
+			active[c.Status] = c.Count
+		}
+		return marshalJSON(map[string]any{
+			"active":  active,
+			"drafts":  drafts,
+			"archive": archived,
+		})
+	}
+	if plain {
+		var lines []string
+		for _, c := range counts {
+			lines = append(lines, fmt.Sprintf("%s\t%d", c.Status, c.Count))
+		}
+		lines = append(lines, fmt.Sprintf("drafts\t%d", drafts), fmt.Sprintf("archive\t%d", archived))
+		return strings.Join(lines, "\n"), nil
+	}
+	width := len("in_progress")
+	total := 0
+	for _, c := range counts {
+		total += c.Count
+	}
+	var lines []string
+	lines = append(lines, "active:")
+	for _, c := range counts {
+		lines = append(lines, fmt.Sprintf("  %-*s  %d", width, c.Status, c.Count))
+	}
+	lines = append(lines, fmt.Sprintf("  %-*s  %d", width, "total", total))
+	lines = append(lines, fmt.Sprintf("draft: %d   archive: %d", drafts, archived))
+	return strings.Join(lines, "\n"), nil
 }
 
 func summary(t *models.Task) map[string]any {

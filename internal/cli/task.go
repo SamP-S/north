@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -300,7 +301,7 @@ func newTaskRestoreCmd() *cobra.Command {
 }
 
 func newTaskDeleteCmd() *cobra.Command {
-	var yes, asJSON bool
+	var yes, plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
 		Short: "delete a task",
@@ -314,6 +315,17 @@ func newTaskDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			dependents, err := tasks.Dependents(boardDir, task.ID)
+			if err != nil {
+				return err
+			}
+			depIDs := make([]string, len(dependents))
+			for i, d := range dependents {
+				depIDs[i] = d.ID
+			}
+			if len(depIDs) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s depend on %s\n", strings.Join(depIDs, ", "), task.ID)
+			}
 			if !yes && !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
 				cmd.Println("Aborted.")
 				return errAborted
@@ -322,7 +334,24 @@ func newTaskDeleteCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				cmd.Printf("{\"id\":%q}\n", task.ID)
+				m := task.ToMap()
+				m["warnings"] = depIDs
+				data, err := json.MarshalIndent(m, "", "  ")
+				if err != nil {
+					return err
+				}
+				cmd.Println(string(data))
+				return nil
+			}
+			if plain {
+				out, err := render.TaskDetail(task, true, false)
+				if err != nil {
+					return err
+				}
+				cmd.Println(out)
+				if len(depIDs) > 0 {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning\t%s\n", strings.Join(depIDs, ","))
+				}
 				return nil
 			}
 			cmd.Printf("Deleted %s\n", task.ID)
@@ -330,7 +359,7 @@ func newTaskDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "JSON output")
+	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
 

@@ -183,11 +183,14 @@ func TestEditRenamesFile(t *testing.T) {
 
 func TestDependsOnRoundtrip(t *testing.T) {
 	boardDir := newBoard(t)
-	if _, err := tasks.Create(boardDir, "x", "", nil, []string{"task-9", "task-3"}, ""); err != nil {
+	// Create the tasks that will be referenced as deps first.
+	mustCreate(t, boardDir, "dep-a") // task-1
+	mustCreate(t, boardDir, "dep-b") // task-2
+	if _, err := tasks.Create(boardDir, "x", "", nil, []string{"task-1", "task-2"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	task, _ := tasks.Get(boardDir, "task-1")
-	if len(task.DependsOn) != 2 || task.DependsOn[0] != "task-9" || task.DependsOn[1] != "task-3" {
+	task, _ := tasks.Get(boardDir, "task-3")
+	if len(task.DependsOn) != 2 || task.DependsOn[0] != "task-1" || task.DependsOn[1] != "task-2" {
 		t.Errorf("deps: %v", task.DependsOn)
 	}
 }

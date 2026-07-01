@@ -69,6 +69,31 @@ func TestCLIPromoteMoveBoard(t *testing.T) {
 	}
 }
 
+func TestCLIBoardJSONAndPlain(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	run(t, dir, "task", "promote", "task-1")
+	run(t, dir, "task", "move", "task-1", "in_progress")
+
+	out, err := run(t, dir, "board", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"active"`) || !strings.Contains(out, `"in_progress": 1`) ||
+		!strings.Contains(out, `"drafts"`) || !strings.Contains(out, `"archive"`) {
+		t.Errorf("board --json output: %q", out)
+	}
+
+	out, err = run(t, dir, "board", "--plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "in_progress\t1") || !strings.Contains(out, "drafts\t0") || !strings.Contains(out, "archive\t0") {
+		t.Errorf("board --plain output: %q", out)
+	}
+}
+
 func TestCLIListJSON(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
@@ -92,6 +117,22 @@ func TestCLIDeleteWithYes(t *testing.T) {
 	}
 	if out, _ := run(t, dir, "task", "list", "--state", "all", "--plain"); strings.TrimSpace(out) != "" {
 		t.Errorf("expected empty list, got %q", out)
+	}
+}
+
+func TestCLIDeleteOutputFlags(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	out, err := run(t, dir, "task", "delete", "task-1", "--yes", "--plain")
+	if err != nil || !strings.Contains(out, "id:         task-1") {
+		t.Errorf("delete --plain: %q %v", out, err)
+	}
+
+	run(t, dir, "task", "create", "y")
+	out, err = run(t, dir, "task", "delete", "task-1", "--yes", "--json")
+	if err != nil || !strings.Contains(out, `"id"`) || !strings.Contains(out, "task-1") {
+		t.Errorf("delete --json: %q %v", out, err)
 	}
 }
 
@@ -218,5 +259,53 @@ func TestCLIDeleteConfirmed(t *testing.T) {
 	out, err := runIn(t, dir, "y\n", "task", "delete", "task-1")
 	if err != nil || !strings.Contains(out, "Deleted task-1") {
 		t.Errorf("confirmed delete: %q %v", out, err)
+	}
+}
+
+func TestCLIDeleteWarnsDependents(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "base")
+	run(t, dir, "task", "create", "dep", "--depends-on", "task-1")
+	out, err := run(t, dir, "task", "delete", "task-1", "--yes")
+	if err != nil {
+		t.Fatalf("delete: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "warning") || !strings.Contains(out, "task-2") {
+		t.Errorf("expected warning about task-2 in output: %q", out)
+	}
+	// task-2 should still exist (warn-but-allow)
+	if _, err := run(t, dir, "task", "view", "task-2"); err != nil {
+		t.Errorf("task-2 should still exist after deleting task-1: %v", err)
+	}
+}
+
+func TestCLIDeleteWarnsJSON(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "base")
+	run(t, dir, "task", "create", "dep", "--depends-on", "task-1")
+	out, err := run(t, dir, "task", "delete", "task-1", "--yes", "--json")
+	if err != nil {
+		t.Fatalf("delete --json: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, `"warnings"`) {
+		t.Errorf("expected warnings key in JSON: %q", out)
+	}
+	if !strings.Contains(out, "task-2") {
+		t.Errorf("expected task-2 in warnings: %q", out)
+	}
+	// task-2 should still exist
+	if _, err := run(t, dir, "task", "view", "task-2"); err != nil {
+		t.Errorf("task-2 should still exist after deleting task-1: %v", err)
+	}
+}
+
+func TestCLICreateRejectsInvalidDep(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	_, err := run(t, dir, "task", "create", "x", "--depends-on", "task-99")
+	if err == nil {
+		t.Error("expected error when depends-on references non-existent task")
 	}
 }

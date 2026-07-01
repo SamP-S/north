@@ -60,10 +60,12 @@ func TestLoadAcceptsMinimalValidFile(t *testing.T) {
 
 func TestRoundTripFidelity(t *testing.T) {
 	boardDir := newBoard(t)
+	// Pre-create the dep so validateDeps is satisfied.
+	mustCreate(t, boardDir, "dep") // task-1
 	// Unicode title and a body containing a literal "---" line.
 	title := "Café — déjà vu"
 	body := "first line\n\n---\na horizontal rule inside the body\n---\n\nlast line"
-	created, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"task-9"}, body)
+	created, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"task-1"}, body)
 	if err != nil {
 		t.Fatal(err)
 	}

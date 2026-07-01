@@ -16,6 +16,4 @@ files.
 | [04_skills.md](04_skills.md) | The installable agent skill |
 | [05_configuration.md](05_configuration.md) | `north/config.yml` |
 | [06_testing.md](06_testing.md) | Test strategy |
-
-History: the previous board-service design lives under
-`docs/archive/design/` (v1, v2-board-service).
+| [99_roadmap.md](99_roadmap.md) | Deferred work and known limitations |

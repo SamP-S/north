@@ -277,6 +277,13 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			m.pending = confirmDelete
 			m.pendingID = t.ID
 			m.pendingText = fmt.Sprintf("delete %s? [y/n]", t.ID)
+			if deps, err := tasks.Dependents(m.boardDir, t.ID); err == nil && len(deps) > 0 {
+				ids := make([]string, len(deps))
+				for i, d := range deps {
+					ids[i] = d.ID
+				}
+				m.pendingText = fmt.Sprintf("delete %s?\n%s depend on this. [y/n]", t.ID, strings.Join(ids, ", "))
+			}
 		}
 	}
 	return m, nil
