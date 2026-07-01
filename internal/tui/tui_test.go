@@ -13,12 +13,13 @@ import (
 
 func TestParseEditorResult(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		wantTitle  string
-		wantBody   string
-		wantAgent  string
-		wantLabels []string
+		name          string
+		input         string
+		wantTitle     string
+		wantBody      string
+		wantAgent     string
+		wantLabels    []string
+		wantDependsOn []string
 	}{
 		{
 			name:      "title only",
@@ -54,6 +55,20 @@ func TestParseEditorResult(t *testing.T) {
 			wantLabels: []string{"foo", "bar", "baz"},
 		},
 		{
+			name:          "depends_on field",
+			input:         "# Task\ndepends_on: task-1, task-2\n\nbody",
+			wantTitle:     "Task",
+			wantBody:      "body",
+			wantDependsOn: []string{"task-1", "task-2"},
+		},
+		{
+			name:          "depends_on with spaces and blank entries",
+			input:         "# Task\ndepends_on:  task-1 , , task-3 \n\nbody",
+			wantTitle:     "Task",
+			wantBody:      "body",
+			wantDependsOn: []string{"task-1", "task-3"},
+		},
+		{
 			name:      "no body",
 			input:     "# Title\n",
 			wantTitle: "Title",
@@ -74,7 +89,7 @@ func TestParseEditorResult(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			title, body, agent, labels := ParseEditorResult(tc.input)
+			title, body, agent, labels, dependsOn := ParseEditorResult(tc.input)
 			if title != tc.wantTitle {
 				t.Errorf("title: got %q, want %q", title, tc.wantTitle)
 			}
@@ -90,6 +105,15 @@ func TestParseEditorResult(t *testing.T) {
 				for i, l := range labels {
 					if l != tc.wantLabels[i] {
 						t.Errorf("labels[%d]: got %q, want %q", i, l, tc.wantLabels[i])
+					}
+				}
+			}
+			if len(dependsOn) != len(tc.wantDependsOn) {
+				t.Errorf("depends_on length: got %d, want %d (%v)", len(dependsOn), len(tc.wantDependsOn), dependsOn)
+			} else {
+				for i, d := range dependsOn {
+					if d != tc.wantDependsOn[i] {
+						t.Errorf("depends_on[%d]: got %q, want %q", i, d, tc.wantDependsOn[i])
 					}
 				}
 			}
@@ -114,7 +138,7 @@ func TestCreateTemplate(t *testing.T) {
 	if tmpl == "" {
 		t.Fatal("createTemplate returned empty string")
 	}
-	title, _, _, _ := ParseEditorResult(tmpl)
+	title, _, _, _, _ := ParseEditorResult(tmpl)
 	if title == "" {
 		t.Error("template should parse to a non-empty title placeholder")
 	}
@@ -174,5 +198,82 @@ func TestBoardDeleteWarningModal(t *testing.T) {
 	}
 	if !strings.Contains(pt, t2.ID) {
 		t.Errorf("pendingText %q does not contain %q (dependent)", pt, t2.ID)
+	}
+}
+
+// TestListDeleteWarningModal verifies that the list view's delete confirm
+// carries the same dependents warning as the board view's — the two views
+// must behave identically for the same key.
+func TestListDeleteWarningModal(t *testing.T) {
+	dir, err := board.InitBoard(t.TempDir())
+	if err != nil {
+		t.Fatalf("init board: %v", err)
+	}
+
+	t1, err := tasks.Create(dir, "First task", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("create task-1: %v", err)
+	}
+	t2, err := tasks.Create(dir, "Second task", "", nil, []string{t1.ID}, "")
+	if err != nil {
+		t.Fatalf("create task-2: %v", err)
+	}
+	_ = t2
+
+	m := listModel{
+		boardDir:   dir,
+		filtered:   []*models.Task{t1},
+		activePane: paneList,
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	if updated.confirm != confirmDelete {
+		t.Fatalf("expected confirmDelete, got %v", updated.confirm)
+	}
+	if !strings.Contains(updated.confirmText, t1.ID) {
+		t.Errorf("confirmText %q does not contain %q", updated.confirmText, t1.ID)
+	}
+	if !strings.Contains(updated.confirmText, t2.ID) {
+		t.Errorf("confirmText %q does not contain %q (dependent)", updated.confirmText, t2.ID)
+	}
+}
+
+// TestListMoveOpensStatusPicker verifies that 'm' opens the same status-picker
+// modal in the list view as in the board view.
+func TestListMoveOpensStatusPicker(t *testing.T) {
+	dir, err := board.InitBoard(t.TempDir())
+	if err != nil {
+		t.Fatalf("init board: %v", err)
+	}
+	active, err := tasks.Create(dir, "Active task", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	active, err = tasks.Promote(dir, active.ID)
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	m := listModel{
+		boardDir:   dir,
+		filtered:   []*models.Task{active},
+		activePane: paneList,
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+
+	if updated.modal != modalStatusPicker {
+		t.Fatalf("expected modalStatusPicker, got %v", updated.modal)
+	}
+}
+
+// TestPromoteOrDemoteIgnoresArchived verifies that Promote (the 'p' key) is a
+// no-op on archived tasks — restoring is Archive's ('a') job, so the two keys
+// no longer overlap.
+func TestPromoteOrDemoteIgnoresArchived(t *testing.T) {
+	t1 := &models.Task{ID: "task-1", State: models.StateArchive}
+	if cmd := promoteOrDemote("unused", t1); cmd != nil {
+		t.Error("expected promoteOrDemote to be a no-op for an archived task")
 	}
 }

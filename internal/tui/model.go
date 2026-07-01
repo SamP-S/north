@@ -163,18 +163,18 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) (tea.Cmd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading editor output: %w", err)
 	}
-	title, body, agent, labels := ParseEditorResult(string(raw))
+	title, body, agent, labels, dependsOn := ParseEditorResult(string(raw))
 	if strings.TrimSpace(title) == "" || title == "Task title here" {
 		return nil, fmt.Errorf("aborted: no title provided")
 	}
 
 	switch msg.mode {
 	case modeCreate:
-		if _, err := tasks.Create(m.boardDir, title, agent, labels, nil, body); err != nil {
+		if _, err := tasks.Create(m.boardDir, title, agent, labels, dependsOn, body); err != nil {
 			return nil, err
 		}
 	case modeEdit:
-		if _, err := tasks.Edit(m.boardDir, msg.taskID, &title, &agent, &labels, nil, &body); err != nil {
+		if _, err := tasks.Edit(m.boardDir, msg.taskID, &title, &agent, &labels, &dependsOn, &body); err != nil {
 			return nil, err
 		}
 	}
@@ -216,7 +216,7 @@ func (m Model) helpView() string {
 		{"c", "create task in $EDITOR"},
 		{"e", "edit task in $EDITOR"},
 		{"m", "move status (active tasks only)"},
-		{"p", "promote draft→active / demote active→draft / restore archive→draft"},
+		{"p", "promote draft→active / demote active→draft"},
 		{"a", "archive task / restore if already archived"},
 		{"d", "delete task"},
 		{"/", "search / filter tasks"},

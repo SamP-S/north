@@ -28,7 +28,7 @@ type editorDoneMsg struct {
 
 // createTemplate returns a blank task template for $EDITOR.
 func createTemplate() string {
-	return "# Task title here\nagent: \nlabels: \n\nDescribe the task body here.\n"
+	return "# Task title here\nagent: \nlabels: \ndepends_on: \n\nDescribe the task body here.\n"
 }
 
 // taskToTemplate serialises a task into the editor template format.
@@ -37,6 +37,7 @@ func taskToTemplate(t *models.Task) string {
 	fmt.Fprintf(&sb, "# %s\n", t.Title)
 	fmt.Fprintf(&sb, "agent: %s\n", t.Agent)
 	fmt.Fprintf(&sb, "labels: %s\n", strings.Join(t.Labels, ", "))
+	fmt.Fprintf(&sb, "depends_on: %s\n", strings.Join(t.DependsOn, ", "))
 	sb.WriteString("\n")
 	if t.Body != "" {
 		sb.WriteString(t.Body)
@@ -48,16 +49,17 @@ func taskToTemplate(t *models.Task) string {
 }
 
 // ParseEditorResult parses the editor template and returns title, body, agent,
-// and labels. Exported so tests can call it directly.
+// labels, and depends_on. Exported so tests can call it directly.
 //
 // Format:
 //
 //	# Title line
-//	agent: name          (optional)
-//	labels: foo, bar     (optional)
+//	agent: name             (optional)
+//	labels: foo, bar        (optional)
+//	depends_on: task-1, task-2   (optional)
 //
 //	Body text…
-func ParseEditorResult(content string) (title, body, agent string, labels []string) {
+func ParseEditorResult(content string) (title, body, agent string, labels, dependsOn []string) {
 	lines := strings.Split(content, "\n")
 	inHeader := true
 	var bodyLines []string
@@ -73,12 +75,11 @@ func ParseEditorResult(content string) (title, body, agent string, labels []stri
 				continue
 			}
 			if strings.HasPrefix(line, "labels:") && title != "" {
-				raw := strings.TrimSpace(strings.TrimPrefix(line, "labels:"))
-				for _, l := range strings.Split(raw, ",") {
-					if l = strings.TrimSpace(l); l != "" {
-						labels = append(labels, l)
-					}
-				}
+				labels = splitCommaList(strings.TrimPrefix(line, "labels:"))
+				continue
+			}
+			if strings.HasPrefix(line, "depends_on:") && title != "" {
+				dependsOn = splitCommaList(strings.TrimPrefix(line, "depends_on:"))
 				continue
 			}
 			// blank line after header ends the header block
@@ -98,6 +99,18 @@ func ParseEditorResult(content string) (title, body, agent string, labels []stri
 
 	body = strings.TrimRight(strings.Join(bodyLines, "\n"), "\n")
 	return
+}
+
+// splitCommaList trims a "field: a, b, c" value (with the "field:" prefix
+// already stripped) into its non-empty, whitespace-trimmed elements.
+func splitCommaList(raw string) []string {
+	var out []string
+	for _, v := range strings.Split(strings.TrimSpace(raw), ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // editorFor returns the user's preferred editor ($EDITOR, $VISUAL, or vi).

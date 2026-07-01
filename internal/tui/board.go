@@ -257,11 +257,13 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 	case key.Matches(msg, keys.Move):
 		if t := m.selectedTask(); t != nil && t.State == models.StateActive {
 			m.modal = modalStatusPicker
-			m.modalCursor = m.statusIndex(t.Status)
+			m.modalCursor = statusIndex(t.Status)
 		}
 
 	case key.Matches(msg, keys.Promote):
-		return m.doPromote()
+		if t := m.selectedTask(); t != nil {
+			return m, promoteOrDemote(m.boardDir, t)
+		}
 
 	case key.Matches(msg, keys.Archive):
 		if t := m.selectedTask(); t != nil {
@@ -276,14 +278,7 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			m.modal = modalConfirm
 			m.pending = confirmDelete
 			m.pendingID = t.ID
-			m.pendingText = fmt.Sprintf("delete %s? [y/n]", t.ID)
-			if deps, err := tasks.Dependents(m.boardDir, t.ID); err == nil && len(deps) > 0 {
-				ids := make([]string, len(deps))
-				for i, d := range deps {
-					ids[i] = d.ID
-				}
-				m.pendingText = fmt.Sprintf("delete %s?\n%s depend on this. [y/n]", t.ID, strings.Join(ids, ", "))
-			}
+			m.pendingText = deleteConfirmText(m.boardDir, t)
 		}
 	}
 	return m, nil
@@ -303,42 +298,6 @@ func (m *boardModel) clampCursor() {
 			col.cursor = 0
 		}
 		m.columns[m.colIdx] = col
-	}
-}
-
-// statusIndex returns the index of s in models.Statuses, defaulting to 0.
-func (m boardModel) statusIndex(s models.TaskStatus) int {
-	for i, st := range models.Statuses {
-		if st == s {
-			return i
-		}
-	}
-	return 0
-}
-
-// doPromote promotes a draft task or demotes an active task.
-func (m boardModel) doPromote() (boardModel, tea.Cmd) {
-	t := m.selectedTask()
-	if t == nil {
-		return m, nil
-	}
-	boardDir := m.boardDir
-	taskID := t.ID
-	state := t.State
-	return m, func() tea.Msg {
-		var err error
-		switch state {
-		case models.StateDraft:
-			_, err = tasks.Promote(boardDir, taskID)
-		case models.StateActive:
-			_, err = tasks.Demote(boardDir, taskID)
-		default:
-			return nil
-		}
-		if err != nil {
-			return errMsg{err}
-		}
-		return reloadMsg{}
 	}
 }
 
@@ -465,7 +424,7 @@ func (m boardModel) renderBoard() string {
 
 func (m boardModel) renderFooter() string {
 	info := fmt.Sprintf("  drafts: %d  archive: %d", m.draftCount, m.archiveCount)
-	hints := "↵ view  c create  e edit  m move  p promote/demote/restore  a archive  d delete  tab→list  ? help  q quit"
+	hints := "↵ view  c create  e edit  m move  p promote/demote  a archive  d delete  tab→list  ? help  q quit"
 
 	infoW := lipgloss.Width(info)
 	hintsW := lipgloss.Width(hints)
@@ -519,16 +478,7 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 }
 
 func (m boardModel) renderStatusPicker() string {
-	var sb strings.Builder
-	sb.WriteString(styleHeader.Render("move to status") + "\n\n")
-	for i, s := range models.Statuses {
-		prefix := "  "
-		if i == m.modalCursor {
-			prefix = "> "
-		}
-		sb.WriteString(prefix + statusStyle(string(s)).Render(string(s)) + "\n")
-	}
-	return styleModal.Render(strings.TrimRight(sb.String(), "\n"))
+	return renderStatusPicker(m.modalCursor)
 }
 
 func (m boardModel) renderConfirm() string {

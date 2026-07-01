@@ -39,7 +39,10 @@ type listModel struct {
 	searching   bool
 	searchQuery string
 	confirm     confirmKind // reuses the confirmKind/confirmNone/… declared in board.go
+	confirmText string      // prompt shown for the active confirm (may be multi-line)
 	pendingFn   func() error
+	modal       modalMode // reuses modalMode/modalStatusPicker/modalNone declared in board.go
+	modalCursor int
 	width       int
 	height      int
 }
@@ -126,6 +129,7 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 				fn := m.pendingFn
 				m.confirm = confirmNone
 				m.pendingFn = nil
+				m.confirmText = ""
 				if fn != nil {
 					if err := fn(); err != nil {
 						return m, func() tea.Msg { return errMsg{err} }
@@ -135,7 +139,16 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 			case "n", "esc":
 				m.confirm = confirmNone
 				m.pendingFn = nil
+				m.confirmText = ""
 			}
+		}
+		return m, nil
+	}
+
+	// Status-picker modal (move status), same modal used by the board view.
+	if m.modal == modalStatusPicker {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			return m.updateStatusPicker(km)
 		}
 		return m, nil
 	}
@@ -186,9 +199,15 @@ func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 			return m, openEditor(taskToTemplate(t), modeEdit, t.ID)
 		}
 
+	case key.Matches(km, keys.Move):
+		if t := m.selected(); t != nil && t.State == models.StateActive {
+			m.modal = modalStatusPicker
+			m.modalCursor = statusIndex(t.Status)
+		}
+
 	case key.Matches(km, keys.Promote):
 		if t := m.selected(); t != nil {
-			return m.doPromote(t)
+			return m, promoteOrDemote(m.boardDir, t)
 		}
 
 	case key.Matches(km, keys.Archive):
@@ -203,6 +222,7 @@ func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 			}
 			id := t.ID
 			m.confirm = confirmArchive
+			m.confirmText = fmt.Sprintf("archive %s? [y/n]", id)
 			m.pendingFn = func() error {
 				_, err := tasks.Archive(m.boardDir, id)
 				return err
@@ -213,12 +233,51 @@ func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 		if t := m.selected(); t != nil {
 			id := t.ID
 			m.confirm = confirmDelete
+			m.confirmText = deleteConfirmText(m.boardDir, t)
 			m.pendingFn = func() error {
 				return tasks.Delete(m.boardDir, id)
 			}
 		}
 	}
 
+	return m, nil
+}
+
+// updateStatusPicker handles key events for the "move to status" modal,
+// mirroring boardModel's handler so the picker behaves identically in both
+// views.
+func (m listModel) updateStatusPicker(km tea.KeyMsg) (listModel, tea.Cmd) {
+	switch {
+	case key.Matches(km, keys.Up):
+		if m.modalCursor > 0 {
+			m.modalCursor--
+		}
+
+	case key.Matches(km, keys.Down):
+		if m.modalCursor < len(models.Statuses)-1 {
+			m.modalCursor++
+		}
+
+	case key.Matches(km, keys.Enter):
+		t := m.selected()
+		if t == nil {
+			m.modal = modalNone
+			return m, nil
+		}
+		newStatus := string(models.Statuses[m.modalCursor])
+		boardDir := m.boardDir
+		taskID := t.ID
+		m.modal = modalNone
+		return m, func() tea.Msg {
+			if _, err := tasks.SetStatus(boardDir, taskID, newStatus); err != nil {
+				return errMsg{err}
+			}
+			return reloadMsg{}
+		}
+
+	case key.Matches(km, keys.Esc):
+		m.modal = modalNone
+	}
 	return m, nil
 }
 
@@ -242,28 +301,17 @@ func (m listModel) updateDetailPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 	return m.updateListPane(km)
 }
 
-// doPromote advances or retreats the selected task through the state machine:
-// draft → active (Promote), active → draft (Demote), archive → draft (Restore).
-func (m listModel) doPromote(t *models.Task) (listModel, tea.Cmd) {
-	var err error
-	switch t.State {
-	case models.StateDraft:
-		_, err = tasks.Promote(m.boardDir, t.ID)
-	case models.StateActive:
-		_, err = tasks.Demote(m.boardDir, t.ID)
-	case models.StateArchive:
-		_, err = tasks.Restore(m.boardDir, t.ID)
-	}
-	if err != nil {
-		return m, func() tea.Msg { return errMsg{err} }
-	}
-	return m, func() tea.Msg { return reloadMsg{} }
-}
-
-// View renders the full list view: two side-by-side panes and a footer bar.
+// View renders the full list view: two side-by-side panes and a footer bar,
+// or the status-picker modal centered over them when active.
 func (m listModel) View() string {
 	if m.width == 0 {
 		return ""
+	}
+
+	if m.modal == modalStatusPicker {
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			renderStatusPicker(m.modalCursor))
 	}
 
 	leftW, rightW, paneH := m.paneWidths()
@@ -307,10 +355,10 @@ func (m listModel) renderList(innerW, innerH int) string {
 		visH--
 	}
 
-	// Confirm prompt reserves the last line when pending.
-	if m.confirm != confirmNone {
-		visH--
-	}
+	// Confirm prompt reserves its lines at the bottom when pending (the
+	// dependents warning can push the prompt to two lines).
+	confirmLines := m.confirmLines()
+	visH -= len(confirmLines)
 
 	// Scroll offset: keep the cursor in view.
 	offset := 0
@@ -354,28 +402,24 @@ func (m listModel) renderList(innerW, innerH int) string {
 		count++
 	}
 
-	if m.confirm != confirmNone {
-		lines = append(lines, m.confirmLine())
-	}
+	lines = append(lines, confirmLines...)
 
 	return strings.Join(lines, "\n")
 }
 
-// confirmLine returns the confirmation prompt as a styled one-liner.
-func (m listModel) confirmLine() string {
-	t := m.selected()
-	id := ""
-	if t != nil {
-		id = t.ID
+// confirmLines returns the confirmation prompt as styled lines (one per line
+// of confirmText — the dependents warning can span two lines), or nil when no
+// confirm is pending.
+func (m listModel) confirmLines() []string {
+	if m.confirm == confirmNone {
+		return nil
 	}
-	var prompt string
-	switch m.confirm {
-	case confirmArchive:
-		prompt = fmt.Sprintf("archive %s? [y/n]", id)
-	case confirmDelete:
-		prompt = fmt.Sprintf("delete %s? [y/n]", id)
+	raw := strings.Split(m.confirmText, "\n")
+	out := make([]string, len(raw))
+	for i, l := range raw {
+		out[i] = styleError.Render(l)
 	}
-	return styleError.Render(prompt)
+	return out
 }
 
 // renderDetail produces the detail pane content string for a task.
@@ -425,7 +469,7 @@ func (m listModel) renderFooter() string {
 	case m.confirm != confirmNone:
 		hints = "y confirm  n / esc cancel"
 	default:
-		hints = "j/k navigate  ←/→ panes  c create  e edit  p promote  a archive/restore  d delete  / search  tab→board  ? help  q quit"
+		hints = "j/k navigate  ←/→ panes  c create  e edit  m move  p promote  a archive/restore  d delete  / search  tab→board  ? help  q quit"
 	}
 	return styleFooter.Width(m.width).Render("  " + hints)
 }
