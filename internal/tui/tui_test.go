@@ -277,3 +277,89 @@ func TestPromoteOrDemoteIgnoresArchived(t *testing.T) {
 		t.Error("expected promoteOrDemote to be a no-op for an archived task")
 	}
 }
+
+// isQuit reports whether cmd resolves to tea.QuitMsg.
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
+// TestQuitCancelsOpenBoardModal verifies that pressing 'q' while the board's
+// status-picker modal is open closes the modal instead of quitting the app —
+// q should behave like esc whenever a modal/confirm is active.
+func TestQuitCancelsOpenBoardModal(t *testing.T) {
+	dir, err := board.InitBoard(t.TempDir())
+	if err != nil {
+		t.Fatalf("init board: %v", err)
+	}
+	active, err := tasks.Create(dir, "Active task", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if active, err = tasks.Promote(dir, active.ID); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	m := NewModel(dir)
+	m.width, m.height = 80, 24
+	m.board.columns = []boardColumn{
+		{status: string(models.Ready), tasks: []*models.Task{active}, cursor: 0},
+	}
+	m.board.modal = modalStatusPicker
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	um := updated.(Model)
+
+	if um.board.modal != modalNone {
+		t.Errorf("expected modal closed by q, got %v", um.board.modal)
+	}
+	if isQuit(cmd) {
+		t.Error("q should cancel the open modal, not quit the app")
+	}
+}
+
+// TestQuitCancelsOpenListConfirm verifies the same for the list view's
+// delete/archive confirm.
+func TestQuitCancelsOpenListConfirm(t *testing.T) {
+	dir, err := board.InitBoard(t.TempDir())
+	if err != nil {
+		t.Fatalf("init board: %v", err)
+	}
+	t1, err := tasks.Create(dir, "First task", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m := NewModel(dir)
+	m.width, m.height = 80, 24
+	m.view = viewList
+	m.list.filtered = []*models.Task{t1}
+	m.list.activePane = paneList
+	m.list.confirm = confirmDelete
+	m.list.confirmText = "delete task-1? [y/n]"
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	um := updated.(Model)
+
+	if um.list.confirm != confirmNone {
+		t.Errorf("expected confirm cleared by q, got %v", um.list.confirm)
+	}
+	if isQuit(cmd) {
+		t.Error("q should cancel the pending confirm, not quit the app")
+	}
+}
+
+// TestQuitQuitsWhenNoModalOpen is the control case: q still quits normally
+// when nothing is open.
+func TestQuitQuitsWhenNoModalOpen(t *testing.T) {
+	m := NewModel(t.TempDir())
+	m.width, m.height = 80, 24
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if !isQuit(cmd) {
+		t.Error("expected q to quit when no modal/confirm is open")
+	}
+}

@@ -62,6 +62,13 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
+// modalOpen reports whether either sub-model has an active modal or confirm
+// overlay. While one is open, q and ? are handled by that overlay (cancel,
+// ignore) instead of their global meaning (quit, toggle help).
+func (m Model) modalOpen() bool {
+	return m.board.modal != modalNone || m.list.confirm != confirmNone || m.list.modal != modalNone
+}
+
 // Update handles global events (window resize, tab, quit, help) and delegates
 // all others to the active sub-model. Shared messages (reload, editor, error)
 // are also intercepted here.
@@ -81,7 +88,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			if !m.list.searching {
+			// While a modal/confirm is open, q cancels it (like esc) instead of
+			// quitting — fall through so the active sub-model's modal handler
+			// (which now treats q the same as esc) gets the key.
+			if !m.list.searching && !m.modalOpen() {
 				return m, tea.Quit
 			}
 		case "tab":
@@ -95,7 +105,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "?":
-			if !m.list.searching {
+			if !m.list.searching && !m.modalOpen() {
 				m.showHelp = !m.showHelp
 				return m, nil
 			}
