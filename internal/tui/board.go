@@ -355,17 +355,25 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 		for j := offset; j < len(col.tasks) && j < offset+visH; j++ {
 			t := col.tasks[j]
 			// Truncate by display width so multibyte/wide titles never break.
-			maxTitle := innerW - lipgloss.Width(t.ID) - 2
+			// Width budget: 2-char cursor prefix + id + separating space.
+			maxTitle := innerW - lipgloss.Width(t.ID) - 4
 			if maxTitle < 1 {
 				maxTitle = 1
 			}
 			title := ansi.Truncate(t.Title, maxTitle, "…")
-			line := styleID.Render(t.ID) + " " + title
 
-			if isActive && j == col.cursor {
+			switch {
+			case isActive && j == col.cursor:
+				line := "► " + t.ID + " " + title
 				lines = append(lines, styleCardSelected.Width(innerW).Render(line))
-			} else {
+			case isActive:
+				line := "  " + styleID.Render(t.ID) + " " + title
 				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
+			default:
+				// Cards outside the focused column are dimmed wholesale so
+				// the eye lands on the focused column first.
+				line := "  " + t.ID + " " + title
+				lines = append(lines, styleCardDim.Width(innerW).Render(line))
 			}
 		}
 		if offset > 0 {

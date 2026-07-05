@@ -410,6 +410,9 @@ func TestBoardColumnScrolls(t *testing.T) {
 	if !strings.Contains(out, "↑") {
 		t.Error("scrolled column should show the scrolled-up indicator")
 	}
+	if !strings.Contains(out, "► 30") {
+		t.Error("selected card in the focused column should carry the ► cursor")
+	}
 }
 
 // TestDeleteConfirmAcceptsEnter verifies enter confirms a delete like y.

@@ -28,6 +28,8 @@ var (
 				Bold(true).
 				Foreground(colorActiveBorder)
 	styleCardNormal = lipgloss.NewStyle()
+	// cards in non-focused board columns
+	styleCardDim = lipgloss.NewStyle().Foreground(colorDim)
 
 	// task ID — always dimmed
 	styleID = lipgloss.NewStyle().Foreground(colorDim)
