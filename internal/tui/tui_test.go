@@ -494,8 +494,8 @@ func TestLoadDataSevenColumns(t *testing.T) {
 	if last.state != models.StateArchive || len(last.tasks) != 2 {
 		t.Errorf("last column should be archive with 2 tasks, got %q (%d)", last.title, len(last.tasks))
 	}
-	if last.tasks[0].ID != arch2.ID {
-		t.Errorf("archive should be newest-first, got %s first", last.tasks[0].ID)
+	if last.tasks[0].ID != arch1.ID {
+		t.Errorf("archive should be ascending by id, got %s first", last.tasks[0].ID)
 	}
 	if data.cols[1].status != "ready" || data.cols[1].tasks[0].Title != "an active" {
 		t.Errorf("second column should be ready actives, got %q", data.cols[1].title)

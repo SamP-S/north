@@ -373,6 +373,13 @@ func sortDescByID(ts []*models.Task) {
 	})
 }
 
+// sortAscByID sorts tasks by their numeric id in ascending order.
+func sortAscByID(ts []*models.Task) {
+	sort.Slice(ts, func(i, j int) bool {
+		return taskIDNum(ts[i].ID) < taskIDNum(ts[j].ID)
+	})
+}
+
 func taskIDNum(id string) int {
 	n, _ := strconv.Atoi(id)
 	return n

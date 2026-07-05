@@ -108,9 +108,9 @@ func (m boardModel) View() string {
 
 // ─── data loading ────────────────────────────────────────────────────────────
 
-// loadData builds the seven board columns in one snapshot: drafts
-// (oldest-first, FIFO triage), the status columns for active tasks, and the
-// archive (newest-first, recent past on top).
+// loadData builds the seven board columns in one snapshot. Every column is
+// sorted by ascending numeric id (file order is lexicographic — "10" would
+// sort before "2").
 func loadData(boardDir string) (boardDataMsg, error) {
 	snap, err := tasks.Load(boardDir)
 	if err != nil {
@@ -124,9 +124,6 @@ func loadData(boardDir string) (boardDataMsg, error) {
 		byStatus[s] = append(byStatus[s], t)
 	}
 
-	archive := snap.Filter([]models.TaskState{models.StateArchive}, "")
-	sortDescByID(archive)
-
 	cols := make([]boardColumn, 0, len(models.Statuses)+2)
 	cols = append(cols, boardColumn{
 		title: "draft", state: models.StateDraft,
@@ -138,8 +135,12 @@ func loadData(boardDir string) (boardDataMsg, error) {
 		})
 	}
 	cols = append(cols, boardColumn{
-		title: "archive", state: models.StateArchive, tasks: archive,
+		title: "archive", state: models.StateArchive,
+		tasks: snap.Filter([]models.TaskState{models.StateArchive}, ""),
 	})
+	for i := range cols {
+		sortAscByID(cols[i].tasks)
+	}
 
 	return boardDataMsg{cols: cols, warnings: len(snap.Warnings)}, nil
 }
