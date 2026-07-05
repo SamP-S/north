@@ -543,3 +543,41 @@ func TestTaskPopupEditKey(t *testing.T) {
 		t.Fatal("e should produce the editor command")
 	}
 }
+
+// TestCardTags verifies the @/!/& card tag computation.
+func TestCardTags(t *testing.T) {
+	dir := newTestBoard(t)
+	if _, err := tasks.Create(dir, "base", "opus", nil, nil, ""); err != nil { // 1: @, & (2 and 3 depend on it)
+		t.Fatal(err)
+	}
+	if _, err := tasks.Create(dir, "waiting", "", nil, []string{"1"}, ""); err != nil { // 2: ! (1 not done)
+		t.Fatal(err)
+	}
+	if _, err := tasks.Create(dir, "met", "", nil, []string{"1"}, ""); err != nil { // 3: ! until 1 done
+		t.Fatal(err)
+	}
+	snap, err := tasks.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := cardTags(snap)
+	if tags["1"] != "@&" {
+		t.Errorf("task 1 tags = %q, want \"@&\"", tags["1"])
+	}
+	if tags["2"] != "!" || tags["3"] != "!" {
+		t.Errorf("dependents tags = %q/%q, want \"!\"", tags["2"], tags["3"])
+	}
+
+	// Once the dependency is done, ! clears.
+	if _, err := tasks.SetStatus(dir, "1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = tasks.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags = cardTags(snap)
+	if tags["2"] != "" || tags["3"] != "" {
+		t.Errorf("met-dependency tags should be empty, got %q/%q", tags["2"], tags["3"])
+	}
+}

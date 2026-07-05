@@ -24,6 +24,7 @@ import (
 // boardDataMsg carries freshly loaded board data back into the model.
 type boardDataMsg struct {
 	cols     []boardColumn
+	tags     map[string]string // task id → card tag cluster ("@!&")
 	warnings int
 }
 
@@ -44,6 +45,7 @@ type boardModel struct {
 	boardDir string
 	all      []boardColumn // unfiltered, as loaded
 	columns  []boardColumn // filter applied
+	tags     map[string]string
 	filter   string
 	colIdx   int
 	warnings int
@@ -142,13 +144,54 @@ func loadData(boardDir string) (boardDataMsg, error) {
 		sortAscByID(cols[i].tasks)
 	}
 
-	return boardDataMsg{cols: cols, warnings: len(snap.Warnings)}, nil
+	return boardDataMsg{cols: cols, tags: cardTags(snap), warnings: len(snap.Warnings)}, nil
+}
+
+// cardTags computes each task's card tag cluster:
+//
+//	@  an agent is assigned
+//	!  waiting — some depends_on target is missing or not done
+//	&  other tasks depend on this one
+func cardTags(snap *tasks.Snapshot) map[string]string {
+	all := snap.Filter(nil, "")
+	byID := make(map[string]*models.Task, len(all))
+	hasDependents := make(map[string]bool)
+	for _, t := range all {
+		byID[t.ID] = t
+	}
+	for _, t := range all {
+		for _, d := range t.DependsOn {
+			hasDependents[d] = true
+		}
+	}
+
+	tags := make(map[string]string, len(all))
+	for _, t := range all {
+		var b strings.Builder
+		if t.Agent != "" {
+			b.WriteByte('@')
+		}
+		for _, d := range t.DependsOn {
+			if dt, ok := byID[d]; !ok || dt.Status != models.Done {
+				b.WriteByte('!')
+				break
+			}
+		}
+		if hasDependents[t.ID] {
+			b.WriteByte('&')
+		}
+		if b.Len() > 0 {
+			tags[t.ID] = b.String()
+		}
+	}
+	return tags
 }
 
 // applyData stores fresh board data and rebuilds the filtered columns while
 // preserving column/cursor positions.
 func (m boardModel) applyData(msg boardDataMsg) boardModel {
 	m.all = msg.cols
+	m.tags = msg.tags
 	m.warnings = msg.warnings
 	m.rebuild()
 	return m
@@ -359,9 +402,18 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 				dotW = 2
 			}
 
+			// Dimmed tag cluster (@ agent, ! waiting, & has dependents).
+			tagSeg := ""
+			tagW := 0
+			if tags := m.tags[t.ID]; tags != "" {
+				tagSeg = styleID.Bold(selected).Render(tags) + " "
+				tagW = len(tags) + 1
+			}
+
 			// Truncate by display width so multibyte/wide titles never
-			// break. Width budget: 2-char cursor prefix + dot + id + space.
-			maxTitle := innerW - lipgloss.Width(t.ID) - 4 - dotW
+			// break. Width budget: 2-char cursor prefix + dot + id + space
+			// + tags.
+			maxTitle := innerW - lipgloss.Width(t.ID) - 4 - dotW - tagW
 			if maxTitle < 1 {
 				maxTitle = 1
 			}
@@ -372,10 +424,10 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 				// Each segment is bolded on its own: a styled segment ends
 				// with an ANSI reset that would cancel one outer bold.
 				line = styleCardSelected.Render("► ") + dot +
-					styleID.Bold(true).Render(t.ID) +
-					styleCardSelected.Render(" "+title)
+					styleID.Bold(true).Render(t.ID) + " " + tagSeg +
+					styleCardSelected.Render(title)
 			} else {
-				line = "  " + dot + styleID.Render(t.ID) + " " + title
+				line = "  " + dot + styleID.Render(t.ID) + " " + tagSeg + title
 			}
 			lines = append(lines, styleCardNormal.Width(innerW).Render(line))
 		}
