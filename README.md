@@ -1,5 +1,8 @@
 # North
 
+[![CI](https://github.com/SamP-S/north/actions/workflows/ci.yml/badge.svg)](https://github.com/SamP-S/north/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
+
 North is an **in-repo Markdown task board** with a CLI, modeled on
 [Backlog.md](https://github.com/MrLesk/Backlog.md). The board lives in a `north/`
 directory committed inside your own project repo — each task is a plain Markdown

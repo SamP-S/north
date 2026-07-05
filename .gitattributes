@@ -1,0 +1,3 @@
+# Force LF on checkout everywhere (incl. Windows, where git defaults to CRLF).
+# The embedded skill and task-file fixtures must round-trip byte-identical.
+* text=auto eol=lf
