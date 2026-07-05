@@ -580,4 +580,20 @@ func TestCardTags(t *testing.T) {
 	if tags["2"] != "" || tags["3"] != "" {
 		t.Errorf("met-dependency tags should be empty, got %q/%q", tags["2"], tags["3"])
 	}
+
+	// An archived dependency also counts as resolved, whatever its status.
+	if _, err := tasks.SetStatus(dir, "1", "failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tasks.SetState(dir, "1", "archive"); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = tasks.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags = cardTags(snap)
+	if tags["2"] != "" || tags["3"] != "" {
+		t.Errorf("archived-dependency tags should be empty, got %q/%q", tags["2"], tags["3"])
+	}
 }

@@ -453,8 +453,21 @@ func (m Model) helpView() string {
 		{"q / ctrl+c", "quit"},
 	}
 
+	tags := [][2]string{
+		{"●", "status colour (draft/archive columns)"},
+		{"@", "agent assigned"},
+		{"!", "waiting — unmet dependency (resolves when done or archived)"},
+		{"&", "other tasks depend on it"},
+	}
+
 	var sb strings.Builder
 	for _, row := range rows {
+		sb.WriteString(styleHelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
+		sb.WriteString(styleHelpDesc.Render(row[1]))
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n" + styleHeader.Render("Card tags") + "\n\n")
+	for _, row := range tags {
 		sb.WriteString(styleHelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
 		sb.WriteString(styleHelpDesc.Render(row[1]))
 		sb.WriteString("\n")

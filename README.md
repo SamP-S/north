@@ -120,7 +120,7 @@ is honoured in the TUI.
 
 `north tui` opens a full-screen interactive terminal UI:
 
-- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right; every column sorts by ascending id. Cards in the two state columns carry a status-colored dot, and all cards show dim tags: `@` agent assigned, `!` waiting on an unmet dependency, `&` other tasks depend on it.
+- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right; every column sorts by ascending id. Cards in the two state columns carry a status-colored dot, and all cards show dim tags: `@` agent assigned, `!` waiting on an unmet dependency (resolves when the dependency is done or archived), `&` other tasks depend on it.
 - **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail (id, deps with their status, rendered Markdown body).
 - **Tab** switches between the two views; **Enter** on a board card opens the task in a scrollable popup (`e` edits from there, esc closes).
 - **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.

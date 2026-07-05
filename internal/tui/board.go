@@ -150,7 +150,8 @@ func loadData(boardDir string) (boardDataMsg, error) {
 // cardTags computes each task's card tag cluster:
 //
 //	@  an agent is assigned
-//	!  waiting — some depends_on target is missing or not done
+//	!  waiting — some depends_on target is missing or unresolved
+//	   (a dependency resolves when it is done or archived)
 //	&  other tasks depend on this one
 func cardTags(snap *tasks.Snapshot) map[string]string {
 	all := snap.Filter(nil, "")
@@ -172,7 +173,8 @@ func cardTags(snap *tasks.Snapshot) map[string]string {
 			b.WriteByte('@')
 		}
 		for _, d := range t.DependsOn {
-			if dt, ok := byID[d]; !ok || dt.Status != models.Done {
+			dt, ok := byID[d]
+			if !ok || (dt.Status != models.Done && dt.State != models.StateArchive) {
 				b.WriteByte('!')
 				break
 			}
