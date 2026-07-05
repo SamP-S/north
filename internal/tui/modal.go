@@ -6,6 +6,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -27,10 +28,11 @@ const (
 
 // modal is the root model's modal state.
 type modal struct {
-	mode    modalMode
-	cursor  int    // picker cursor
-	taskID  string // task the modal acts on
-	confirm string // prompt text for the delete confirm
+	mode      modalMode
+	cursor    int    // picker cursor
+	taskID    string // task the modal acts on
+	taskState models.TaskState
+	confirm   string // prompt text for the delete confirm
 }
 
 func (m modal) open() bool { return m.mode != modalNone }
@@ -73,6 +75,15 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 			choice := items[m.cursor]
 			taskID := m.taskID
 			mode := m.mode
+			ok := notice{noticeSuccess, fmt.Sprintf("%s state → %s", taskID, choice)}
+			if mode == modalStatusPicker {
+				ok = notice{noticeSuccess, fmt.Sprintf("%s → %s", taskID, choice)}
+				if m.taskState != models.StateActive {
+					ok = notice{noticeWarn, fmt.Sprintf(
+						"%s → %s (%s — shows on the board once active)",
+						taskID, choice, m.taskState)}
+				}
+			}
 			m.mode = modalNone
 			return m, runTaskOp(func() error {
 				var err error
@@ -82,7 +93,7 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 					_, err = tasks.SetState(boardDir, taskID, choice)
 				}
 				return err
-			})
+			}, ok)
 		case key.Matches(km, keys.Esc):
 			m.mode = modalNone
 		}
@@ -90,10 +101,12 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 
 	case modalConfirmDelete:
 		switch strings.ToLower(km.String()) {
-		case "y":
+		case "y", "enter":
 			taskID := m.taskID
 			m.mode = modalNone
-			return m, runTaskOp(func() error { return tasks.Delete(boardDir, taskID) })
+			return m, runTaskOp(
+				func() error { return tasks.Delete(boardDir, taskID) },
+				notice{noticeSuccess, "deleted " + taskID})
 		case "n", "esc":
 			m.mode = modalNone
 		}

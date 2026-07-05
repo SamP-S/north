@@ -96,12 +96,23 @@ func TestEmptyTitleRejected(t *testing.T) {
 	}
 }
 
-func TestStatusChangeRequiresActive(t *testing.T) {
+func TestStatusChangeAnyState(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "x") // draft
-	_, err := tasks.SetStatus(boardDir, "1", "in_progress")
-	if !isBoardErr(err, "conflict") {
-		t.Fatalf("expected conflict on draft status change, got %v", err)
+	task, err := tasks.SetStatus(boardDir, "1", "in_progress")
+	if err != nil {
+		t.Fatalf("status change on draft: %v", err)
+	}
+	if task.Status != models.InProgress || task.State != models.StateDraft {
+		t.Errorf("got status=%s state=%s", task.Status, task.State)
+	}
+	// The status survives activation.
+	task, err = tasks.SetState(boardDir, "1", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != models.InProgress {
+		t.Errorf("status lost on activation: %s", task.Status)
 	}
 }
 

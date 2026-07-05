@@ -110,6 +110,8 @@ roughly most→least aligned with North's positioning.
 - Docs & decisions (ADRs) as additional object types (Backlog.md `doc`/`decision`). ⚠ "one object" principle.
 
 ### F. TUI growth
+The TUI is **keyboard-only by design** — mouse support is a non-goal, not a
+candidate.
 - Filter popups (status/label/priority), yank task id to clipboard (`y`),
   multi-select, per-column WIP display, themes/config (`tui:` block in
   config.yml), hide-empty-columns, vhs-based demo recordings, snapshot tests.

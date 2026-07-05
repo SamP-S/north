@@ -306,7 +306,7 @@ func newTaskMoveCmd() *cobra.Command {
 	var plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "move <id> <status>",
-		Short: "set an active task's status (any status → any status)",
+		Short: "set a task's status (any status → any status, any state)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
@@ -316,6 +316,11 @@ func newTaskMoveCmd() *cobra.Command {
 			task, err := tasks.SetStatus(boardDir, args[0], args[1])
 			if err != nil {
 				return err
+			}
+			if task.State != models.StateActive {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"note: %s is %s; status shows on the board once active\n",
+					task.ID, task.State)
 			}
 			if plain || asJSON {
 				out, err := render.TaskDetail(task, plain, asJSON)

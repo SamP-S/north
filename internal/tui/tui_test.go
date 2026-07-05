@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -141,9 +142,10 @@ func TestStatusPickerOpensInBothViews(t *testing.T) {
 	}
 }
 
-// TestStatusPickerRejectedForDraft verifies 'm' does nothing for a non-active
-// task (status is active-only).
-func TestStatusPickerRejectedForDraft(t *testing.T) {
+// TestStatusPickerOnDraftWarns verifies 'm' works for a non-active task
+// (status is freeform in any state) and that applying it yields a warning
+// notice rather than a plain success.
+func TestStatusPickerOnDraftWarns(t *testing.T) {
 	dir := newTestBoard(t)
 	draft, err := tasks.Create(dir, "Draft task", "", nil, nil, "")
 	if err != nil {
@@ -151,8 +153,33 @@ func TestStatusPickerRejectedForDraft(t *testing.T) {
 	}
 	m := rootWithTask(t, dir, draft)
 	updated, _ := m.Update(keyRune('m'))
-	if updated.(Model).modal.mode != modalNone {
-		t.Error("m should be a no-op for a draft task")
+	um := updated.(Model)
+	if um.modal.mode != modalStatusPicker {
+		t.Fatalf("m should open the status picker for a draft, got %v", um.modal.mode)
+	}
+
+	// Pick a different status and confirm.
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyDown})
+	um = updated.(Model)
+	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if cmd == nil {
+		t.Fatal("enter should produce a command")
+	}
+	msg, ok := cmd().(actionDoneMsg)
+	if !ok {
+		t.Fatalf("expected actionDoneMsg, got %v", msg)
+	}
+	if msg.notice.level != noticeWarn {
+		t.Errorf("status change on a draft should warn, got level %v (%q)",
+			msg.notice.level, msg.notice.text)
+	}
+	task, err := tasks.Get(dir, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status == models.Ready || task.State != models.StateDraft {
+		t.Errorf("expected changed status on an unchanged draft, got %s/%s", task.Status, task.State)
 	}
 }
 
@@ -183,8 +210,9 @@ func TestStatePickerOpensAndApplies(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter should produce a command")
 	}
-	if msg := cmd(); msg != (reloadMsg{}) {
-		t.Fatalf("state change failed: %v", msg)
+	msg, ok := cmd().(actionDoneMsg)
+	if !ok || msg.notice.level != noticeSuccess {
+		t.Fatalf("state change should succeed with a notice, got %v", msg)
 	}
 	task, err := tasks.Get(dir, active.ID)
 	if err != nil {
@@ -299,24 +327,136 @@ func TestTruncateMultibyte(t *testing.T) {
 }
 
 // TestSelectByIDClearsFilter verifies Enter-from-board still selects a task
-// that the active list filter would hide.
+// that the active filter would hide (the root clears the filter and retries).
 func TestSelectByIDClearsFilter(t *testing.T) {
-	dir := newTestBoard(t)
-	m := newListModel(dir)
-	m.setSize(80, 24)
-	m.allTasks = []*models.Task{
+	m := NewModel(t.TempDir())
+	m.width, m.height = 80, 24
+	m.list.allTasks = []*models.Task{
 		{ID: "1", Title: "alpha", Status: models.Ready, State: models.StateActive},
 		{ID: "2", Title: "beta", Status: models.Ready, State: models.StateActive},
 	}
-	m.searchQuery = "alpha"
 	m.searchInput.SetValue("alpha")
-	m.filtered = m.applyFilter()
+	m.setQuery("alpha")
 
-	m.selectByID("2") // hidden by the filter
-	if sel := m.selected(); sel == nil || sel.ID != "2" {
-		t.Errorf("selectByID should clear the filter and select 2, got %v", sel)
+	updated, _ := m.Update(selectTaskMsg{taskID: "2"}) // hidden by the filter
+	um := updated.(Model)
+	if sel := um.list.selected(); sel == nil || sel.ID != "2" {
+		t.Errorf("selectTaskMsg should clear the filter and select 2, got %v", sel)
 	}
-	if m.searchQuery != "" {
+	if um.query != "" {
 		t.Error("filter should be cleared")
+	}
+}
+
+// TestGlobalFilterOnBoard verifies typing a query with '/' filters the board
+// columns in place and esc clears it.
+func TestGlobalFilterOnBoard(t *testing.T) {
+	m := NewModel(t.TempDir())
+	m.width, m.height = 80, 24
+	m.board.all = []boardColumn{{
+		status: "ready",
+		tasks: []*models.Task{
+			{ID: "1", Title: "alpha", Status: models.Ready, State: models.StateActive},
+			{ID: "2", Title: "beta", Status: models.Ready, State: models.StateActive},
+		},
+	}}
+	m.board.rebuild()
+
+	updated, _ := m.Update(keyRune('/'))
+	um := updated.(Model)
+	if !um.searching {
+		t.Fatal("/ should enter search mode")
+	}
+	for _, r := range "beta" {
+		updated, _ = um.Update(keyRune(r))
+		um = updated.(Model)
+	}
+	if got := um.board.columns[0].tasks; len(got) != 1 || got[0].ID != "2" {
+		t.Fatalf("filter should narrow the column to task 2, got %v", got)
+	}
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.searching {
+		t.Error("enter should leave search mode (filter kept)")
+	}
+	if um.query != "beta" {
+		t.Errorf("query should persist after enter, got %q", um.query)
+	}
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um = updated.(Model)
+	if um.query != "" || len(um.board.columns[0].tasks) != 2 {
+		t.Error("esc should clear the filter and restore the board")
+	}
+}
+
+// TestBoardColumnScrolls verifies the selected card is always within the
+// rendered window when a column holds more tasks than fit.
+func TestBoardColumnScrolls(t *testing.T) {
+	dir := newTestBoard(t)
+	m := newBoardModel(dir)
+	m.setSize(40, 12)
+	var ts []*models.Task
+	for i := 1; i <= 30; i++ {
+		ts = append(ts, &models.Task{
+			ID: strconv.Itoa(i), Title: "task-" + strconv.Itoa(i),
+			Status: models.Ready, State: models.StateActive,
+		})
+	}
+	m.columns = []boardColumn{{status: "ready", tasks: ts, cursor: 29}}
+	out := m.renderColumn(0, m.columns[0], 30, 8)
+	if !strings.Contains(out, "task-30") {
+		t.Error("cursor at the bottom must be visible in the rendered column")
+	}
+	if !strings.Contains(out, "↑") {
+		t.Error("scrolled column should show the scrolled-up indicator")
+	}
+}
+
+// TestDeleteConfirmAcceptsEnter verifies enter confirms a delete like y.
+func TestDeleteConfirmAcceptsEnter(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Doomed task")
+	m := rootWithTask(t, dir, active)
+
+	updated, _ := m.Update(keyRune('d'))
+	um := updated.(Model)
+	if um.modal.mode != modalConfirmDelete {
+		t.Fatalf("expected delete confirm, got %v", um.modal.mode)
+	}
+	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.modal.mode != modalNone {
+		t.Fatal("enter should close the confirm")
+	}
+	if cmd == nil {
+		t.Fatal("enter should produce the delete command")
+	}
+	if msg, ok := cmd().(actionDoneMsg); !ok || msg.notice.level != noticeSuccess {
+		t.Fatalf("delete should succeed, got %v", msg)
+	}
+	if _, err := tasks.Get(dir, active.ID); err == nil {
+		t.Error("task should be gone after enter-confirmed delete")
+	}
+}
+
+// TestTopBottomKeys verifies g/G jump the list cursor.
+func TestTopBottomKeys(t *testing.T) {
+	dir := newTestBoard(t)
+	m := newListModel(dir)
+	m.setSize(80, 24)
+	for i := 1; i <= 5; i++ {
+		m.allTasks = append(m.allTasks, &models.Task{
+			ID: strconv.Itoa(i), Title: "t", Status: models.Ready, State: models.StateActive,
+		})
+	}
+	m.refilter()
+
+	m, _ = m.updateListPane(keyRune('G'))
+	if m.cursor != 4 {
+		t.Errorf("G should jump to bottom, cursor=%d", m.cursor)
+	}
+	m, _ = m.updateListPane(keyRune('g'))
+	if m.cursor != 0 {
+		t.Errorf("g should jump to top, cursor=%d", m.cursor)
 	}
 }

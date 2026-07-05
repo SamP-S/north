@@ -1,7 +1,7 @@
 // list.go — list+detail sub-model for the North TUI.
 //
-// The list holds navigation and search state only; action keys (c/e/m/s/d)
-// and every modal live in the root Model so both views behave identically.
+// The list holds navigation state only; action keys (c/e/m/s/d), search, and
+// every modal live in the root Model so both views behave identically.
 package tui
 
 import (
@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -34,18 +33,16 @@ const (
 // listModel is the list+detail sub-model for the list view.
 // It does not implement tea.Model directly; the root Model wraps it.
 type listModel struct {
-	boardDir    string
-	allTasks    []*models.Task
-	filtered    []*models.Task
-	warnings    int
-	cursor      int
-	activePane  paneMode
-	vp          viewport.Model
-	searchInput textinput.Model
-	searching   bool
-	searchQuery string
-	width       int
-	height      int
+	boardDir   string
+	allTasks   []*models.Task
+	filtered   []*models.Task
+	filter     string
+	warnings   int
+	cursor     int
+	activePane paneMode
+	vp         viewport.Model
+	width      int
+	height     int
 
 	// Markdown rendering: the glamour style is detected once (querying the
 	// terminal is only safe before Bubble Tea owns it) and the renderer is
@@ -57,17 +54,10 @@ type listModel struct {
 
 // newListModel constructs a zeroed listModel for the given board directory.
 func newListModel(boardDir string) listModel {
-	ti := textinput.New()
-	ti.Placeholder = "search…"
-	ti.CharLimit = 120
-
-	vp := viewport.New(0, 0)
-
 	return listModel{
-		boardDir:    boardDir,
-		searchInput: ti,
-		vp:          vp,
-		mdStyle:     detectMarkdownStyle(),
+		boardDir: boardDir,
+		vp:       viewport.New(0, 0),
+		mdStyle:  detectMarkdownStyle(),
 	}
 }
 
@@ -102,10 +92,22 @@ func (m listModel) reload() (listModel, tea.Cmd) {
 	sortDescByID(ts)
 	m.allTasks = ts
 	m.warnings = len(snap.Warnings)
+	m.refilter()
+	return m, nil
+}
+
+// setFilter applies a search query to the list.
+func (m *listModel) setFilter(q string) {
+	m.filter = q
+	m.refilter()
+}
+
+// refilter recomputes the visible rows, clamps the cursor, and refreshes the
+// detail viewport.
+func (m *listModel) refilter() {
 	m.filtered = m.applyFilter()
 	m.cursor = min(m.cursor, max(0, len(m.filtered)-1))
 	m.syncViewport()
-	return m, nil
 }
 
 // setSize propagates terminal dimensions to the sub-model and resizes the
@@ -114,8 +116,7 @@ func (m *listModel) setSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	leftW, rightW, paneH := m.paneWidths()
-	m.searchInput.Width = leftW - 2
+	_, rightW, paneH := m.paneWidths()
 	m.vp.Width = rightW - 2
 	m.vp.Height = paneH - 2
 
@@ -124,44 +125,15 @@ func (m *listModel) setSize(width, height int) {
 
 // Update handles messages when the list view is active.
 func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
-	// Search mode: route input to the text field.
-	if m.searching {
-		if km, ok := msg.(tea.KeyMsg); ok {
-			switch km.String() {
-			case "esc", "enter":
-				m.searching = false
-				m.searchInput.Blur()
-				return m, nil
-			}
-		}
-		var cmd tea.Cmd
-		m.searchInput, cmd = m.searchInput.Update(msg)
-		m.searchQuery = m.searchInput.Value()
-		m.filtered = m.applyFilter()
-		m.cursor = min(m.cursor, max(0, len(m.filtered)-1))
-		m.syncViewport()
-		return m, cmd
-	}
-
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
 
-	switch {
-	case key.Matches(km, keys.Search):
-		m.searching = true
-		m.searchInput.Focus()
-		return m, textinput.Blink
-
-	case m.activePane == paneList:
-		return m.updateListPane(km)
-
-	case m.activePane == paneDetail:
+	if m.activePane == paneDetail {
 		return m.updateDetailPane(km)
 	}
-
-	return m, nil
+	return m.updateListPane(km)
 }
 
 // updateListPane handles navigation when the list pane is focused.
@@ -177,6 +149,16 @@ func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 		m.cursor = max(m.cursor-1, 0)
 		m.syncViewport()
 
+	case key.Matches(km, keys.Top):
+		m.cursor = 0
+		m.syncViewport()
+
+	case key.Matches(km, keys.Bottom):
+		if len(m.filtered) > 0 {
+			m.cursor = len(m.filtered) - 1
+			m.syncViewport()
+		}
+
 	case key.Matches(km, keys.Right), key.Matches(km, keys.Enter):
 		m.activePane = paneDetail
 	}
@@ -191,13 +173,17 @@ func (m listModel) updateDetailPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 		m.vp.LineDown(1)
 	case key.Matches(km, keys.Up):
 		m.vp.LineUp(1)
+	case key.Matches(km, keys.Top):
+		m.vp.GotoTop()
+	case key.Matches(km, keys.Bottom):
+		m.vp.GotoBottom()
 	case key.Matches(km, keys.Left), key.Matches(km, keys.Esc):
 		m.activePane = paneList
 	}
 	return m, nil
 }
 
-// View renders the full list view: two side-by-side panes and a footer bar.
+// View renders the two side-by-side panes (the root owns status bar + footer).
 func (m listModel) View() string {
 	if m.width == 0 {
 		return ""
@@ -228,8 +214,7 @@ func (m listModel) View() string {
 		Height(innerH).
 		Render(m.vp.View())
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
-	return lipgloss.JoinVertical(lipgloss.Left, body, m.renderFooter())
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
 }
 
 // renderList builds the string content for the left pane.
@@ -237,12 +222,6 @@ func (m listModel) renderList(innerW, innerH int) string {
 	var lines []string
 
 	visH := innerH
-
-	// Search bar occupies the first line when active.
-	if m.searching {
-		lines = append(lines, m.searchInput.View())
-		visH--
-	}
 
 	// Scroll offset: keep the cursor in view.
 	offset := 0
@@ -275,6 +254,15 @@ func (m listModel) renderList(innerW, innerH int) string {
 		row := meta + title
 
 		lines = append(lines, rowStyle.Render(row))
+		count++
+	}
+
+	if len(m.filtered) == 0 {
+		hint := "no tasks — press c to create"
+		if m.filter != "" {
+			hint = "no tasks match the filter — esc clears it"
+		}
+		lines = append(lines, styleID.Render(hint))
 		count++
 	}
 
@@ -347,14 +335,9 @@ func (m listModel) renderDeps(t *models.Task) string {
 	return strings.Join(parts, ", ")
 }
 
-// renderFooter renders the one-line key-hint bar at the bottom of the view.
+// renderFooter renders the one-line key-hint bar (composed by the root).
 func (m listModel) renderFooter() string {
-	var hints string
-	if m.searching {
-		hints = "type to filter  ↵ confirm  esc cancel"
-	} else {
-		hints = "j/k navigate  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / search  tab→board  ? help  q quit"
-	}
+	hints := "j/k navigate  g/G top/bottom  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / filter  tab→board  ? help  q quit"
 	if m.warnings > 0 {
 		hints = fmt.Sprintf("⚠ %d file warning(s)  ", m.warnings) + hints
 	}
@@ -362,21 +345,27 @@ func (m listModel) renderFooter() string {
 }
 
 // applyFilter returns the subset of allTasks whose id, title, or labels
-// contain the current search query (case-insensitive substring match).
+// contain the current filter (case-insensitive substring match).
 func (m listModel) applyFilter() []*models.Task {
-	if m.searchQuery == "" {
+	if m.filter == "" {
 		return m.allTasks
 	}
-	q := strings.ToLower(m.searchQuery)
 	out := make([]*models.Task, 0, len(m.allTasks))
 	for _, t := range m.allTasks {
-		if strings.Contains(strings.ToLower(t.Title), q) ||
-			strings.Contains(strings.ToLower(t.ID), q) ||
-			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
+		if matchesFilter(t, m.filter) {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// matchesFilter reports whether a task's id, title, or labels contain the
+// query (case-insensitive substring match). Shared by the board and list.
+func matchesFilter(t *models.Task, query string) bool {
+	q := strings.ToLower(query)
+	return strings.Contains(strings.ToLower(t.Title), q) ||
+		strings.Contains(strings.ToLower(t.ID), q) ||
+		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q)
 }
 
 // sortDescByID sorts tasks by their numeric id in descending order (newest
@@ -393,30 +382,18 @@ func taskIDNum(id string) int {
 }
 
 // selectByID moves the cursor to the task with the given ID and focuses the
-// detail pane. When the task is hidden by an active filter, the filter is
-// cleared first so the selection can never silently fail.
-func (m *listModel) selectByID(id string) {
-	find := func() int {
-		for i, t := range m.filtered {
-			if t.ID == id {
-				return i
-			}
+// detail pane. Returns false when the task is not in the visible rows (e.g.
+// hidden by the active filter) — the root clears the filter and retries.
+func (m *listModel) selectByID(id string) bool {
+	for i, t := range m.filtered {
+		if t.ID == id {
+			m.cursor = i
+			m.activePane = paneDetail
+			m.syncViewport()
+			return true
 		}
-		return -1
 	}
-	i := find()
-	if i < 0 && m.searchQuery != "" {
-		m.searchQuery = ""
-		m.searchInput.SetValue("")
-		m.filtered = m.applyFilter()
-		i = find()
-	}
-	if i < 0 {
-		return
-	}
-	m.cursor = i
-	m.activePane = paneDetail
-	m.syncViewport()
+	return false
 }
 
 // selected returns the currently highlighted task, or nil when the list is
@@ -473,11 +450,10 @@ func (m listModel) renderMarkdown(body string) string {
 
 // paneWidths returns the outer dimensions (borders included) of each pane and
 // the shared pane height. Left pane is ~35 % of terminal width; right pane
-// takes the remainder minus a one-character gap. The footer row is excluded
-// from the pane height.
+// takes the remainder minus a one-character gap.
 func (m listModel) paneWidths() (leftW, rightW, paneH int) {
 	leftW = int(float64(m.width) * 0.35)
 	rightW = m.width - leftW - 1
-	paneH = m.height - 1
+	paneH = m.height
 	return
 }

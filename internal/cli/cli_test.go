@@ -88,9 +88,13 @@ func TestCLIStateMoveBoard(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
 	run(t, dir, "task", "create", "x")
-	// Status change on a draft is rejected.
-	if _, err := run(t, dir, "task", "move", "1", "in_progress"); err == nil {
-		t.Error("expected move on draft to fail")
+	// Status change on a draft is allowed (freeform on both axes) — it just
+	// isn't visible on the board until the task is active.
+	if out, err := run(t, dir, "task", "move", "1", "in_progress"); err != nil || !strings.Contains(out, "1 → in_progress") {
+		t.Errorf("move on draft: %q %v", out, err)
+	}
+	if _, err := run(t, dir, "task", "move", "1", "ready"); err != nil {
+		t.Errorf("move draft back to ready: %v", err)
 	}
 	if out, err := run(t, dir, "task", "state", "1", "active"); err != nil || !strings.Contains(out, "1 state → active") {
 		t.Errorf("state: %q %v", out, err)

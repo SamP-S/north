@@ -310,8 +310,10 @@ func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
 	return save(boardDir, task, oldPath, fmt.Sprintf("north: edit %s", task.ID))
 }
 
-// SetStatus changes an active task's workflow status (frontmatter only; the
-// file stays in tasks/). Freeform: any valid status is reachable from any other.
+// SetStatus changes a task's workflow status (frontmatter only; the file
+// stays in its state folder). Freeform on both axes: any valid status is
+// reachable from any other, in any state — though status is only visible on
+// the board while the task is active.
 func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) {
 	target, err := ParseStatus(newStatus)
 	if err != nil {
@@ -320,10 +322,6 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) 
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return nil, err
-	}
-	if task.State != models.StateActive {
-		return nil, errors.Conflict(fmt.Sprintf(
-			"task %q is %s; move it to the active state before changing status", taskID, task.State))
 	}
 	if target == task.Status {
 		return task, nil

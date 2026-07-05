@@ -57,8 +57,10 @@ var (
 	styleStatusFailed     = lipgloss.NewStyle().Foreground(colorFailed)
 	styleStatusBlocked    = lipgloss.NewStyle().Foreground(colorBlocked)
 
-	// error bar
-	styleError = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	// status-bar notice levels
+	styleNoticeSuccess = lipgloss.NewStyle().Foreground(colorDone)
+	styleNoticeWarn    = lipgloss.NewStyle().Foreground(colorInProgress)
+	styleNoticeError   = lipgloss.NewStyle().Foreground(colorFailed).Bold(true)
 
 	// help overlay
 	styleHelp = lipgloss.NewStyle().
@@ -68,6 +70,20 @@ var (
 	styleHelpKey  = lipgloss.NewStyle().Foreground(colorActiveBorder).Bold(true)
 	styleHelpDesc = lipgloss.NewStyle().Foreground(colorDim)
 )
+
+// noticeStyle returns the status-bar style for a notice level.
+func noticeStyle(level noticeLevel) lipgloss.Style {
+	switch level {
+	case noticeSuccess:
+		return styleNoticeSuccess
+	case noticeWarn:
+		return styleNoticeWarn
+	case noticeError:
+		return styleNoticeError
+	default:
+		return lipgloss.NewStyle()
+	}
+}
 
 // statusStyle returns the lipgloss style for a given status label.
 func statusStyle(s string) lipgloss.Style {

@@ -11,14 +11,15 @@ import (
 	"github.com/SamP-S/north/internal/tasks"
 )
 
-// runTaskOp wraps a task mutation into a tea.Cmd: errMsg on failure, reloadMsg
-// on success.
-func runTaskOp(op func() error) tea.Cmd {
+// runTaskOp wraps a task mutation into a tea.Cmd: errMsg on failure, an
+// actionDoneMsg carrying the given notice (which also triggers a reload) on
+// success.
+func runTaskOp(op func() error, ok notice) tea.Cmd {
 	return func() tea.Msg {
 		if err := op(); err != nil {
 			return errMsg{err}
 		}
-		return reloadMsg{}
+		return actionDoneMsg{ok}
 	}
 }
 

@@ -13,7 +13,7 @@ it (codes: `not_found`, `conflict`, `invalid`, `internal`).
 | `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L] [--plain \| --json]` | List tasks (default: active). `--search` matches title/body/labels; `--label` is exact and repeatable |
 | `north task view <id> [--plain \| --json]` | Show one task (state, status, fields + body) |
 | `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
-| `north task move <id> <status> [--plain \| --json]` | Set status of an **active** task, in place (freeform: any → any) |
+| `north task move <id> <status> [--plain \| --json]` | Set status, in place (freeform: any → any, in any state) |
 | `north task state <id> <draft\|active\|archive> [--plain \| --json]` | Move a task between lifecycle folders, preserving status (freeform: any → any) |
 | `north task delete <id> [-y/--yes] [--plain \| --json]` | Delete a task. With `--plain`/`--json` or non-TTY stdin, `-y` is required (no prompt) |
 | `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
@@ -31,9 +31,10 @@ Task ids are bare numbers: `north task view 12`. `--body-file -` reads the
 body from stdin (on `create` and `edit`).
 
 ## State vs. status
-`move` changes **status** (the workflow column) and only works on active
-tasks. `state` changes **state** (the lifecycle folder) and preserves status.
-Both are freeform — any value to any other value in one call. See
+`move` changes **status** (the workflow column) — in any state, with a
+stderr note when the task is not active (status only shows on the board once
+active). `state` changes **state** (the lifecycle folder) and preserves
+status. Both are freeform — any value to any other value in one call. See
 [02_board-data-model.md](02_board-data-model.md).
 
 ## Output modes

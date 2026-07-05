@@ -73,15 +73,19 @@ func TestStatePreservesStatus(t *testing.T) {
 	}
 }
 
-func TestCannotChangeStatusWhenArchived(t *testing.T) {
+func TestStatusChangeWhenArchived(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
 	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := tasks.SetStatus(boardDir, "1", "in_progress")
-	if !isBoardErr(err, "conflict") {
-		t.Fatalf("expected conflict, got %v", err)
+	// Freeform: status is editable in any state, including archive.
+	task, err := tasks.SetStatus(boardDir, "1", "in_progress")
+	if err != nil {
+		t.Fatalf("status change on archived task: %v", err)
+	}
+	if task.Status != models.InProgress || task.State != models.StateArchive {
+		t.Errorf("got status=%s state=%s", task.Status, task.State)
 	}
 }
 

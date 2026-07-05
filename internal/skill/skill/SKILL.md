@@ -64,11 +64,15 @@ north task state <id> <draft|active|archive>   # move between lifecycle states (
 north task delete <id> -y                      # remove permanently (always pass -y)
 ```
 
-Status (active tasks only, any → any):
+Status (any → any, in any state):
 
 ```bash
 north task move <id> <status>    # ready | in_progress | done | failed | blocked
 ```
+
+Status can be set in any state, but it only shows on the board while the task
+is active (a note is printed on stderr otherwise) — normally set state to
+active first, then move.
 
 Edit fields and body:
 

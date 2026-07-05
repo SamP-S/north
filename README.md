@@ -20,8 +20,13 @@ go install github.com/SamP-S/north/cmd/north@latest   # installs to $GOBIN / $GO
 # or, from a clone:
 make install          # go install ./cmd/north
 ```
-This puts a single self-contained `north` binary on your PATH. Nothing else to
-provision — no runtime, no daemon.
+This installs a single self-contained `north` binary — no runtime, no daemon.
+`go install` places it in `$GOPATH/bin`; if `north` is then "command not
+found", add that directory to your PATH (e.g. in your `~/.bashrc` / shell rc):
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
 
 ## Quick start
 ```bash
@@ -29,7 +34,7 @@ cd your-project
 north init                                  # create the north/ board
 north task create "Add login form" --agent opus4.8 --labels auth   # lands in drafts/
 north task state 1 active                   # drafts -> tasks (onto the active board)
-north task move 1 in_progress               # change status (active tasks only)
+north task move 1 in_progress               # change status (any → any)
 north task view 1
 north task move 1 done
 north board                                 # active counts per status
@@ -43,13 +48,14 @@ move to any other value in a single command:
 
 - **State** — its lifecycle *location* (the folder): `draft`, `active`,
   `archive`. Changed with `north task state <id> <state>`.
-- **Status** — its workflow *column* (frontmatter, active-only):
+- **Status** — its workflow *column* (frontmatter, shown on the board while
+  active):
   `ready`, `in_progress`, `done`, `failed`, `blocked`. Changed with
   `north task move <id> <status>`.
 
-New tasks start as a **draft** (status `ready`); move them to `active` before
-changing status. State moves relocate the file and preserve status; `move`
-rewrites status in place.
+New tasks start as a **draft** (status `ready`). State moves relocate the
+file and preserve status; `move` rewrites status in place — in any state,
+though status only shows on the board once the task is active.
 
 ## The board
 `north init` scaffolds, inside your repo:
@@ -90,7 +96,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L]` | List tasks (default active) |
 | `north task view <id>` | Show a task |
 | `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
-| `north task move <id> <status>` | Set status (active tasks only; any → any) |
+| `north task move <id> <status>` | Set status (any → any, in any state) |
 | `north task state <id> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id> [-y]` | Delete a task (`-y` required in machine/non-TTY modes) |
 | `north board` | Active counts per status + draft/archive tally |
@@ -119,9 +125,11 @@ is honoured in the TUI.
 - **Tab** switches between the two views; **Enter** on a board card jumps to its detail.
 - **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
 - **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
-- **`/`** live-filters the list (title, id, labels); **`r`** reloads from disk; **`?`** shows the full key reference.
+- **`/`** live-filters **both views** in place (title, id, labels) — the board narrows its columns, the list its rows; **esc** clears the filter.
+- A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
+- **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
 
-The TUI is for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
+The TUI is keyboard-only by design (no mouse) and for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 
 ---
 

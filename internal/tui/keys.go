@@ -11,6 +11,8 @@ type keyMap struct {
 	Down   key.Binding
 	Left   key.Binding
 	Right  key.Binding
+	Top    key.Binding
+	Bottom key.Binding
 	Enter  key.Binding
 	Esc    key.Binding
 	Create key.Binding
@@ -38,6 +40,14 @@ var keys = keyMap{
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
 		key.WithHelp("→/l", "right"),
+	),
+	Top: key.NewBinding(
+		key.WithKeys("g", "home"),
+		key.WithHelp("g", "top"),
+	),
+	Bottom: key.NewBinding(
+		key.WithKeys("G", "end"),
+		key.WithHelp("G", "bottom"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),

@@ -1,7 +1,7 @@
 // board.go — kanban board sub-model for the North TUI.
 //
-// The board holds navigation state only; action keys (c/e/m/s/d) and every
-// modal live in the root Model so both views behave identically.
+// The board holds navigation state only; action keys (c/e/m/s/d), search, and
+// every modal live in the root Model so both views behave identically.
 package tui
 
 import (
@@ -36,7 +36,9 @@ type boardColumn struct {
 // directly; the root Model delegates to it.
 type boardModel struct {
 	boardDir     string
-	columns      []boardColumn
+	all          []boardColumn // unfiltered, as loaded
+	columns      []boardColumn // filter applied
+	filter       string
 	colIdx       int
 	draftCount   int
 	archiveCount int
@@ -69,6 +71,12 @@ func (m *boardModel) setSize(width, height int) {
 	m.height = height
 }
 
+// setFilter applies a search query to the columns, preserving cursors.
+func (m *boardModel) setFilter(q string) {
+	m.filter = q
+	m.rebuild()
+}
+
 // reload returns the current model and a command to reload data from disk,
 // preserving cursor positions.
 func (m boardModel) reload() (boardModel, tea.Cmd) {
@@ -86,7 +94,7 @@ func (m boardModel) Update(msg tea.Msg) (boardModel, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the board.
+// View renders the board (columns only; the root owns status bar and footer).
 func (m boardModel) View() string {
 	if m.width == 0 {
 		return "loading…"
@@ -124,39 +132,47 @@ func loadData(boardDir string) (boardDataMsg, error) {
 	}, nil
 }
 
-// applyData applies a boardDataMsg while preserving column/cursor positions.
+// applyData stores fresh board data and rebuilds the filtered columns while
+// preserving column/cursor positions.
 func (m boardModel) applyData(msg boardDataMsg) boardModel {
-	old := m.columns
-	m.columns = msg.cols
+	m.all = msg.cols
 	m.draftCount = msg.draftCount
 	m.archiveCount = msg.archiveCount
 	m.warnings = msg.warnings
+	m.rebuild()
+	return m
+}
 
-	// Clamp the column index.
-	if n := len(m.columns); m.colIdx >= n {
-		if n > 0 {
-			m.colIdx = n - 1
-		} else {
-			m.colIdx = 0
-		}
-	}
-
-	// Restore and clamp per-column cursor positions.
-	for i := range m.columns {
-		prev := 0
-		if i < len(old) {
-			prev = old[i].cursor
-		}
-		if n := len(m.columns[i].tasks); prev >= n {
-			if n > 0 {
-				prev = n - 1
-			} else {
-				prev = 0
+// rebuild recomputes the filtered columns from the loaded data, keeping the
+// previous cursor positions where possible.
+func (m *boardModel) rebuild() {
+	old := m.columns
+	m.columns = make([]boardColumn, len(m.all))
+	for i, col := range m.all {
+		filtered := col
+		if m.filter != "" {
+			filtered.tasks = nil
+			for _, t := range col.tasks {
+				if matchesFilter(t, m.filter) {
+					filtered.tasks = append(filtered.tasks, t)
+				}
 			}
 		}
-		m.columns[i].cursor = prev
+		if i < len(old) {
+			filtered.cursor = old[i].cursor
+		}
+		if n := len(filtered.tasks); filtered.cursor >= n {
+			if n > 0 {
+				filtered.cursor = n - 1
+			} else {
+				filtered.cursor = 0
+			}
+		}
+		m.columns[i] = filtered
 	}
-	return m
+	if n := len(m.columns); m.colIdx >= n && n > 0 {
+		m.colIdx = n - 1
+	}
 }
 
 // selectedTask returns the task under the cursor, or nil if none is available.
@@ -190,6 +206,19 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			if col.cursor < len(col.tasks)-1 {
 				col.cursor++
 				m.columns[m.colIdx] = col
+			}
+		}
+
+	case key.Matches(msg, keys.Top):
+		if len(m.columns) > 0 {
+			m.columns[m.colIdx].cursor = 0
+		}
+
+	case key.Matches(msg, keys.Bottom):
+		if len(m.columns) > 0 {
+			col := m.columns[m.colIdx]
+			if n := len(col.tasks); n > 0 {
+				m.columns[m.colIdx].cursor = n - 1
 			}
 		}
 
@@ -237,6 +266,20 @@ func (m boardModel) renderBoard() string {
 		return "loading…"
 	}
 
+	// Empty-board hint (only when nothing is filtered away).
+	total := 0
+	for _, col := range m.columns {
+		total += len(col.tasks)
+	}
+	if total == 0 {
+		hint := "no active tasks — press c to create, tab for the full list"
+		if m.filter != "" {
+			hint = "no tasks match the filter — esc clears it"
+		}
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			styleFooter.Render(hint))
+	}
+
 	n := len(m.columns)
 
 	// Each column's outer width (border included); last column absorbs remainder.
@@ -246,8 +289,7 @@ func (m boardModel) renderBoard() string {
 		innerW = 4
 	}
 
-	// Leave 1 line for the footer.
-	colH := m.height - 1
+	colH := m.height
 	innerH := colH - 2
 	if innerH < 1 {
 		innerH = 1
@@ -267,16 +309,16 @@ func (m boardModel) renderBoard() string {
 		rendered[i] = m.renderColumn(i, col, w, innerH)
 	}
 
-	board := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
-	return board + "\n" + m.renderFooter()
+	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 }
 
+// renderFooter renders the one-line info + key-hint bar (composed by the root).
 func (m boardModel) renderFooter() string {
 	info := fmt.Sprintf("  drafts: %d  archive: %d", m.draftCount, m.archiveCount)
 	if m.warnings > 0 {
 		info += fmt.Sprintf("  ⚠ %d file warning(s)", m.warnings)
 	}
-	hints := "↵ view  c create  e edit  m status  s state  d delete  r reload  tab→list  ? help  q quit"
+	hints := "↵ view  c create  e edit  m status  s state  d delete  r reload  / filter  tab→list  ? help  q quit"
 
 	infoW := lipgloss.Width(info)
 	hintsW := lipgloss.Width(hints)
@@ -297,10 +339,21 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 
 	lines := []string{header, ""}
 
+	// Cards area: window the tasks so the cursor is always visible.
+	visH := innerH - len(lines)
+	if visH < 1 {
+		visH = 1
+	}
+
 	if len(col.tasks) == 0 {
 		lines = append(lines, styleID.Render("(empty)"))
 	} else {
-		for j, t := range col.tasks {
+		offset := 0
+		if col.cursor >= visH {
+			offset = col.cursor - visH + 1
+		}
+		for j := offset; j < len(col.tasks) && j < offset+visH; j++ {
+			t := col.tasks[j]
 			// Truncate by display width so multibyte/wide titles never break.
 			maxTitle := innerW - lipgloss.Width(t.ID) - 2
 			if maxTitle < 1 {
@@ -314,6 +367,10 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 			} else {
 				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
 			}
+		}
+		if offset > 0 {
+			// The spacer line doubles as a scrolled-up indicator.
+			lines[1] = styleID.Render(fmt.Sprintf("↑ %d more", offset))
 		}
 	}
 

@@ -50,11 +50,13 @@ including `archive → active` directly. New tasks are created as **drafts**
 | `active` | `tasks/` | on the board, being worked |
 | `archive` | `archive/` | off the board, kept for history |
 
-## Status (workflow, active-only)
+## Status (workflow)
 
 `north task move <id> <status>` sets status. It rewrites frontmatter **in
-place** (the file stays in `tasks/`) and is rejected unless the task is
-active. Any status → any other status is legal (e.g. `ready → failed`).
+place** (the file stays in its state folder) and works in **any state** —
+though status is only *visible* on the board while the task is active, so a
+warning is printed when moving a draft/archive task. Any status → any other
+status is legal (e.g. `ready → failed`).
 
 | Status | Meaning |
 |---|---|
