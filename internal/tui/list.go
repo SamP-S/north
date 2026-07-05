@@ -235,14 +235,17 @@ func (m listModel) renderList(innerW, innerH int) string {
 
 		prefix := "  "
 		rowStyle := styleCardNormal
-		if i == m.cursor {
+		selected := i == m.cursor
+		if selected {
 			prefix = "► "
 			rowStyle = styleCardSelected
 		}
 
+		// Inner styles (id, status) reset the outer bold, so bold them too
+		// on the selected row — every field of the row reads bold.
 		stateStr := fmt.Sprintf("%-7s", stateLabel(t.State))
-		statusStr := statusStyle(string(t.Status)).Render(fmt.Sprintf("%-11s", string(t.Status)))
-		idStr := styleID.Render(fmt.Sprintf("%-4s", t.ID))
+		statusStr := statusStyle(string(t.Status)).Bold(selected).Render(fmt.Sprintf("%-11s", string(t.Status)))
+		idStr := styleID.Bold(selected).Render(fmt.Sprintf("%-4s", t.ID))
 		meta := fmt.Sprintf("%s%s %s %s ", prefix, idStr, stateStr, statusStr)
 		metaW := lipgloss.Width(meta)
 		titleW := innerW - metaW
