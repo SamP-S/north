@@ -179,13 +179,13 @@ func newTaskListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
-	cmd.Flags().StringVar(&search, "search", "", "filter by substring over title, body, and labels (case-insensitive)")
+	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, agent, labels, and body (case-insensitive)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
 
-// filterSearch keeps tasks whose title, body, or labels contain q
+// filterSearch keeps tasks whose id, title, agent, labels, or body contain q
 // (case-insensitive). Empty q keeps everything.
 func filterSearch(ts []*models.Task, q string) []*models.Task {
 	if q == "" {
@@ -194,7 +194,9 @@ func filterSearch(ts []*models.Task, q string) []*models.Task {
 	q = strings.ToLower(q)
 	out := make([]*models.Task, 0, len(ts))
 	for _, t := range ts {
-		if strings.Contains(strings.ToLower(t.Title), q) ||
+		if strings.Contains(strings.ToLower(t.ID), q) ||
+			strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Agent), q) ||
 			strings.Contains(strings.ToLower(t.Body), q) ||
 			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
 			out = append(out, t)
