@@ -463,3 +463,83 @@ func TestTopBottomKeys(t *testing.T) {
 		t.Errorf("g should jump to top, cursor=%d", m.cursor)
 	}
 }
+
+// TestLoadDataSevenColumns verifies the board loads draft | statuses | archive
+// columns with the right ordering and sorting.
+func TestLoadDataSevenColumns(t *testing.T) {
+	dir := newTestBoard(t)
+	if _, err := tasks.Create(dir, "a draft", "", nil, nil, ""); err != nil { // 1
+		t.Fatal(err)
+	}
+	mustActive(t, dir, "an active") // 2
+	arch1 := mustActive(t, dir, "old archive")
+	arch2 := mustActive(t, dir, "new archive")
+	for _, id := range []string{arch1.ID, arch2.ID} {
+		if _, err := tasks.SetState(dir, id, "archive"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	data, err := loadData(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.cols) != len(models.Statuses)+2 {
+		t.Fatalf("expected %d columns, got %d", len(models.Statuses)+2, len(data.cols))
+	}
+	first, last := data.cols[0], data.cols[len(data.cols)-1]
+	if first.state != models.StateDraft || len(first.tasks) != 1 {
+		t.Errorf("first column should be drafts with 1 task, got %q (%d)", first.title, len(first.tasks))
+	}
+	if last.state != models.StateArchive || len(last.tasks) != 2 {
+		t.Errorf("last column should be archive with 2 tasks, got %q (%d)", last.title, len(last.tasks))
+	}
+	if last.tasks[0].ID != arch2.ID {
+		t.Errorf("archive should be newest-first, got %s first", last.tasks[0].ID)
+	}
+	if data.cols[1].status != "ready" || data.cols[1].tasks[0].Title != "an active" {
+		t.Errorf("second column should be ready actives, got %q", data.cols[1].title)
+	}
+}
+
+// TestBoardEnterOpensTaskPopup verifies enter on a board card opens the
+// read-only popup and esc closes it.
+func TestBoardEnterOpensTaskPopup(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Popup task")
+	m := rootWithTask(t, dir, active)
+	m.list.allTasks = []*models.Task{active}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+	if um.modal.mode != modalTaskView {
+		t.Fatalf("enter should open the task popup, got %v", um.modal.mode)
+	}
+	if !strings.Contains(um.modal.vp.View(), "Popup task") {
+		t.Error("popup should show the task detail")
+	}
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(Model).modal.mode != modalNone {
+		t.Error("esc should close the popup")
+	}
+}
+
+// TestTaskPopupEditKey verifies 'e' in the popup closes it and starts the
+// editor flow for the same task.
+func TestTaskPopupEditKey(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Editable task")
+	m := rootWithTask(t, dir, active)
+	m.list.allTasks = []*models.Task{active}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+	updated, cmd := um.Update(keyRune('e'))
+	um = updated.(Model)
+	if um.modal.mode != modalNone {
+		t.Error("e should close the popup")
+	}
+	if cmd == nil {
+		t.Fatal("e should produce the editor command")
+	}
+}

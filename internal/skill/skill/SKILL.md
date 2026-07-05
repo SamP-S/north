@@ -67,7 +67,7 @@ north task delete <id> -y                      # remove permanently (always pass
 Status (any → any, in any state):
 
 ```bash
-north task move <id> <status>    # ready | in_progress | done | failed | blocked
+north task move <id> <status>    # ready | in_progress | blocked | done | failed
 ```
 
 Status can be set in any state, but it only shows on the board while the task

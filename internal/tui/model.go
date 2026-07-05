@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -124,9 +125,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		// Two root-owned lines: the status bar and the footer.
-		m.board.setSize(m.width, m.height-2)
-		m.list.setSize(m.width, m.height-2)
+		// Root-owned lines: the status bar plus the footer, which wraps to
+		// extra lines on narrow terminals rather than overflowing.
+		bodyH := m.height - 1 - m.footerHeight()
+		m.board.setSize(m.width, bodyH)
+		m.list.setSize(m.width, bodyH)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -240,6 +243,19 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.showHelp {
 		return m, nil // help overlay swallows the rest
+	}
+
+	// Enter on a board card opens the read-only task popup in place (the
+	// list view keeps enter for focusing the detail pane).
+	if m.view == viewBoard && key.Matches(msg, keys.Enter) {
+		if t := m.board.selectedTask(); t != nil {
+			vpW := max(20, m.width-14)
+			vpH := max(5, m.height-8)
+			vp := viewport.New(vpW, vpH)
+			vp.SetContent(m.list.renderDetail(t))
+			m.modal = modal{mode: modalTaskView, taskID: t.ID, taskState: t.State, vp: vp}
+		}
+		return m, nil
 	}
 
 	// Shared action keys — identical in both views.
@@ -377,15 +393,44 @@ func (m Model) View() string {
 		return m.helpView()
 	}
 
-	var body, footer string
+	var body string
 	if m.view == viewBoard {
 		body = m.board.View()
-		footer = m.board.renderFooter()
 	} else {
 		body = m.list.View()
-		footer = m.list.renderFooter()
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, body, m.statusLine(), footer)
+	return lipgloss.JoinVertical(lipgloss.Left, body, m.statusLine(), m.footer())
+}
+
+// Footer hint lines for each view.
+const (
+	boardHints = "↵ view  c create  e edit  m status  s state  d delete  r reload  / filter  tab→list  ? help  q quit"
+	listHints  = "j/k navigate  g/G top/bottom  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / filter  tab→board  ? help  q quit"
+)
+
+// footer renders the active view's key-hint bar, wrapped to the terminal
+// width (extra lines on narrow terminals instead of overflow).
+func (m Model) footer() string {
+	hints := boardHints
+	warnings := m.board.warnings
+	if m.view == viewList {
+		hints = listHints
+		warnings = m.list.warnings
+	}
+	if warnings > 0 {
+		hints = fmt.Sprintf("⚠ %d file warning(s)  ", warnings) + hints
+	}
+	return styleFooter.Width(m.width).Render("  " + hints)
+}
+
+// footerHeight returns the line count the footer needs at the current width —
+// the max across both views so the body height is stable when tabbing.
+func (m Model) footerHeight() int {
+	h := lipgloss.Height(styleFooter.Width(m.width).Render("  " + boardHints))
+	if lh := lipgloss.Height(styleFooter.Width(m.width).Render("  " + listHints)); lh > h {
+		h = lh
+	}
+	return h
 }
 
 // helpView renders the help overlay.
@@ -395,6 +440,7 @@ func (m Model) helpView() string {
 		{"j/k ↑/↓", "navigate"},
 		{"h/l ←/→", "columns (board) / panes (list)"},
 		{"g/G", "jump to top / bottom"},
+		{"enter", "view task (board) / focus pane (list)"},
 		{"c", "create task in $EDITOR"},
 		{"e", "edit task in $EDITOR"},
 		{"m", "set status"},

@@ -44,8 +44,9 @@ const (
 	Blocked    TaskStatus = "blocked"
 )
 
-// Statuses lists every workflow status in board order.
-var Statuses = []TaskStatus{Ready, InProgress, Done, Failed, Blocked}
+// Statuses lists every workflow status in board order — a left→right flow:
+// blocked sits beside in_progress (a parked task), terminal states last.
+var Statuses = []TaskStatus{Ready, InProgress, Blocked, Done, Failed}
 
 // DefaultStatus is the status a new task carries.
 const DefaultStatus = Ready

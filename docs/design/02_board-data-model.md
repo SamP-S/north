@@ -8,8 +8,8 @@ axes:
   `drafts/` (draft), `tasks/` (active), `archive/` (archive). State is the
   source of truth for "where" a task is.
 - **Status** — its workflow *column*, stored only in frontmatter:
-  `ready, in_progress, done, failed, blocked`. Status only changes while the
-  task is **active**.
+  `ready, in_progress, blocked, done, failed`. Status can change in any
+  state but is only shown on the board while the task is **active**.
 
 Both axes are **freeform**: any state can move to any other state, and any
 status to any other status, in a single step. North validates the *value*

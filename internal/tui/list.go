@@ -341,15 +341,6 @@ func (m listModel) renderDeps(t *models.Task) string {
 	return strings.Join(parts, ", ")
 }
 
-// renderFooter renders the one-line key-hint bar (composed by the root).
-func (m listModel) renderFooter() string {
-	hints := "j/k navigate  g/G top/bottom  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / filter  tab→board  ? help  q quit"
-	if m.warnings > 0 {
-		hints = fmt.Sprintf("⚠ %d file warning(s)  ", m.warnings) + hints
-	}
-	return styleFooter.Width(m.width).Render("  " + hints)
-}
-
 // applyFilter returns the subset of allTasks whose id, title, or labels
 // contain the current filter (case-insensitive substring match).
 func (m listModel) applyFilter() []*models.Task {

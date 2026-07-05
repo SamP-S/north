@@ -50,7 +50,7 @@ move to any other value in a single command:
   `archive`. Changed with `north task state <id> <state>`.
 - **Status** — its workflow *column* (frontmatter, shown on the board while
   active):
-  `ready`, `in_progress`, `done`, `failed`, `blocked`. Changed with
+  `ready`, `in_progress`, `blocked`, `done`, `failed`. Changed with
   `north task move <id> <status>`.
 
 New tasks start as a **draft** (status `ready`). State moves relocate the
@@ -120,9 +120,9 @@ is honoured in the TUI.
 
 `north tui` opens a full-screen interactive terminal UI:
 
-- **Board view** — kanban columns (`ready | in_progress | done | failed | blocked`) for active tasks, with draft/archive counts in the footer.
+- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right (newest first). Cards in the two state columns carry a status-colored dot.
 - **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail (id, deps with their status, rendered Markdown body).
-- **Tab** switches between the two views; **Enter** on a board card jumps to its detail.
+- **Tab** switches between the two views; **Enter** on a board card opens the task in a scrollable popup (`e` edits from there, esc closes).
 - **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
 - **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
 - **`/`** live-filters **both views** in place (title, id, labels) — the board narrows its columns, the list its rows; **esc** clears the filter.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/SamP-S/north/internal/models"
@@ -21,9 +22,10 @@ type modalMode int
 
 const (
 	modalNone          modalMode = iota
-	modalStatusPicker            // set an active task's status (m)
+	modalStatusPicker            // set a task's status (m)
 	modalStatePicker             // set any task's state (s)
 	modalConfirmDelete           // confirm a delete (d)
+	modalTaskView                // read-only task popup (enter, board view)
 )
 
 // modal is the root model's modal state.
@@ -32,7 +34,8 @@ type modal struct {
 	cursor    int    // picker cursor
 	taskID    string // task the modal acts on
 	taskState models.TaskState
-	confirm   string // prompt text for the delete confirm
+	confirm   string         // prompt text for the delete confirm
+	vp        viewport.Model // scrollable content for the task popup
 }
 
 func (m modal) open() bool { return m.mode != modalNone }
@@ -99,6 +102,34 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 		}
 		return m, nil
 
+	case modalTaskView:
+		switch {
+		case key.Matches(km, keys.Up):
+			m.vp.LineUp(1)
+		case key.Matches(km, keys.Down):
+			m.vp.LineDown(1)
+		case key.Matches(km, keys.Top):
+			m.vp.GotoTop()
+		case key.Matches(km, keys.Bottom):
+			m.vp.GotoBottom()
+		case key.Matches(km, keys.Esc), key.Matches(km, keys.Enter):
+			m.mode = modalNone
+		case key.Matches(km, keys.Edit):
+			// Close the popup and drop straight into the editor.
+			taskID := m.taskID
+			m.mode = modalNone
+			t, err := tasks.Get(boardDir, taskID)
+			if err != nil {
+				return m, func() tea.Msg { return errMsg{err} }
+			}
+			tmpl, err := editTemplate(t)
+			if err != nil {
+				return m, func() tea.Msg { return errMsg{err} }
+			}
+			return m, openEditor(tmpl, modeEdit, taskID)
+		}
+		return m, nil
+
 	case modalConfirmDelete:
 		switch strings.ToLower(km.String()) {
 		case "y", "enter":
@@ -135,6 +166,9 @@ func (m modal) view() string {
 		return styleModal.Render(strings.TrimRight(sb.String(), "\n"))
 	case modalConfirmDelete:
 		return styleModal.Render(m.confirm)
+	case modalTaskView:
+		footer := styleFooter.Render("j/k scroll  g/G top/bottom  e edit  esc close")
+		return styleModal.Render(m.vp.View() + "\n" + footer)
 	}
 	return ""
 }

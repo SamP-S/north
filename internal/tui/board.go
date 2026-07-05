@@ -1,5 +1,9 @@
 // board.go — kanban board sub-model for the North TUI.
 //
+// The board renders the whole two-axis model on one screen: a draft column on
+// the far left, the five status columns for active tasks in flow order, and
+// an archive column on the far right. A task enters left, flows right.
+//
 // The board holds navigation state only; action keys (c/e/m/s/d), search, and
 // every modal live in the root Model so both views behave identically.
 package tui
@@ -19,15 +23,17 @@ import (
 
 // boardDataMsg carries freshly loaded board data back into the model.
 type boardDataMsg struct {
-	cols         []boardColumn
-	draftCount   int
-	archiveCount int
-	warnings     int
+	cols     []boardColumn
+	warnings int
 }
 
-// boardColumn holds tasks for one status column together with the cursor.
+// boardColumn holds tasks for one column together with the cursor. Exactly
+// one of state/status is set: the draft and archive columns are state
+// columns, the five in between are status columns (active tasks).
 type boardColumn struct {
-	status string
+	title  string
+	state  models.TaskState // set for the draft/archive columns
+	status string           // set for the status columns
 	tasks  []*models.Task
 	cursor int
 }
@@ -35,16 +41,14 @@ type boardColumn struct {
 // boardModel is the kanban board sub-model. It does not implement tea.Model
 // directly; the root Model delegates to it.
 type boardModel struct {
-	boardDir     string
-	all          []boardColumn // unfiltered, as loaded
-	columns      []boardColumn // filter applied
-	filter       string
-	colIdx       int
-	draftCount   int
-	archiveCount int
-	warnings     int
-	width        int
-	height       int
+	boardDir string
+	all      []boardColumn // unfiltered, as loaded
+	columns  []boardColumn // filter applied
+	filter   string
+	colIdx   int
+	warnings int
+	width    int
+	height   int
 }
 
 // newBoardModel constructs an empty boardModel for boardDir.
@@ -104,40 +108,46 @@ func (m boardModel) View() string {
 
 // ─── data loading ────────────────────────────────────────────────────────────
 
-// loadData fetches all active tasks (grouped by status in models.Statuses
-// order) plus draft/archive counts and the warning tally, in one snapshot.
+// loadData builds the seven board columns in one snapshot: drafts
+// (oldest-first, FIFO triage), the status columns for active tasks, and the
+// archive (newest-first, recent past on top).
 func loadData(boardDir string) (boardDataMsg, error) {
 	snap, err := tasks.Load(boardDir)
 	if err != nil {
 		return boardDataMsg{}, err
 	}
-	active := snap.Filter([]models.TaskState{models.StateActive}, "")
 
+	active := snap.Filter([]models.TaskState{models.StateActive}, "")
 	byStatus := make(map[string][]*models.Task, len(models.Statuses))
 	for _, t := range active {
 		s := string(t.Status)
 		byStatus[s] = append(byStatus[s], t)
 	}
 
-	cols := make([]boardColumn, len(models.Statuses))
-	for i, s := range models.Statuses {
-		cols[i] = boardColumn{status: string(s), tasks: byStatus[string(s)]}
-	}
+	archive := snap.Filter([]models.TaskState{models.StateArchive}, "")
+	sortDescByID(archive)
 
-	return boardDataMsg{
-		cols:         cols,
-		draftCount:   snap.StateCount(models.StateDraft),
-		archiveCount: snap.StateCount(models.StateArchive),
-		warnings:     len(snap.Warnings),
-	}, nil
+	cols := make([]boardColumn, 0, len(models.Statuses)+2)
+	cols = append(cols, boardColumn{
+		title: "draft", state: models.StateDraft,
+		tasks: snap.Filter([]models.TaskState{models.StateDraft}, ""),
+	})
+	for _, s := range models.Statuses {
+		cols = append(cols, boardColumn{
+			title: string(s), status: string(s), tasks: byStatus[string(s)],
+		})
+	}
+	cols = append(cols, boardColumn{
+		title: "archive", state: models.StateArchive, tasks: archive,
+	})
+
+	return boardDataMsg{cols: cols, warnings: len(snap.Warnings)}, nil
 }
 
 // applyData stores fresh board data and rebuilds the filtered columns while
 // preserving column/cursor positions.
 func (m boardModel) applyData(msg boardDataMsg) boardModel {
 	m.all = msg.cols
-	m.draftCount = msg.draftCount
-	m.archiveCount = msg.archiveCount
 	m.warnings = msg.warnings
 	m.rebuild()
 	return m
@@ -233,11 +243,6 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 			m.colIdx++
 			m.clampCursor()
 		}
-
-	case key.Matches(msg, keys.Enter):
-		if t := m.selectedTask(); t != nil {
-			return m, func() tea.Msg { return selectTaskMsg{taskID: t.ID} }
-		}
 	}
 	return m, nil
 }
@@ -272,7 +277,7 @@ func (m boardModel) renderBoard() string {
 		total += len(col.tasks)
 	}
 	if total == 0 {
-		hint := "no active tasks — press c to create, tab for the full list"
+		hint := "no tasks — press c to create one"
 		if m.filter != "" {
 			hint = "no tasks match the filter — esc clears it"
 		}
@@ -312,30 +317,18 @@ func (m boardModel) renderBoard() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 }
 
-// renderFooter renders the one-line info + key-hint bar (composed by the root).
-func (m boardModel) renderFooter() string {
-	info := fmt.Sprintf("  drafts: %d  archive: %d", m.draftCount, m.archiveCount)
-	if m.warnings > 0 {
-		info += fmt.Sprintf("  ⚠ %d file warning(s)", m.warnings)
-	}
-	hints := "↵ view  c create  e edit  m status  s state  d delete  r reload  / filter  tab→list  ? help  q quit"
-
-	infoW := lipgloss.Width(info)
-	hintsW := lipgloss.Width(hints)
-	gap := m.width - infoW - hintsW - 2
-	if gap < 1 {
-		gap = 1
-	}
-
-	return styleFooter.Render(info + strings.Repeat(" ", gap) + hints)
-}
-
 func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) string {
 	isActive := idx == m.colIdx
+	isStateCol := col.state != ""
 
-	// Header: coloured status label + task count.
-	header := statusStyle(col.status).Render(col.status) +
-		styleID.Render(fmt.Sprintf(" (%d)", len(col.tasks)))
+	// Header: status columns in their status colour, state columns dimmed.
+	var label string
+	if isStateCol {
+		label = styleID.Render(col.title)
+	} else {
+		label = statusStyle(col.status).Render(col.title)
+	}
+	header := label + styleID.Render(fmt.Sprintf(" (%d)", len(col.tasks)))
 
 	lines := []string{header, ""}
 
@@ -354,25 +347,36 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 		}
 		for j := offset; j < len(col.tasks) && j < offset+visH; j++ {
 			t := col.tasks[j]
-			// Truncate by display width so multibyte/wide titles never break.
-			// Width budget: 2-char cursor prefix + id + separating space.
-			maxTitle := innerW - lipgloss.Width(t.ID) - 4
+			selected := isActive && j == col.cursor
+
+			// State columns carry a status-coloured dot: the column no
+			// longer implies the status, so the dot shows it at a glance.
+			dot := ""
+			dotW := 0
+			if isStateCol {
+				dot = statusStyle(string(t.Status)).Bold(selected).Render("●") + " "
+				dotW = 2
+			}
+
+			// Truncate by display width so multibyte/wide titles never
+			// break. Width budget: 2-char cursor prefix + dot + id + space.
+			maxTitle := innerW - lipgloss.Width(t.ID) - 4 - dotW
 			if maxTitle < 1 {
 				maxTitle = 1
 			}
 			title := ansi.Truncate(t.Title, maxTitle, "…")
 
-			if isActive && j == col.cursor {
+			var line string
+			if selected {
 				// Each segment is bolded on its own: a styled segment ends
 				// with an ANSI reset that would cancel one outer bold.
-				line := styleCardSelected.Render("► ") +
+				line = styleCardSelected.Render("► ") + dot +
 					styleID.Bold(true).Render(t.ID) +
 					styleCardSelected.Render(" "+title)
-				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
 			} else {
-				line := "  " + styleID.Render(t.ID) + " " + title
-				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
+				line = "  " + dot + styleID.Render(t.ID) + " " + title
 			}
+			lines = append(lines, styleCardNormal.Width(innerW).Render(line))
 		}
 		if offset > 0 {
 			// The spacer line doubles as a scrolled-up indicator.
