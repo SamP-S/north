@@ -59,7 +59,7 @@ case, append an explanation to the body first.
 Create and lifecycle:
 
 ```bash
-north task create "<title>" [--agent A] [--labels a,b] [--depends-on 3,4] [--body "..." | --body-file F]
+north task create "<title>" [--assignee A] [--labels a,b] [--depends-on 3,4] [--body "..." | --body-file F]
 north task state <id> <draft|active|archive>   # move between lifecycle states (any → any)
 north task delete <id> -y                      # remove permanently (always pass -y)
 ```
@@ -77,7 +77,7 @@ active first, then move.
 Edit fields and body:
 
 ```bash
-north task edit <id> [--title T] [--agent A] [--labels a,b] [--depends-on 3,4]
+north task edit <id> [--title T] [--assignee A] [--labels a,b] [--depends-on 3,4]
 north task edit <id> --append-body "note"      # append to the body (safe for logging progress)
 north task edit <id> --body "..." | --body-file F   # REPLACE the whole body
 ```
@@ -120,6 +120,8 @@ north config get|set|list             # board settings (e.g. auto_commit)
   `done` are a signal the task may not be ready (north does not enforce this).
 - Record plans, progress, blockers, and results in the task **body**
   (prefer `--append-body`); north does not impose body structure.
+- Set `--assignee` to the identity working the task — a person ("john") or an
+  agent ("claude:opus"); it is free-form and searchable.
 - Drive the board through these commands rather than editing task files by
   hand, so ids, status, and timestamps stay consistent.
 - Never use `north tui` — it needs a real TTY and produces no machine-readable

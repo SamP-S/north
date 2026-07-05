@@ -25,8 +25,8 @@ func TestEditClearsVsLeavesAlone(t *testing.T) {
 	if len(edited.DependsOn) != 1 || edited.DependsOn[0] != "1" {
 		t.Errorf("deps should be untouched: %v", edited.DependsOn)
 	}
-	if edited.Agent != "ag" || edited.Body != "body" {
-		t.Errorf("agent/body should be untouched: agent=%q body=%q", edited.Agent, edited.Body)
+	if edited.Assignee != "ag" || edited.Body != "body" {
+		t.Errorf("agent/body should be untouched: agent=%q body=%q", edited.Assignee, edited.Body)
 	}
 }
 

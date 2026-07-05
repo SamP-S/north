@@ -17,7 +17,7 @@ func sample() *models.Task {
 		Title:     "Add login",
 		State:     models.StateActive,
 		Status:    models.Ready,
-		Agent:     "opus4.8",
+		Assignee:  "opus4.8",
 		Labels:    []string{"auth"},
 		DependsOn: []string{"4"},
 		CreatedAt: &now,

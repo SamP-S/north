@@ -340,7 +340,7 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) (tea.Cmd, error) {
 
 	switch msg.mode {
 	case modeCreate:
-		t, err := tasks.Create(m.boardDir, doc.Title, doc.Agent, doc.Labels, doc.DependsOn, doc.Body)
+		t, err := tasks.Create(m.boardDir, doc.Title, doc.Assignee, doc.Labels, doc.DependsOn, doc.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -355,7 +355,7 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) (tea.Cmd, error) {
 			deps = []string{}
 		}
 		if _, err := tasks.Edit(m.boardDir, msg.taskID, tasks.EditOpts{
-			Title: &doc.Title, Agent: &doc.Agent,
+			Title: &doc.Title, Assignee: &doc.Assignee,
 			Labels: &labels, DependsOn: &deps, Body: &doc.Body,
 		}); err != nil {
 			return nil, err
@@ -455,7 +455,7 @@ func (m Model) helpView() string {
 
 	tags := [][2]string{
 		{"●", "status colour (draft/archive columns)"},
-		{"@", "agent assigned"},
+		{"@", "assignee set (person or agent)"},
 		{"!", "waiting — unmet dependency (resolves when done or archived)"},
 		{"&", "other tasks depend on it"},
 	}

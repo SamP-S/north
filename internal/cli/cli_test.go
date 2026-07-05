@@ -56,7 +56,7 @@ func TestCLIInitAndCreate(t *testing.T) {
 	if _, err := board.LocateBoard(dir); err != nil {
 		t.Fatalf("board not created: %v", err)
 	}
-	out, err := run(t, dir, "task", "create", "Add login", "--agent", "opus4.8")
+	out, err := run(t, dir, "task", "create", "Add login", "--assignee", "opus4.8")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

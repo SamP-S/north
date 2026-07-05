@@ -21,7 +21,7 @@ user is allowed to use the board how they want.
 id: "12"                 # bare number, unique across the board, quoted string
 title: Add login form
 status: ready            # workflow status (frontmatter is the source of truth)
-agent: opus4.8           # optional, free-form, opaque (executor/provider tag)
+assignee: claude:opus    # optional, free-form — a person ("john") or an agent
 labels: [auth, backend]  # optional free-form tags
 depends_on: ["4"]        # task ids
 created_at: "2026-06-24T…"

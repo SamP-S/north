@@ -2,10 +2,9 @@
 // status changes, state changes (draft/active/archive), delete.
 //
 // Every task is one Markdown file. North uses two orthogonal axes: the task's
-// state is the folder it lives in (drafts/ tasks/ archive/), and its status is a
-// frontmatter key (ready/in_progress/done/failed/blocked) that only changes
-// while the task is active. Both axes are freeform — any value can move to any
-// other in one step. Each mutation optionally makes a local git commit when
+// state is the folder it lives in (drafts/ tasks/ archive/), and its status is
+// a frontmatter key (ready/in_progress/blocked/done/failed). Both axes are
+// freeform — any value can move to any other in one step, in any state. Each mutation optionally makes a local git commit when
 // auto_commit is set.
 package tasks
 
@@ -103,7 +102,7 @@ func loadTask(path string) (*models.Task, error) {
 		State:     state,
 		Status:    status,
 		Path:      path,
-		Agent:     fm.Agent,
+		Assignee:  fm.Assignee,
 		Labels:    fm.Labels,
 		DependsOn: fm.DependsOn,
 		CreatedAt: parseDT(fm.CreatedAt),
@@ -220,7 +219,7 @@ func Dependents(boardDir, taskID string) ([]*models.Task, error) {
 }
 
 // Create makes a task in drafts/ with status ready.
-func Create(boardDir, title, agent string, labels, dependsOn []string, body string) (*models.Task, error) {
+func Create(boardDir, title, assignee string, labels, dependsOn []string, body string) (*models.Task, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.Invalid("task title must not be empty")
 	}
@@ -241,7 +240,7 @@ func Create(boardDir, title, agent string, labels, dependsOn []string, body stri
 		Title:     strings.TrimSpace(title),
 		State:     models.StateDraft,
 		Status:    models.DefaultStatus,
-		Agent:     agent,
+		Assignee:  assignee,
 		Labels:    labels,
 		DependsOn: dependsOn,
 		CreatedAt: &n,
@@ -259,7 +258,7 @@ func Get(boardDir, taskID string) (*models.Task, error) {
 // EditOpts carries optional field changes for Edit. Nil fields are unchanged.
 type EditOpts struct {
 	Title      *string
-	Agent      *string
+	Assignee   *string
 	Labels     *[]string
 	DependsOn  *[]string
 	Body       *string
@@ -283,8 +282,8 @@ func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
 		}
 		task.Title = strings.TrimSpace(*opts.Title)
 	}
-	if opts.Agent != nil {
-		task.Agent = *opts.Agent
+	if opts.Assignee != nil {
+		task.Assignee = *opts.Assignee
 	}
 	if opts.Labels != nil {
 		task.Labels = *opts.Labels

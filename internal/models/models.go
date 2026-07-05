@@ -97,7 +97,7 @@ type Task struct {
 	State     TaskState
 	Status    TaskStatus
 	Path      string
-	Agent     string
+	Assignee  string
 	Labels    []string
 	DependsOn []string
 	CreatedAt *time.Time
@@ -127,7 +127,7 @@ func (t *Task) ToMap() map[string]any {
 		"title":      t.Title,
 		"state":      string(t.State),
 		"status":     string(t.Status),
-		"agent":      t.Agent,
+		"assignee":   t.Assignee,
 		"labels":     labels,
 		"depends_on": deps,
 		"created_at": isoOrNil(t.CreatedAt),

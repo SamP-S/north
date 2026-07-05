@@ -150,7 +150,7 @@ func TestRoundTripFidelity(t *testing.T) {
 	if got.Body != body {
 		t.Errorf("body round-trip failed:\n got %q\nwant %q", got.Body, body)
 	}
-	if got.Agent != "ollama:llama3" || len(got.Labels) != 2 || len(got.DependsOn) != 1 {
+	if got.Assignee != "ollama:llama3" || len(got.Labels) != 2 || len(got.DependsOn) != 1 {
 		t.Errorf("fields lost: %+v", got)
 	}
 	// Timestamps persist at RFC3339 (second) precision.
@@ -162,7 +162,7 @@ func TestRoundTripFidelity(t *testing.T) {
 func TestEditorDocRoundTrip(t *testing.T) {
 	doc := tasks.EditorDoc{
 		Title:     "Fix the télé",
-		Agent:     "opus",
+		Assignee:  "opus",
 		Labels:    []string{"a", "b"},
 		DependsOn: []string{"4"},
 		Body:      "line one\n\nline two",
@@ -175,7 +175,7 @@ func TestEditorDocRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != doc.Title || got.Agent != doc.Agent || got.Body != doc.Body {
+	if got.Title != doc.Title || got.Assignee != doc.Assignee || got.Body != doc.Body {
 		t.Errorf("round trip: %+v != %+v", got, doc)
 	}
 	if len(got.Labels) != 2 || len(got.DependsOn) != 1 || got.DependsOn[0] != "4" {

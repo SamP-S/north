@@ -77,7 +77,7 @@ func TestCreateTemplateParses(t *testing.T) {
 func TestEditTemplateRoundTrip(t *testing.T) {
 	task := &models.Task{
 		Title:     "Fix login",
-		Agent:     "opus",
+		Assignee:  "opus",
 		Labels:    []string{"auth"},
 		DependsOn: []string{"4"},
 		Body:      "line one\n\nline two",
@@ -90,7 +90,7 @@ func TestEditTemplateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Title != task.Title || doc.Agent != task.Agent || doc.Body != task.Body {
+	if doc.Title != task.Title || doc.Assignee != task.Assignee || doc.Body != task.Body {
 		t.Errorf("round trip mismatch: %+v", doc)
 	}
 	if len(doc.Labels) != 1 || len(doc.DependsOn) != 1 || doc.DependsOn[0] != "4" {

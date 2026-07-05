@@ -23,7 +23,7 @@ type taskFields struct {
 	ID        string
 	Title     string
 	Status    string
-	Agent     string
+	Assignee  string
 	Labels    []string
 	DependsOn []string
 	CreatedAt string
@@ -79,8 +79,8 @@ func parseFront(meta string) (*yaml.Node, taskFields, error) {
 			f.Title = scalarString(v)
 		case "status":
 			f.Status = scalarString(v)
-		case "agent":
-			f.Agent = scalarString(v)
+		case "assignee":
+			f.Assignee = scalarString(v)
 		case "labels":
 			f.Labels = seqStrings(v)
 		case "depends_on":
@@ -105,7 +105,7 @@ func renderTask(task *models.Task, prev *yaml.Node) (string, error) {
 	setKey(m, "id", strScalar(task.ID, true))
 	setKey(m, "title", strScalar(task.Title, false))
 	setKey(m, "status", strScalar(string(task.Status), false))
-	setKey(m, "agent", strScalar(task.Agent, false))
+	setKey(m, "assignee", strScalar(task.Assignee, false))
 	setKey(m, "labels", seqScalar(task.Labels, false))
 	setKey(m, "depends_on", seqScalar(task.DependsOn, true))
 	setKey(m, "created_at", timeScalar(task.CreatedAt))
@@ -210,7 +210,7 @@ func timeScalar(t *time.Time) *yaml.Node {
 // commands and are deliberately absent.
 type EditorDoc struct {
 	Title     string
-	Agent     string
+	Assignee  string
 	Labels    []string
 	DependsOn []string
 	Body      string
@@ -220,7 +220,7 @@ type EditorDoc struct {
 func RenderEditorDoc(d EditorDoc) (string, error) {
 	m := &yaml.Node{Kind: yaml.MappingNode}
 	setKey(m, "title", strScalar(d.Title, false))
-	setKey(m, "agent", strScalar(d.Agent, false))
+	setKey(m, "assignee", strScalar(d.Assignee, false))
 	setKey(m, "labels", seqScalar(d.Labels, false))
 	setKey(m, "depends_on", seqScalar(d.DependsOn, true))
 	out, err := yaml.Marshal(m)
@@ -247,7 +247,7 @@ func ParseEditorDoc(content string) (EditorDoc, error) {
 		return d, err
 	}
 	d.Title = f.Title
-	d.Agent = f.Agent
+	d.Assignee = f.Assignee
 	d.Labels = f.Labels
 	d.DependsOn = f.DependsOn
 	d.Body = strings.Trim(body, "\n")

@@ -294,7 +294,7 @@ func (m listModel) renderDetail(t *models.Task) string {
 	fmt.Fprintf(&sb, "status:      %s\n",
 		statusStyle(string(t.Status)).Render(string(t.Status)))
 	fmt.Fprintf(&sb, "labels:      %s\n", strings.Join(t.Labels, ", "))
-	fmt.Fprintf(&sb, "agent:       %s\n", t.Agent)
+	fmt.Fprintf(&sb, "assignee:    %s\n", t.Assignee)
 	fmt.Fprintf(&sb, "depends_on:  %s\n", m.renderDeps(t))
 
 	created := ""
@@ -355,14 +355,14 @@ func (m listModel) applyFilter() []*models.Task {
 	return out
 }
 
-// matchesFilter reports whether a task's id, title, agent, labels, or body
+// matchesFilter reports whether a task's id, title, assignee, labels, or body
 // contain the query (case-insensitive substring match, same fields as the
 // CLI's list --search). Shared by the board and list.
 func matchesFilter(t *models.Task, query string) bool {
 	q := strings.ToLower(query)
 	return strings.Contains(strings.ToLower(t.Title), q) ||
 		strings.Contains(strings.ToLower(t.ID), q) ||
-		strings.Contains(strings.ToLower(t.Agent), q) ||
+		strings.Contains(strings.ToLower(t.Assignee), q) ||
 		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) ||
 		strings.Contains(strings.ToLower(t.Body), q)
 }

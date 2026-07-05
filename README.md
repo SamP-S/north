@@ -32,7 +32,7 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 ```bash
 cd your-project
 north init                                  # create the north/ board
-north task create "Add login form" --agent opus4.8 --labels auth   # lands in drafts/
+north task create "Add login form" --assignee claude:opus --labels auth   # lands in drafts/
 north task state 1 active                   # drafts -> tasks (onto the active board)
 north task move 1 in_progress               # change status (any → any)
 north task view 1
@@ -74,7 +74,7 @@ A task is one file, `<n>-<title-slug>.md`, in its state folder.
 id: "12"                 # bare number, unique across the board
 title: Add login form
 status: ready            # workflow status (frontmatter is the source of truth)
-agent: opus4.8           # optional, free-form, opaque executor/provider tag
+assignee: claude:opus    # optional, free-form — a person ("john") or an agent
 labels: [auth]           # optional free-form tags
 depends_on: ["4"]        # task ids
 created_at: "2026-06-24T…"
@@ -92,10 +92,10 @@ Malformed files never break the board — they surface as warnings, and
 | Command | Description |
 |---|---|
 | `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
-| `north task create <title> [--agent --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
+| `north task create <title> [--assignee --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
 | `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L]` | List tasks (default active) |
 | `north task view <id>` | Show a task |
-| `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
+| `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
 | `north task move <id> <status>` | Set status (any → any, in any state) |
 | `north task state <id> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id> [-y]` | Delete a task (`-y` required in machine/non-TTY modes) |
@@ -120,12 +120,12 @@ is honoured in the TUI.
 
 `north tui` opens a full-screen interactive terminal UI:
 
-- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right; every column sorts by ascending id. Cards in the two state columns carry a status-colored dot, and all cards show dim tags: `@` agent assigned, `!` waiting on an unmet dependency (resolves when the dependency is done or archived), `&` other tasks depend on it.
+- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right; every column sorts by ascending id. Cards in the two state columns carry a status-colored dot, and all cards show dim tags: `@` assignee set, `!` waiting on an unmet dependency (resolves when the dependency is done or archived), `&` other tasks depend on it.
 - **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail (id, deps with their status, rendered Markdown body).
 - **Tab** switches between the two views; **Enter** on a board card opens the task in a scrollable popup (`e` edits from there, esc closes).
 - **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
 - **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
-- **`/`** live-filters **both views** in place (id, title, agent, labels, body — case-insensitive) — the board narrows its columns, the list its rows; **esc** clears the filter.
+- **`/`** live-filters **both views** in place (id, title, assignee, labels, body — case-insensitive) — the board narrows its columns, the list its rows; **esc** clears the filter.
 - A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
 - **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
 

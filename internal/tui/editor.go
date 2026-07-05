@@ -1,7 +1,7 @@
 // editor.go — the $EDITOR flow for creating and editing tasks.
 //
 // The editor buffer uses the real on-disk task-file format (YAML frontmatter +
-// Markdown body), restricted to the editable fields: title, agent, labels,
+// Markdown body), restricted to the editable fields: title, assignee, labels,
 // depends_on, and the body. id/state/status are managed by their own keys and
 // never appear in the buffer. Parsing reuses the same frontmatter code as the
 // task files themselves.
@@ -39,7 +39,7 @@ type editorDoneMsg struct {
 func createTemplate() string {
 	out, err := tasks.RenderEditorDoc(tasks.EditorDoc{})
 	if err != nil {
-		return "---\ntitle: \nagent: \nlabels: []\ndepends_on: []\n---\n\n"
+		return "---\ntitle: \nassignee: \nlabels: []\ndepends_on: []\n---\n\n"
 	}
 	return out + "Describe the task here.\n"
 }
@@ -48,7 +48,7 @@ func createTemplate() string {
 func editTemplate(t *models.Task) (string, error) {
 	return tasks.RenderEditorDoc(tasks.EditorDoc{
 		Title:     t.Title,
-		Agent:     t.Agent,
+		Assignee:  t.Assignee,
 		Labels:    t.Labels,
 		DependsOn: t.DependsOn,
 		Body:      t.Body,

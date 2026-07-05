@@ -65,7 +65,7 @@ func printWarnings(cmd *cobra.Command, warnings []tasks.Warning) {
 }
 
 func newTaskCreateCmd() *cobra.Command {
-	var agent, body, bodyFile string
+	var assignee, body, bodyFile string
 	var labels, dependsOn []string
 	var plain, asJSON bool
 	cmd := &cobra.Command{
@@ -85,7 +85,7 @@ func newTaskCreateCmd() *cobra.Command {
 			if bodyPtr != nil {
 				bodyStr = *bodyPtr
 			}
-			task, err := tasks.Create(boardDir, args[0], agent, labels, dependsOn, bodyStr)
+			task, err := tasks.Create(boardDir, args[0], assignee, labels, dependsOn, bodyStr)
 			if err != nil {
 				return err
 			}
@@ -101,7 +101,7 @@ func newTaskCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&agent, "agent", "", "executor/provider tag (opaque)")
+	cmd.Flags().StringVar(&assignee, "assignee", "", "who works this task — a person or an agent (free-form)")
 	cmd.Flags().StringSliceVar(&labels, "labels", nil, "free-form labels")
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "task ids this depends on")
 	cmd.Flags().StringVar(&body, "body", "", "task body text")
@@ -179,13 +179,13 @@ func newTaskListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
-	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, agent, labels, and body (case-insensitive)")
+	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, assignee, labels, and body (case-insensitive)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
 
-// filterSearch keeps tasks whose id, title, agent, labels, or body contain q
+// filterSearch keeps tasks whose id, title, assignee, labels, or body contain q
 // (case-insensitive). Empty q keeps everything.
 func filterSearch(ts []*models.Task, q string) []*models.Task {
 	if q == "" {
@@ -196,7 +196,7 @@ func filterSearch(ts []*models.Task, q string) []*models.Task {
 	for _, t := range ts {
 		if strings.Contains(strings.ToLower(t.ID), q) ||
 			strings.Contains(strings.ToLower(t.Title), q) ||
-			strings.Contains(strings.ToLower(t.Agent), q) ||
+			strings.Contains(strings.ToLower(t.Assignee), q) ||
 			strings.Contains(strings.ToLower(t.Body), q) ||
 			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
 			out = append(out, t)
@@ -247,7 +247,7 @@ func listStates(state string) ([]models.TaskState, error) {
 }
 
 func newTaskEditCmd() *cobra.Command {
-	var title, agent, body, bodyFile, appendBody string
+	var title, assignee, body, bodyFile, appendBody string
 	var labels, dependsOn []string
 	var plain, asJSON bool
 	cmd := &cobra.Command{
@@ -269,7 +269,7 @@ func newTaskEditCmd() *cobra.Command {
 			}
 			opts := tasks.EditOpts{
 				Title:     changedString(cmd, "title", title),
-				Agent:     changedString(cmd, "agent", agent),
+				Assignee:  changedString(cmd, "assignee", assignee),
 				Labels:    changedSlice(cmd, "labels", labels),
 				DependsOn: changedSlice(cmd, "depends-on", dependsOn),
 				Body:      bodyPtr,
@@ -294,7 +294,7 @@ func newTaskEditCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "new title")
-	cmd.Flags().StringVar(&agent, "agent", "", "executor or provider tag")
+	cmd.Flags().StringVar(&assignee, "assignee", "", "who works this task — a person or an agent (free-form)")
 	cmd.Flags().StringSliceVar(&labels, "labels", nil, "replace labels (empty to clear)")
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "replace dependencies (empty to clear)")
 	cmd.Flags().StringVar(&body, "body", "", "replace body text")

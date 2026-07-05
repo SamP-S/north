@@ -9,10 +9,10 @@ it (codes: `not_found`, `conflict`, `invalid`, `internal`).
 | Command | Description |
 |---|---|
 | `north init` | Scaffold `north/config.yml` + the `drafts/ tasks/ archive/` folders. Refuses (`conflict`) when a board already exists at or above the cwd |
-| `north task create <title> [--agent A] [--labels ...] [--depends-on ...] [--body \| --body-file] [--plain \| --json]` | Create a task (lands in `drafts/`, status `ready`) |
-| `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/agent/labels/body (case-insensitive); `--label` is exact and repeatable |
+| `north task create <title> [--assignee A] [--labels ...] [--depends-on ...] [--body \| --body-file] [--plain \| --json]` | Create a task (lands in `drafts/`, status `ready`) |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/assignee/labels/body (case-insensitive); `--label` is exact and repeatable |
 | `north task view <id> [--plain \| --json]` | Show one task (state, status, fields + body) |
-| `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
+| `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
 | `north task move <id> <status> [--plain \| --json]` | Set status, in place (freeform: any → any, in any state) |
 | `north task state <id> <draft\|active\|archive> [--plain \| --json]` | Move a task between lifecycle folders, preserving status (freeform: any → any) |
 | `north task delete <id> [-y/--yes] [--plain \| --json]` | Delete a task. With `--plain`/`--json` or non-TTY stdin, `-y` is required (no prompt) |

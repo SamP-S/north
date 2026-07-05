@@ -63,7 +63,7 @@ func TaskDetail(task *models.Task, plain, asJSON bool) (string, error) {
 		fmt.Sprintf("title:      %s", task.Title),
 		fmt.Sprintf("state:      %s", task.State),
 		fmt.Sprintf("status:     %s", task.Status),
-		fmt.Sprintf("agent:      %s", task.Agent),
+		fmt.Sprintf("assignee:   %s", task.Assignee),
 		fmt.Sprintf("labels:     %s", strings.Join(task.Labels, ", ")),
 		fmt.Sprintf("depends_on: %s", strings.Join(task.DependsOn, ", ")),
 		fmt.Sprintf("created_at: %s", isoOrEmpty(task.CreatedAt)),
