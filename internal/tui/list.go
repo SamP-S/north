@@ -233,16 +233,14 @@ func (m listModel) renderList(innerW, innerH int) string {
 	for i := offset; i < len(m.filtered) && count < visH; i++ {
 		t := m.filtered[i]
 
-		prefix := "  "
-		rowStyle := styleCardNormal
 		selected := i == m.cursor
+		prefix := "  "
 		if selected {
 			prefix = "► "
-			rowStyle = styleCardSelected
 		}
 
-		// Inner styles (id, status) reset the outer bold, so bold them too
-		// on the selected row — every field of the row reads bold.
+		// Each segment styles (and bolds) itself: a styled segment ends with
+		// an ANSI reset that would cancel one outer row-wide bold.
 		stateStr := fmt.Sprintf("%-7s", stateLabel(t.State))
 		statusStr := statusStyle(string(t.Status)).Bold(selected).Render(fmt.Sprintf("%-11s", string(t.Status)))
 		idStr := styleID.Bold(selected).Render(fmt.Sprintf("%-4s", t.ID))
@@ -255,8 +253,13 @@ func (m listModel) renderList(innerW, innerH int) string {
 		// Truncate by display width so multibyte/wide titles never break.
 		title := ansi.Truncate(t.Title, titleW, "…")
 		row := meta + title
+		if selected {
+			row = styleCardSelected.Render(prefix) + idStr +
+				styleCardSelected.Render(" "+stateStr+" ") + statusStr +
+				styleCardSelected.Render(" "+title)
+		}
 
-		lines = append(lines, rowStyle.Render(row))
+		lines = append(lines, row)
 		count++
 	}
 

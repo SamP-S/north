@@ -363,9 +363,12 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 			title := ansi.Truncate(t.Title, maxTitle, "…")
 
 			if isActive && j == col.cursor {
-				// The id's own style resets the outer bold, so bold it too.
-				line := "► " + styleID.Bold(true).Render(t.ID) + " " + title
-				lines = append(lines, styleCardSelected.Width(innerW).Render(line))
+				// Each segment is bolded on its own: a styled segment ends
+				// with an ANSI reset that would cancel one outer bold.
+				line := styleCardSelected.Render("► ") +
+					styleID.Bold(true).Render(t.ID) +
+					styleCardSelected.Render(" "+title)
+				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
 			} else {
 				line := "  " + styleID.Render(t.ID) + " " + title
 				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
