@@ -142,6 +142,9 @@ agent that reads `.claude/skills`).
 
 ---
 
+## License
+[MIT](LICENSE.md)
+
 ## Development
 ```bash
 make build         # go build -o bin/north ./cmd/north
