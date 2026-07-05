@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/SamP-S/north/internal/models"
+)
 
 var (
 	// status colours
@@ -49,6 +53,10 @@ var (
 	styleHeader = lipgloss.NewStyle().Bold(true)
 	styleFooter = lipgloss.NewStyle().Foreground(colorDim)
 
+	// state label colours (active stays the default foreground)
+	styleStateDraft   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")) // cyan
+	styleStateArchive = lipgloss.NewStyle().Foreground(colorDim)
+
 	// status label colours
 	styleStatusReady      = lipgloss.NewStyle().Foreground(colorReady)
 	styleStatusInProgress = lipgloss.NewStyle().Foreground(colorInProgress)
@@ -79,6 +87,18 @@ func noticeStyle(level noticeLevel) lipgloss.Style {
 		return styleNoticeWarn
 	case noticeError:
 		return styleNoticeError
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// stateStyle returns the lipgloss style for a task state label.
+func stateStyle(s models.TaskState) lipgloss.Style {
+	switch s {
+	case models.StateDraft:
+		return styleStateDraft
+	case models.StateArchive:
+		return styleStateArchive
 	default:
 		return lipgloss.NewStyle()
 	}

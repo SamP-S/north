@@ -370,7 +370,7 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 	// Header: status columns in their status colour, state columns dimmed.
 	var label string
 	if isStateCol {
-		label = styleID.Render(col.title)
+		label = stateStyle(col.state).Render(col.title)
 	} else {
 		label = statusStyle(col.status).Render(col.title)
 	}

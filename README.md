@@ -125,7 +125,7 @@ is honoured in the TUI.
 - **Tab** switches between the two views; **Enter** on a board card opens the task in a scrollable popup (`e` edits from there, esc closes).
 - **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
 - **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
-- **`/`** live-filters **both views** in place (title, id, labels) — the board narrows its columns, the list its rows; **esc** clears the filter.
+- **`/`** live-filters **both views** in place (title, id, labels, body — case-insensitive) — the board narrows its columns, the list its rows; **esc** clears the filter.
 - A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
 - **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
 

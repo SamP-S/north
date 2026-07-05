@@ -241,7 +241,7 @@ func (m listModel) renderList(innerW, innerH int) string {
 
 		// Each segment styles (and bolds) itself: a styled segment ends with
 		// an ANSI reset that would cancel one outer row-wide bold.
-		stateStr := fmt.Sprintf("%-7s", stateLabel(t.State))
+		stateStr := stateStyle(t.State).Bold(selected).Render(fmt.Sprintf("%-7s", stateLabel(t.State)))
 		statusStr := statusStyle(string(t.Status)).Bold(selected).Render(fmt.Sprintf("%-11s", string(t.Status)))
 		idStr := styleID.Bold(selected).Render(fmt.Sprintf("%-4s", t.ID))
 		meta := fmt.Sprintf("%s%s %s %s ", prefix, idStr, stateStr, statusStr)
@@ -254,9 +254,8 @@ func (m listModel) renderList(innerW, innerH int) string {
 		title := ansi.Truncate(t.Title, titleW, "…")
 		row := meta + title
 		if selected {
-			row = styleCardSelected.Render(prefix) + idStr +
-				styleCardSelected.Render(" "+stateStr+" ") + statusStr +
-				styleCardSelected.Render(" "+title)
+			row = styleCardSelected.Render(prefix) + idStr + " " + stateStr +
+				" " + statusStr + styleCardSelected.Render(" "+title)
 		}
 
 		lines = append(lines, row)
@@ -291,7 +290,7 @@ func (m listModel) renderDetail(t *models.Task) string {
 
 	fmt.Fprintf(&sb, "id:          %s\n", styleID.Render(t.ID))
 	fmt.Fprintf(&sb, "title:       %s\n", t.Title)
-	fmt.Fprintf(&sb, "state:       %s\n", string(t.State))
+	fmt.Fprintf(&sb, "state:       %s\n", stateStyle(t.State).Render(string(t.State)))
 	fmt.Fprintf(&sb, "status:      %s\n",
 		statusStyle(string(t.Status)).Render(string(t.Status)))
 	fmt.Fprintf(&sb, "labels:      %s\n", strings.Join(t.Labels, ", "))
@@ -356,13 +355,15 @@ func (m listModel) applyFilter() []*models.Task {
 	return out
 }
 
-// matchesFilter reports whether a task's id, title, or labels contain the
-// query (case-insensitive substring match). Shared by the board and list.
+// matchesFilter reports whether a task's id, title, labels, or body contain
+// the query (case-insensitive substring match, same fields as the CLI's
+// list --search). Shared by the board and list.
 func matchesFilter(t *models.Task, query string) bool {
 	q := strings.ToLower(query)
 	return strings.Contains(strings.ToLower(t.Title), q) ||
 		strings.Contains(strings.ToLower(t.ID), q) ||
-		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q)
+		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) ||
+		strings.Contains(strings.ToLower(t.Body), q)
 }
 
 // sortDescByID sorts tasks by their numeric id in descending order (newest
