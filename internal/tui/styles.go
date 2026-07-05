@@ -23,13 +23,10 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(colorInactiveBorder)
 
-	// task card inside a column
-	styleCardSelected = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorActiveBorder)
-	styleCardNormal = lipgloss.NewStyle()
-	// cards in non-focused board columns
-	styleCardDim = lipgloss.NewStyle().Foreground(colorDim)
+	// task card / list row — selection is denoted by the ► prefix and bold
+	// text only; colouring stays the same as unselected rows
+	styleCardSelected = lipgloss.NewStyle().Bold(true)
+	styleCardNormal   = lipgloss.NewStyle()
 
 	// task ID — always dimmed
 	styleID = lipgloss.NewStyle().Foreground(colorDim)

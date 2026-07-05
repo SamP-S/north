@@ -362,18 +362,12 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 			}
 			title := ansi.Truncate(t.Title, maxTitle, "…")
 
-			switch {
-			case isActive && j == col.cursor:
-				line := "► " + t.ID + " " + title
+			if isActive && j == col.cursor {
+				line := "► " + styleID.Render(t.ID) + " " + title
 				lines = append(lines, styleCardSelected.Width(innerW).Render(line))
-			case isActive:
+			} else {
 				line := "  " + styleID.Render(t.ID) + " " + title
 				lines = append(lines, styleCardNormal.Width(innerW).Render(line))
-			default:
-				// Cards outside the focused column are dimmed wholesale so
-				// the eye lands on the focused column first.
-				line := "  " + t.ID + " " + title
-				lines = append(lines, styleCardDim.Width(innerW).Render(line))
 			}
 		}
 		if offset > 0 {
