@@ -7,7 +7,6 @@
 # Env / local
 .env
 tmp/
-demo/
 
 # North board (dogfooding — not committed)
 north/
