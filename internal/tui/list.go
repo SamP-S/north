@@ -1,4 +1,7 @@
-// Package tui provides the interactive terminal UI for North.
+// list.go — list+detail sub-model for the North TUI.
+//
+// The list holds navigation and search state only; action keys (c/e/m/s/d)
+// and every modal live in the root Model so both views behave identically.
 package tui
 
 import (
@@ -13,6 +16,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
@@ -32,19 +37,22 @@ type listModel struct {
 	boardDir    string
 	allTasks    []*models.Task
 	filtered    []*models.Task
+	warnings    int
 	cursor      int
 	activePane  paneMode
 	vp          viewport.Model
 	searchInput textinput.Model
 	searching   bool
 	searchQuery string
-	confirm     confirmKind // reuses the confirmKind/confirmNone/… declared in board.go
-	confirmText string      // prompt shown for the active confirm (may be multi-line)
-	pendingFn   func() error
-	modal       modalMode // reuses modalMode/modalStatusPicker/modalNone declared in board.go
-	modalCursor int
 	width       int
 	height      int
+
+	// Markdown rendering: the glamour style is detected once (querying the
+	// terminal is only safe before Bubble Tea owns it) and the renderer is
+	// cached per word-wrap width — building one per keystroke stalls input.
+	mdStyle string
+	md      *glamour.TermRenderer
+	mdWidth int
 }
 
 // newListModel constructs a zeroed listModel for the given board directory.
@@ -59,7 +67,22 @@ func newListModel(boardDir string) listModel {
 		boardDir:    boardDir,
 		searchInput: ti,
 		vp:          vp,
+		mdStyle:     detectMarkdownStyle(),
 	}
+}
+
+// detectMarkdownStyle picks the glamour style for task bodies. It runs during
+// model construction — before tea.Program.Run — because the light/dark check
+// sends an OSC query to the terminal and must not race Bubble Tea's input
+// reader (doing so blocks the UI and swallows keystrokes).
+func detectMarkdownStyle() string {
+	if lipgloss.ColorProfile() == termenv.Ascii {
+		return "notty"
+	}
+	if lipgloss.HasDarkBackground() {
+		return "dark"
+	}
+	return "light"
 }
 
 // Init returns a command that triggers the initial data load via reloadMsg so
@@ -68,16 +91,17 @@ func (m listModel) Init() tea.Cmd {
 	return func() tea.Msg { return reloadMsg{} }
 }
 
-// reload loads all tasks from disk, applies the current filter, clamps the
-// cursor, and refreshes the detail viewport. Called by the root model on every
-// reloadMsg.
+// reload loads all tasks from disk (tolerantly), applies the current filter,
+// clamps the cursor, and refreshes the detail viewport.
 func (m listModel) reload() (listModel, tea.Cmd) {
-	ts, err := tasks.List(m.boardDir, models.StateOrder, "")
+	snap, err := tasks.Load(m.boardDir)
 	if err != nil {
 		return m, func() tea.Msg { return errMsg{err} }
 	}
+	ts := snap.Filter(nil, "")
 	sortDescByID(ts)
 	m.allTasks = ts
+	m.warnings = len(snap.Warnings)
 	m.filtered = m.applyFilter()
 	m.cursor = min(m.cursor, max(0, len(m.filtered)-1))
 	m.syncViewport()
@@ -99,8 +123,6 @@ func (m *listModel) setSize(width, height int) {
 }
 
 // Update handles messages when the list view is active.
-// It returns (listModel, tea.Cmd) rather than (tea.Model, tea.Cmd) so the root
-// model can update its stored listModel field directly.
 func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 	// Search mode: route input to the text field.
 	if m.searching {
@@ -121,39 +143,6 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Confirm mode: wait for y/n.
-	if m.confirm != confirmNone {
-		if km, ok := msg.(tea.KeyMsg); ok {
-			switch km.String() {
-			case "y":
-				fn := m.pendingFn
-				m.confirm = confirmNone
-				m.pendingFn = nil
-				m.confirmText = ""
-				if fn != nil {
-					if err := fn(); err != nil {
-						return m, func() tea.Msg { return errMsg{err} }
-					}
-				}
-				return m, func() tea.Msg { return reloadMsg{} }
-			case "n", "esc":
-				m.confirm = confirmNone
-				m.pendingFn = nil
-				m.confirmText = ""
-			}
-		}
-		return m, nil
-	}
-
-	// Status-picker modal (move status), same modal used by the board view.
-	if m.modal == modalStatusPicker {
-		if km, ok := msg.(tea.KeyMsg); ok {
-			return m.updateStatusPicker(km)
-		}
-		return m, nil
-	}
-
-	// Normal mode.
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -175,7 +164,7 @@ func (m listModel) Update(msg tea.Msg) (listModel, tea.Cmd) {
 	return m, nil
 }
 
-// updateListPane handles key events when the list pane is focused.
+// updateListPane handles navigation when the list pane is focused.
 func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 	switch {
 	case key.Matches(km, keys.Down):
@@ -188,130 +177,30 @@ func (m listModel) updateListPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 		m.cursor = max(m.cursor-1, 0)
 		m.syncViewport()
 
-	case key.Matches(km, keys.Right):
+	case key.Matches(km, keys.Right), key.Matches(km, keys.Enter):
 		m.activePane = paneDetail
-
-	case key.Matches(km, keys.Create):
-		return m, openEditor(createTemplate(), modeCreate, "")
-
-	case key.Matches(km, keys.Edit):
-		if t := m.selected(); t != nil {
-			return m, openEditor(taskToTemplate(t), modeEdit, t.ID)
-		}
-
-	case key.Matches(km, keys.Move):
-		if t := m.selected(); t != nil && t.State == models.StateActive {
-			m.modal = modalStatusPicker
-			m.modalCursor = statusIndex(t.Status)
-		}
-
-	case key.Matches(km, keys.Promote):
-		if t := m.selected(); t != nil {
-			return m, promoteOrDemote(m.boardDir, t)
-		}
-
-	case key.Matches(km, keys.Archive):
-		if t := m.selected(); t != nil {
-			if t.State == models.StateArchive {
-				// restore is non-destructive — no confirm needed
-				id := t.ID
-				if _, err := tasks.Restore(m.boardDir, id); err != nil {
-					return m, func() tea.Msg { return errMsg{err} }
-				}
-				return m, func() tea.Msg { return reloadMsg{} }
-			}
-			id := t.ID
-			m.confirm = confirmArchive
-			m.confirmText = fmt.Sprintf("archive %s? [y/n]", id)
-			m.pendingFn = func() error {
-				_, err := tasks.Archive(m.boardDir, id)
-				return err
-			}
-		}
-
-	case key.Matches(km, keys.Delete):
-		if t := m.selected(); t != nil {
-			id := t.ID
-			m.confirm = confirmDelete
-			m.confirmText = deleteConfirmText(m.boardDir, t)
-			m.pendingFn = func() error {
-				return tasks.Delete(m.boardDir, id)
-			}
-		}
 	}
 
-	return m, nil
-}
-
-// updateStatusPicker handles key events for the "move to status" modal,
-// mirroring boardModel's handler so the picker behaves identically in both
-// views.
-func (m listModel) updateStatusPicker(km tea.KeyMsg) (listModel, tea.Cmd) {
-	switch {
-	case key.Matches(km, keys.Up):
-		if m.modalCursor > 0 {
-			m.modalCursor--
-		}
-
-	case key.Matches(km, keys.Down):
-		if m.modalCursor < len(models.Statuses)-1 {
-			m.modalCursor++
-		}
-
-	case key.Matches(km, keys.Enter):
-		t := m.selected()
-		if t == nil {
-			m.modal = modalNone
-			return m, nil
-		}
-		newStatus := string(models.Statuses[m.modalCursor])
-		boardDir := m.boardDir
-		taskID := t.ID
-		m.modal = modalNone
-		return m, func() tea.Msg {
-			if _, err := tasks.SetStatus(boardDir, taskID, newStatus); err != nil {
-				return errMsg{err}
-			}
-			return reloadMsg{}
-		}
-
-	case key.Matches(km, keys.Esc):
-		m.modal = modalNone
-	}
 	return m, nil
 }
 
 // updateDetailPane handles key events when the detail pane is focused.
-// Scroll keys apply to the viewport; all action keys delegate to updateListPane
-// so they work regardless of which pane is active.
 func (m listModel) updateDetailPane(km tea.KeyMsg) (listModel, tea.Cmd) {
 	switch {
 	case key.Matches(km, keys.Down):
 		m.vp.LineDown(1)
-		return m, nil
 	case key.Matches(km, keys.Up):
 		m.vp.LineUp(1)
-		return m, nil
-	case key.Matches(km, keys.Left):
+	case key.Matches(km, keys.Left), key.Matches(km, keys.Esc):
 		m.activePane = paneList
-		return m, nil
 	}
-	// All other keys (create, edit, promote, archive, delete, search…) behave
-	// identically whether the list or detail pane is focused.
-	return m.updateListPane(km)
+	return m, nil
 }
 
-// View renders the full list view: two side-by-side panes and a footer bar,
-// or the status-picker modal centered over them when active.
+// View renders the full list view: two side-by-side panes and a footer bar.
 func (m listModel) View() string {
 	if m.width == 0 {
 		return ""
-	}
-
-	if m.modal == modalStatusPicker {
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			renderStatusPicker(m.modalCursor))
 	}
 
 	leftW, rightW, paneH := m.paneWidths()
@@ -355,11 +244,6 @@ func (m listModel) renderList(innerW, innerH int) string {
 		visH--
 	}
 
-	// Confirm prompt reserves its lines at the bottom when pending (the
-	// dependents warning can push the prompt to two lines).
-	confirmLines := m.confirmLines()
-	visH -= len(confirmLines)
-
 	// Scroll offset: keep the cursor in view.
 	offset := 0
 	if visH > 0 && m.cursor >= visH {
@@ -379,17 +263,15 @@ func (m listModel) renderList(innerW, innerH int) string {
 
 		stateStr := fmt.Sprintf("%-7s", stateLabel(t.State))
 		statusStr := statusStyle(string(t.Status)).Render(fmt.Sprintf("%-11s", string(t.Status)))
-		idStr := styleID.Render(fmt.Sprintf("%-10s", t.ID))
+		idStr := styleID.Render(fmt.Sprintf("%-4s", t.ID))
 		meta := fmt.Sprintf("%s%s %s %s ", prefix, idStr, stateStr, statusStr)
 		metaW := lipgloss.Width(meta)
 		titleW := innerW - metaW
-		title := t.Title
 		if titleW < 4 {
 			titleW = 4
 		}
-		if len(title) > titleW {
-			title = title[:titleW-1] + "…"
-		}
+		// Truncate by display width so multibyte/wide titles never break.
+		title := ansi.Truncate(t.Title, titleW, "…")
 		row := meta + title
 
 		lines = append(lines, rowStyle.Render(row))
@@ -402,24 +284,7 @@ func (m listModel) renderList(innerW, innerH int) string {
 		count++
 	}
 
-	lines = append(lines, confirmLines...)
-
 	return strings.Join(lines, "\n")
-}
-
-// confirmLines returns the confirmation prompt as styled lines (one per line
-// of confirmText — the dependents warning can span two lines), or nil when no
-// confirm is pending.
-func (m listModel) confirmLines() []string {
-	if m.confirm == confirmNone {
-		return nil
-	}
-	raw := strings.Split(m.confirmText, "\n")
-	out := make([]string, len(raw))
-	for i, l := range raw {
-		out[i] = styleError.Render(l)
-	}
-	return out
 }
 
 // renderDetail produces the detail pane content string for a task.
@@ -430,53 +295,74 @@ func (m listModel) renderDetail(t *models.Task) string {
 
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "title:   %s\n", t.Title)
-	fmt.Fprintf(&sb, "state:   %s\n", string(t.State))
-	fmt.Fprintf(&sb, "status:  %s\n",
+	fmt.Fprintf(&sb, "id:          %s\n", styleID.Render(t.ID))
+	fmt.Fprintf(&sb, "title:       %s\n", t.Title)
+	fmt.Fprintf(&sb, "state:       %s\n", string(t.State))
+	fmt.Fprintf(&sb, "status:      %s\n",
 		statusStyle(string(t.Status)).Render(string(t.Status)))
-	fmt.Fprintf(&sb, "labels:  %s\n", strings.Join(t.Labels, ", "))
-	fmt.Fprintf(&sb, "agent:   %s\n", t.Agent)
+	fmt.Fprintf(&sb, "labels:      %s\n", strings.Join(t.Labels, ", "))
+	fmt.Fprintf(&sb, "agent:       %s\n", t.Agent)
+	fmt.Fprintf(&sb, "depends_on:  %s\n", m.renderDeps(t))
 
 	created := ""
 	if t.CreatedAt != nil {
 		created = t.CreatedAt.Format("2006-01-02")
 	}
-	fmt.Fprintf(&sb, "created: %s\n", created)
+	fmt.Fprintf(&sb, "created_at:  %s\n", created)
 
 	updated := ""
 	if t.UpdatedAt != nil {
 		updated = t.UpdatedAt.Format("2006-01-02")
 	}
-	fmt.Fprintf(&sb, "updated: %s\n", updated)
+	fmt.Fprintf(&sb, "updated_at:  %s\n", updated)
 
 	sb.WriteString("\n── body ──\n")
 	if strings.TrimSpace(t.Body) == "" {
 		sb.WriteString("(no body)\n")
 	} else {
-		sb.WriteString(renderMarkdown(t.Body, m.vp.Width))
+		sb.WriteString(m.renderMarkdown(t.Body))
 	}
 
 	return sb.String()
 }
 
+// renderDeps renders a task's depends_on ids with each dependency's current
+// status, e.g. "4 (done), 7 (ready)".
+func (m listModel) renderDeps(t *models.Task) string {
+	if len(t.DependsOn) == 0 {
+		return ""
+	}
+	byID := map[string]*models.Task{}
+	for _, other := range m.allTasks {
+		byID[other.ID] = other
+	}
+	parts := make([]string, len(t.DependsOn))
+	for i, dep := range t.DependsOn {
+		if d, ok := byID[dep]; ok {
+			parts[i] = fmt.Sprintf("%s (%s)", dep, d.Status)
+		} else {
+			parts[i] = fmt.Sprintf("%s (missing)", dep)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 // renderFooter renders the one-line key-hint bar at the bottom of the view.
-// Content is context-sensitive: search mode, confirm mode, or normal navigation.
 func (m listModel) renderFooter() string {
 	var hints string
-	switch {
-	case m.searching:
+	if m.searching {
 		hints = "type to filter  ↵ confirm  esc cancel"
-	case m.confirm != confirmNone:
-		hints = "y confirm  n / esc cancel"
-	default:
-		hints = "j/k navigate  ←/→ panes  c create  e edit  m move  p promote  a archive/restore  d delete  / search  tab→board  ? help  q quit"
+	} else {
+		hints = "j/k navigate  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / search  tab→board  ? help  q quit"
+	}
+	if m.warnings > 0 {
+		hints = fmt.Sprintf("⚠ %d file warning(s)  ", m.warnings) + hints
 	}
 	return styleFooter.Width(m.width).Render("  " + hints)
 }
 
-// applyFilter returns the subset of allTasks whose title contains the current
-// search query (case-insensitive substring match). Returns allTasks unchanged
-// when the query is empty.
+// applyFilter returns the subset of allTasks whose id, title, or labels
+// contain the current search query (case-insensitive substring match).
 func (m listModel) applyFilter() []*models.Task {
 	if m.searchQuery == "" {
 		return m.allTasks
@@ -484,15 +370,17 @@ func (m listModel) applyFilter() []*models.Task {
 	q := strings.ToLower(m.searchQuery)
 	out := make([]*models.Task, 0, len(m.allTasks))
 	for _, t := range m.allTasks {
-		if strings.Contains(strings.ToLower(t.Title), q) {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.ID), q) ||
+			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-// sortDescByID sorts tasks by the numeric suffix of their ID in descending
-// order (task-10 before task-9 before task-1), ignoring state.
+// sortDescByID sorts tasks by their numeric id in descending order (newest
+// first), ignoring state.
 func sortDescByID(ts []*models.Task) {
 	sort.Slice(ts, func(i, j int) bool {
 		return taskIDNum(ts[i].ID) > taskIDNum(ts[j].ID)
@@ -500,24 +388,35 @@ func sortDescByID(ts []*models.Task) {
 }
 
 func taskIDNum(id string) int {
-	if idx := strings.LastIndex(id, "-"); idx >= 0 {
-		n, _ := strconv.Atoi(id[idx+1:])
-		return n
-	}
-	return 0
+	n, _ := strconv.Atoi(id)
+	return n
 }
 
 // selectByID moves the cursor to the task with the given ID and focuses the
-// detail pane. Used when navigating from the board view via Enter.
+// detail pane. When the task is hidden by an active filter, the filter is
+// cleared first so the selection can never silently fail.
 func (m *listModel) selectByID(id string) {
-	for i, t := range m.filtered {
-		if t.ID == id {
-			m.cursor = i
-			m.activePane = paneDetail
-			m.syncViewport()
-			return
+	find := func() int {
+		for i, t := range m.filtered {
+			if t.ID == id {
+				return i
+			}
 		}
+		return -1
 	}
+	i := find()
+	if i < 0 && m.searchQuery != "" {
+		m.searchQuery = ""
+		m.searchInput.SetValue("")
+		m.filtered = m.applyFilter()
+		i = find()
+	}
+	if i < 0 {
+		return
+	}
+	m.cursor = i
+	m.activePane = paneDetail
+	m.syncViewport()
 }
 
 // selected returns the currently highlighted task, or nil when the list is
@@ -532,6 +431,7 @@ func (m listModel) selected() *models.Task {
 // syncViewport refreshes the detail viewport to reflect the selected task.
 // Both content and scroll position are reset.
 func (m *listModel) syncViewport() {
+	m.ensureRenderer()
 	if t := m.selected(); t != nil {
 		m.vp.SetContent(m.renderDetail(t))
 	} else {
@@ -540,17 +440,31 @@ func (m *listModel) syncViewport() {
 	m.vp.GotoTop()
 }
 
-// renderMarkdown renders body text as styled Markdown via Glamour. Falls back
-// to plain text if the renderer cannot be initialised or rendering fails.
-func renderMarkdown(body string, width int) string {
+// ensureRenderer (re)builds the cached glamour renderer when the detail-pane
+// width changes. WithStandardStyle deliberately avoids WithAutoStyle, which
+// queries the terminal and would fight Bubble Tea for input.
+func (m *listModel) ensureRenderer() {
+	if m.md != nil && m.mdWidth == m.vp.Width {
+		return
+	}
 	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
+		glamour.WithStandardStyle(m.mdStyle),
+		glamour.WithWordWrap(m.vp.Width),
 	)
 	if err != nil {
+		return // keep the previous renderer (or none: plain-text fallback)
+	}
+	m.md = r
+	m.mdWidth = m.vp.Width
+}
+
+// renderMarkdown renders body text as styled Markdown via the cached Glamour
+// renderer. Falls back to plain text if none is available or rendering fails.
+func (m listModel) renderMarkdown(body string) string {
+	if m.md == nil {
 		return body
 	}
-	out, err := r.Render(body)
+	out, err := m.md.Render(body)
 	if err != nil {
 		return body
 	}

@@ -2,23 +2,33 @@ package git_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
-
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/SamP-S/north/internal/git"
 )
 
-func initRepo(t *testing.T) (string, *gogit.Repository) {
+// runGit executes git -C dir args…, failing the test on error.
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func initRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	repo, err := gogit.PlainInit(root, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root, repo
+	runGit(t, root, "init", "-q")
+	runGit(t, root, "config", "user.name", "tester")
+	runGit(t, root, "config", "user.email", "tester@example.com")
+	return root
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -31,18 +41,14 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func commitCount(t *testing.T, repo *gogit.Repository) int {
+func commitCount(t *testing.T, dir string) int {
 	t.Helper()
-	ref, err := repo.Head()
+	cmd := exec.Command("git", "-C", dir, "rev-list", "--count", "HEAD")
+	out, err := cmd.Output()
 	if err != nil {
-		return 0
+		return 0 // no commits yet
 	}
-	iter, err := repo.Log(&gogit.LogOptions{From: ref.Hash()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	n := 0
-	_ = iter.ForEach(func(_ *object.Commit) error { n++; return nil })
+	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
 	return n
 }
 
@@ -57,11 +63,11 @@ func TestCommitBoard_NotInGitRepo(t *testing.T) {
 
 // TestCommitBoard_NoPaths confirms that an empty path list produces no commit.
 func TestCommitBoard_NoPaths(t *testing.T) {
-	root, repo := initRepo(t)
+	root := initRepo(t)
 	if err := git.CommitBoard(root, "north: test", nil, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if n := commitCount(t, repo); n != 0 {
+	if n := commitCount(t, root); n != 0 {
 		t.Errorf("expected 0 commits for empty paths, got %d", n)
 	}
 }
@@ -69,25 +75,28 @@ func TestCommitBoard_NoPaths(t *testing.T) {
 // TestCommitBoard_StagesAndCommits confirms that a new file is staged and
 // committed with the supplied message.
 func TestCommitBoard_StagesAndCommits(t *testing.T) {
-	root, repo := initRepo(t)
-	p := filepath.Join(root, "task-1.md")
+	root := initRepo(t)
+	p := filepath.Join(root, "1-task.md")
 	writeFile(t, p, "# task 1")
 
-	if err := git.CommitBoard(root, "north: create task-1", []string{p}, nil); err != nil {
+	if err := git.CommitBoard(root, "north: create 1", []string{p}, nil); err != nil {
 		t.Fatalf("CommitBoard returned error: %v", err)
 	}
-	if n := commitCount(t, repo); n != 1 {
+	if n := commitCount(t, root); n != 1 {
 		t.Errorf("expected 1 commit, got %d", n)
+	}
+	if msg := runGit(t, root, "log", "-1", "--format=%s"); msg != "north: create 1" {
+		t.Errorf("unexpected commit message %q", msg)
 	}
 }
 
 // TestCommitBoard_MultipleFiles confirms that several paths are staged in a
 // single commit.
 func TestCommitBoard_MultipleFiles(t *testing.T) {
-	root, repo := initRepo(t)
+	root := initRepo(t)
 	paths := []string{
-		filepath.Join(root, "task-1.md"),
-		filepath.Join(root, "task-2.md"),
+		filepath.Join(root, "1-task.md"),
+		filepath.Join(root, "2-task.md"),
 	}
 	for _, p := range paths {
 		writeFile(t, p, "# "+filepath.Base(p))
@@ -96,7 +105,7 @@ func TestCommitBoard_MultipleFiles(t *testing.T) {
 	if err := git.CommitBoard(root, "north: batch", paths, nil); err != nil {
 		t.Fatalf("CommitBoard returned error: %v", err)
 	}
-	if n := commitCount(t, repo); n != 1 {
+	if n := commitCount(t, root); n != 1 {
 		t.Errorf("expected 1 commit for multiple files, got %d", n)
 	}
 }
@@ -104,12 +113,12 @@ func TestCommitBoard_MultipleFiles(t *testing.T) {
 // TestCommitBoard_RemovalStaged confirms that a deleted (tracked) file is
 // staged as a removal and committed.
 func TestCommitBoard_RemovalStaged(t *testing.T) {
-	root, repo := initRepo(t)
-	p := filepath.Join(root, "task-1.md")
+	root := initRepo(t)
+	p := filepath.Join(root, "1-task.md")
 	writeFile(t, p, "# task 1")
 
 	// Commit the file so it becomes tracked.
-	if err := git.CommitBoard(root, "north: create task-1", []string{p}, nil); err != nil {
+	if err := git.CommitBoard(root, "north: create 1", []string{p}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,29 +126,92 @@ func TestCommitBoard_RemovalStaged(t *testing.T) {
 	if err := os.Remove(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := git.CommitBoard(root, "north: delete task-1", nil, []string{p}); err != nil {
+	if err := git.CommitBoard(root, "north: delete 1", nil, []string{p}); err != nil {
 		t.Fatalf("CommitBoard (removal) returned error: %v", err)
 	}
-	if n := commitCount(t, repo); n != 2 {
+	if n := commitCount(t, root); n != 2 {
 		t.Errorf("expected 2 commits after removal, got %d", n)
 	}
 }
 
-// TestCommitBoard_DetectsDotGit confirms that CommitBoard works when the board
-// is in a subdirectory (not the repo root), relying on DetectDotGit.
-func TestCommitBoard_DetectsDotGit(t *testing.T) {
-	root, repo := initRepo(t)
-	boardDir := filepath.Join(root, "north")
-	if err := os.MkdirAll(boardDir, 0755); err != nil {
+// TestCommitBoard_UntrackedRemoval covers deleting a file git never tracked —
+// e.g. a task created before auto_commit was enabled. There is nothing for git
+// to record, so CommitBoard must succeed without committing (a bare
+// `git add -A -- <gone-path>` would fail with an unmatched pathspec).
+func TestCommitBoard_UntrackedRemoval(t *testing.T) {
+	root := initRepo(t)
+	p := filepath.Join(root, "1-task.md")
+	writeFile(t, p, "# task 1")
+	if err := os.Remove(p); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(boardDir, "task-1.md")
+
+	if err := git.CommitBoard(root, "north: delete 1", nil, []string{p}); err != nil {
+		t.Fatalf("CommitBoard (untracked removal) returned error: %v", err)
+	}
+	if n := commitCount(t, root); n != 0 {
+		t.Errorf("expected 0 commits, got %d", n)
+	}
+}
+
+// TestCommitBoard_BoardInSubdir confirms that CommitBoard works when the board
+// is in a subdirectory (not the repo root).
+func TestCommitBoard_BoardInSubdir(t *testing.T) {
+	root := initRepo(t)
+	boardDir := filepath.Join(root, "north")
+	p := filepath.Join(boardDir, "1-task.md")
 	writeFile(t, p, "# task 1")
 
-	if err := git.CommitBoard(boardDir, "north: create task-1", []string{p}, nil); err != nil {
+	if err := git.CommitBoard(boardDir, "north: create 1", []string{p}, nil); err != nil {
 		t.Fatalf("CommitBoard returned error: %v", err)
 	}
-	if n := commitCount(t, repo); n != 1 {
+	if n := commitCount(t, root); n != 1 {
 		t.Errorf("expected 1 commit, got %d", n)
+	}
+}
+
+// TestCommitBoard_LinkedWorktree confirms commits land on the linked
+// worktree's branch (the previous go-git implementation silently failed here).
+func TestCommitBoard_LinkedWorktree(t *testing.T) {
+	root := initRepo(t)
+	runGit(t, root, "commit", "--allow-empty", "-q", "-m", "init")
+	wt := filepath.Join(t.TempDir(), "feature")
+	runGit(t, root, "worktree", "add", "-q", wt, "-b", "feature")
+
+	p := filepath.Join(wt, "1-task.md")
+	writeFile(t, p, "# task 1")
+	if err := git.CommitBoard(wt, "north: create 1", []string{p}, nil); err != nil {
+		t.Fatalf("CommitBoard in worktree returned error: %v", err)
+	}
+	if msg := runGit(t, wt, "log", "-1", "--format=%s"); msg != "north: create 1" {
+		t.Errorf("worktree commit missing; last message %q", msg)
+	}
+	// Nothing left staged-but-uncommitted.
+	if status := runGit(t, wt, "status", "--porcelain"); status != "" {
+		t.Errorf("worktree left dirty after commit:\n%s", status)
+	}
+}
+
+// TestCommitBoard_NoIdentity confirms the fallback identity is used when the
+// user has no git user.name/email configured (the previous implementation
+// errored after the file write).
+func TestCommitBoard_NoIdentity(t *testing.T) {
+	root := t.TempDir()
+
+	// Isolate from the developer's global/system git config.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+
+	runGit(t, root, "init", "-q")
+	p := filepath.Join(root, "1-task.md")
+	writeFile(t, p, "# task 1")
+	if err := git.CommitBoard(root, "north: create 1", []string{p}, nil); err != nil {
+		t.Fatalf("CommitBoard without identity returned error: %v", err)
+	}
+	author := runGit(t, root, "log", "-1", "--format=%an <%ae>")
+	if author != "north <north@localhost>" {
+		t.Errorf("expected fallback identity, got %q", author)
 	}
 }

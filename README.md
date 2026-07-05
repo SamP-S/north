@@ -25,27 +25,28 @@ provision — no runtime, no daemon.
 cd your-project
 north init                                  # create the north/ board
 north task create "Add login form" --agent opus4.8 --labels auth   # lands in drafts/
-north task promote task-1                   # drafts -> tasks (onto the active board)
-north task move task-1 in_progress          # change status (active tasks only)
-north task view task-1
-north task move task-1 done
+north task state 1 active                   # drafts -> tasks (onto the active board)
+north task move 1 in_progress               # change status (active tasks only)
+north task view 1
+north task move 1 done
 north board                                 # active counts per status
 ```
 
 ---
 
 ## Two axes: state and status
-A task has two independent properties:
+A task has two independent properties. Both are **freeform** — any value can
+move to any other value in a single command:
 
-- **State** — its lifecycle *location* (the folder): `draft` → `active` →
-  `archive`. Changed with `promote` / `demote` / `archive` / `restore`.
+- **State** — its lifecycle *location* (the folder): `draft`, `active`,
+  `archive`. Changed with `north task state <id> <state>`.
 - **Status** — its workflow *column* (frontmatter, active-only):
-  `ready → in_progress → done | failed | blocked`, with
-  `done/failed/blocked → ready` for rework. Changed with `north task move`.
+  `ready`, `in_progress`, `done`, `failed`, `blocked`. Changed with
+  `north task move <id> <status>`.
 
-New tasks start as a **draft** (status `ready`); `promote` them before changing
-status. State moves relocate the file and preserve status; `move` rewrites status
-in place.
+New tasks start as a **draft** (status `ready`); move them to `active` before
+changing status. State moves relocate the file and preserve status; `move`
+rewrites status in place.
 
 ## The board
 `north init` scaffolds, inside your repo:
@@ -56,45 +57,53 @@ north/
   tasks/             # state: active   (status in frontmatter)
   archive/           # state: archive
 ```
-A task is one file, `task-<n>-<title-slug>.md`, in its state folder.
+A task is one file, `<n>-<title-slug>.md`, in its state folder.
 
 ### Task file
 ```yaml
 ---
-id: task-12
+id: "12"                 # bare number, unique across the board
 title: Add login form
 status: ready            # workflow status (frontmatter is the source of truth)
 agent: opus4.8           # optional, free-form, opaque executor/provider tag
 labels: [auth]           # optional free-form tags
-depends_on: [task-4]     # task ids
-created_at: 2026-06-24T...
-updated_at: 2026-06-24T...
+depends_on: ["4"]        # task ids
+created_at: "2026-06-24T…"
+updated_at: "2026-06-24T…"
 ---
 Free-form body: description, plan, notes, blockers, results — your structure.
 ```
+Custom frontmatter keys you add by hand are preserved by every North rewrite.
+Malformed files never break the board — they surface as warnings, and
+`north doctor` can diagnose and repair board-level problems.
 
 ---
 
 ## CLI
 | Command | Description |
 |---|---|
-| `north init` | Scaffold the board (`drafts/ tasks/ archive/`) |
+| `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
 | `north task create <title> [--agent --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
-| `north task list [--state draft\|active\|archive\|all] [--status S] [--plain \| --json]` | List tasks (default active) |
-| `north task view <id> [--plain \| --json]` | Show a task |
-| `north task edit <id> [--title --agent --labels --depends-on --body] [--plain \| --json]` | Edit a task |
-| `north task move <id> <status> [--plain \| --json]` | Set status (active tasks only) |
-| `north task promote \| demote \| archive <id> [--plain \| --json]` | Change state |
-| `north task restore <id> [--plain \| --json]` | Restore from archive → drafts (for review) |
-| `north task delete <id> [-y] [--plain \| --json]` | Delete a task |
-| `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
-| `north cleanup [--older-than DAYS] [--plain \| --json]` | Archive active done tasks |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--search TEXT] [--label L]` | List tasks (default active) |
+| `north task view <id>` | Show a task |
+| `north task edit <id> [--title --agent --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
+| `north task move <id> <status>` | Set status (active tasks only; any → any) |
+| `north task state <id> <draft\|active\|archive>` | Set lifecycle state (any → any) |
+| `north task delete <id> [-y]` | Delete a task (`-y` required in machine/non-TTY modes) |
+| `north board` | Active counts per status + draft/archive tally |
+| `north cleanup [--older-than DAYS]` | Archive active done tasks |
+| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files) |
+| `north config list\|get\|set` | Read/write board settings (`auto_commit`) |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
-| `north skill show` | Print the embedded skill |
+| `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
+| `north completion <shell>` | Shell completions (bash/zsh/fish/powershell) |
 | `north version` | Print the north version |
 
-`--plain` and `--json` give agents and scripts stable, parseable output.
+Every task/board command accepts `--plain` (tab-separated) or `--json` for
+stable, parseable output; ids are bare numbers (`north task view 12`). With
+`--json`, errors are emitted as `{"error":{"code":…,"message":…}}`. `NO_COLOR`
+is honoured in the TUI.
 
 ---
 
@@ -103,11 +112,11 @@ Free-form body: description, plan, notes, blockers, results — your structure.
 `north tui` opens a full-screen interactive terminal UI:
 
 - **Board view** — kanban columns (`ready | in_progress | done | failed | blocked`) for active tasks, with draft/archive counts in the footer.
-- **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail.
+- **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail (id, deps with their status, rendered Markdown body).
 - **Tab** switches between the two views; **Enter** on a board card jumps to its detail.
-- **`e`** opens the selected task in `$EDITOR`; **`c`** creates a new task the same way.
-- **`m`** opens a status picker (active tasks); **`p`** promotes/demotes; **`a`** archives or restores; **`d`** deletes.
-- **`/`** live-filters the task list; **`?`** shows the full key reference.
+- **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
+- **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
+- **`/`** live-filters the list (title, id, labels); **`r`** reloads from disk; **`?`** shows the full key reference.
 
 The TUI is for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 
@@ -115,18 +124,21 @@ The TUI is for human use. Agents should use the CLI commands — the TUI require
 
 ## Git
 By default North does not commit — your task changes appear in `git status` and
-you commit them with the rest of your work. Set `auto_commit: true` in
-`north/config.yml` to have North make a local commit per change. It never pushes
-or pulls.
+you commit them with the rest of your work. Set `auto_commit: true` (via
+`north config set auto_commit true`) to have North make a local commit per
+change, using your system `git` — so linked worktrees, hooks, commit signing,
+and your identity config all behave normally. It never pushes or pulls.
 
 ## Agents
 North ships an installable **skill** that teaches agents the CLI:
 ```bash
 north skill install            # ./.claude/skills + ./.opencode/skills
 north skill install --global   # ~/.claude/skills + ~/.config/opencode/skills
+north skill check              # is the installed skill this binary's version?
 ```
-The skill describes the state/status model and the commands. It works with Claude
-Code and opencode (and any agent that reads `.claude/skills`).
+The skill describes the state/status model, the commands, a typical work loop,
+and the output/error contract. It works with Claude Code and opencode (and any
+agent that reads `.claude/skills`).
 
 ---
 
@@ -144,10 +156,10 @@ north/
   cmd/north/         # main package — the only installable binary
   internal/
     errors/          # BoardError (NotFound / Conflict / Invalid)
-    models/          # Task + state & status machines
+    models/          # Task + the state/status value sets
     board/           # discovery, scaffolding, config, ids
-    tasks/           # task ops + frontmatter read/write
-    git/             # optional local auto-commit (go-git)
+    tasks/           # task ops, frontmatter round-trip, snapshot, doctor
+    git/             # optional local auto-commit (exec system git)
     render/          # human / --plain / --json output
     skill/           # embedded agent skill + installer
     tui/             # interactive terminal UI (bubbletea)

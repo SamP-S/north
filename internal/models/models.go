@@ -7,7 +7,9 @@
 //   - Status is the workflow column (ready/in_progress/done/failed/blocked),
 //     stored only in frontmatter. It only changes while the task is active.
 //
-// Both are hardcoded for the MVP (configurable statuses are deferred).
+// Both axes are freeform: any status can move to any other status, and any
+// state to any other state, in a single step. The fixed status/state *lists*
+// are hardcoded for the MVP (configurable statuses are deferred).
 package models
 
 import "time"
@@ -31,15 +33,6 @@ var StateDirs = map[TaskState]string{
 // StateOrder lists the states in board order (drafts → tasks → archive).
 var StateOrder = []TaskState{StateDraft, StateActive, StateArchive}
 
-// StateTransitions is the legal state-change table (the lifecycle machine):
-// promote (draft→active), demote (active→draft), archive (draft/active→archive),
-// restore (archive→draft).
-var StateTransitions = map[TaskState]map[TaskState]bool{
-	StateDraft:   {StateActive: true, StateArchive: true},
-	StateActive:  {StateDraft: true, StateArchive: true},
-	StateArchive: {StateDraft: true},
-}
-
 // TaskStatus is the workflow column, stored in frontmatter.
 type TaskStatus string
 
@@ -54,27 +47,22 @@ const (
 // Statuses lists every workflow status in board order.
 var Statuses = []TaskStatus{Ready, InProgress, Done, Failed, Blocked}
 
-// DefaultStatus is the status a new (or freshly promoted) task carries.
+// DefaultStatus is the status a new task carries.
 const DefaultStatus = Ready
 
-// Transitions is the legal status transition table (workflow). It only applies
-// to active tasks. failed/blocked/done return to ready for rework. Illegal
-// jumps are rejected (Conflict).
-var Transitions = map[TaskStatus]map[TaskStatus]bool{
-	Ready:      {InProgress: true},
-	InProgress: {Done: true, Failed: true, Blocked: true},
-	Done:       {Ready: true},
-	Failed:     {Ready: true},
-	Blocked:    {Ready: true},
-}
-
-// IsStatus reports whether s is a known status.
+// IsStatus reports whether s is a known status. Status moves are freeform:
+// any known status is a legal target from any other (active tasks only).
 func IsStatus(s TaskStatus) bool {
-	_, ok := Transitions[s]
-	return ok
+	for _, st := range Statuses {
+		if st == s {
+			return true
+		}
+	}
+	return false
 }
 
-// IsState reports whether s is a known state.
+// IsState reports whether s is a known state. State moves are freeform: any
+// known state is a legal target from any other.
 func IsState(s TaskState) bool {
 	_, ok := StateDirs[s]
 	return ok

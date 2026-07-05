@@ -1,18 +1,18 @@
 // Package tasks holds task operations over the board: create, read, list, edit,
-// status changes, lifecycle (promote/demote/archive/restore), delete.
+// status changes, state changes (draft/active/archive), delete.
 //
 // Every task is one Markdown file. North uses two orthogonal axes: the task's
 // state is the folder it lives in (drafts/ tasks/ archive/), and its status is a
 // frontmatter key (ready/in_progress/done/failed/blocked) that only changes
-// while the task is active. Each mutation optionally makes a local git commit
-// when auto_commit is set.
+// while the task is active. Both axes are freeform — any value can move to any
+// other in one step. Each mutation optionally makes a local git commit when
+// auto_commit is set.
 package tasks
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -52,57 +52,50 @@ func ParseState(value string) (models.TaskState, error) {
 	return s, nil
 }
 
-// --- frontmatter -----------------------------------------------------------------
+// --- load / persist ----------------------------------------------------------------
 
-// frontMeta mirrors the task frontmatter, in field order.
-type frontMeta struct {
-	ID        string   `yaml:"id"`
-	Title     string   `yaml:"title"`
-	Status    string   `yaml:"status"`
-	Agent     string   `yaml:"agent"`
-	Labels    []string `yaml:"labels"`
-	DependsOn []string `yaml:"depends_on"`
-	CreatedAt *string  `yaml:"created_at"`
-	UpdatedAt *string  `yaml:"updated_at"`
-}
-
-func parseDT(s *string) *time.Time {
-	if s == nil || *s == "" {
+func parseDT(s string) *time.Time {
+	if s == "" {
 		return nil
 	}
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05.999999999Z07:00", "2006-01-02"} {
-		if t, err := time.Parse(layout, *s); err == nil {
+		if t, err := time.Parse(layout, s); err == nil {
 			return &t
 		}
 	}
 	return nil
 }
 
+// loadTask parses one task file. Every error names the file.
 func loadTask(path string) (*models.Task, error) {
+	base := filepath.Base(path)
+	fail := func(msg string) error {
+		return errors.Invalid(fmt.Sprintf("failed to parse %s: %s", base, msg))
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: %v", filepath.Base(path), err))
+		return nil, fail(err.Error())
 	}
-	meta, body, err := splitFrontmatter(string(data))
+	meta, body, err := splitFrontmatter(normalizeNewlines(string(data)))
 	if err != nil {
-		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: %v", filepath.Base(path), err))
+		return nil, fail(err.Error())
 	}
-	var fm frontMeta
-	if err := yaml.Unmarshal([]byte(meta), &fm); err != nil {
-		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: %v", filepath.Base(path), err))
+	_, fm, err := parseFront(meta)
+	if err != nil {
+		return nil, fail(err.Error())
 	}
 	// State comes from the folder; status always comes from frontmatter.
 	dirName := filepath.Base(filepath.Dir(path))
 	state, ok := models.StateForDir(dirName)
 	if !ok {
-		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: unknown state folder %q", filepath.Base(path), dirName))
+		return nil, fail(fmt.Sprintf("unknown state folder %q", dirName))
 	}
 	status, err := ParseStatus(fm.Status)
 	if err != nil {
-		return nil, err
+		return nil, fail(err.Error())
 	}
 	if fm.ID == "" || fm.Title == "" {
-		return nil, errors.Invalid(fmt.Sprintf("failed to parse %s: missing id/title", filepath.Base(path)))
+		return nil, fail("missing id/title")
 	}
 	return &models.Task{
 		ID:        fm.ID,
@@ -115,86 +108,52 @@ func loadTask(path string) (*models.Task, error) {
 		DependsOn: fm.DependsOn,
 		CreatedAt: parseDT(fm.CreatedAt),
 		UpdatedAt: parseDT(fm.UpdatedAt),
-		Body:      strings.TrimSpace(body),
+		Body:      strings.Trim(body, "\n"),
 	}, nil
 }
 
-// splitFrontmatter separates a leading "---\n...\n---" YAML block from the body.
-func splitFrontmatter(content string) (meta, body string, err error) {
-	content = strings.TrimPrefix(content, "\ufeff")
-	if !strings.HasPrefix(content, "---\n") && content != "---" {
-		// No frontmatter: whole thing is body.
-		return "", content, nil
-	}
-	rest := strings.TrimPrefix(content, "---\n")
-	if rest == content {
-		rest = strings.TrimPrefix(content, "---")
-	}
-	idx := strings.Index(rest, "\n---")
-	if idx < 0 {
-		return "", "", fmt.Errorf("unterminated frontmatter block")
-	}
-	meta = rest[:idx]
-	body = rest[idx+len("\n---"):]
-	body = strings.TrimPrefix(body, "\n")
-	return meta, body, nil
-}
-
-func isoPtr(t *time.Time) *string {
-	if t == nil {
+// loadPrevFront best-effort re-reads a task file's frontmatter document so
+// unknown keys survive the rewrite. Returns nil when unavailable.
+func loadPrevFront(path string) *yaml.Node {
+	if path == "" {
 		return nil
 	}
-	s := t.Format(time.RFC3339)
-	return &s
-}
-
-func render(task *models.Task) (string, error) {
-	labels := task.Labels
-	if labels == nil {
-		labels = []string{}
-	}
-	deps := task.DependsOn
-	if deps == nil {
-		deps = []string{}
-	}
-	fm := frontMeta{
-		ID:        task.ID,
-		Title:     task.Title,
-		Status:    string(task.Status),
-		Agent:     task.Agent,
-		Labels:    labels,
-		DependsOn: deps,
-		CreatedAt: isoPtr(task.CreatedAt),
-		UpdatedAt: isoPtr(task.UpdatedAt),
-	}
-	out, err := yaml.Marshal(fm)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return nil
 	}
-	front := strings.TrimRight(string(out), "\n")
-	body := strings.TrimSpace(task.Body)
-	if body != "" {
-		return fmt.Sprintf("---\n%s\n---\n\n%s\n", front, body), nil
+	meta, _, err := splitFrontmatter(normalizeNewlines(string(data)))
+	if err != nil {
+		return nil
 	}
-	return fmt.Sprintf("---\n%s\n---\n", front), nil
+	doc, _, err := parseFront(meta)
+	if err != nil {
+		return nil
+	}
+	return doc
 }
-
-// --- persist ---------------------------------------------------------------------
 
 func targetPath(boardDir string, task *models.Task) string {
 	return filepath.Join(board.StateDir(boardDir, task.State), board.TaskFilename(task.ID, task.Title))
 }
 
+// save writes the task to its target path (atomically: temp file + rename),
+// removes the old file on a move/rename, and auto-commits when configured.
 func save(boardDir string, task *models.Task, oldPath, message string) (*models.Task, error) {
 	target := targetPath(boardDir, task)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, err
 	}
-	content, err := render(task)
+	content, err := renderTask(task, loadPrevFront(oldPath))
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		os.Remove(tmp)
 		return nil, err
 	}
 	var removed []string
@@ -224,37 +183,25 @@ func commit(boardDir string, paths, removed []string, message string) error {
 	return nil
 }
 
+// find returns one task by id via a tolerant snapshot load, so unrelated
+// malformed files never block the lookup.
 func find(boardDir, taskID string) (*models.Task, error) {
-	files, err := board.TaskFiles(boardDir)
+	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
 	}
-	prefix := taskID + "-"
-	for _, path := range files {
-		if strings.HasPrefix(filepath.Base(path), prefix) {
-			task, err := loadTask(path)
-			if err != nil {
-				return nil, err
-			}
-			if task.ID == taskID {
-				return task, nil
-			}
-		}
+	if t := snap.Get(taskID); t != nil {
+		return t, nil
 	}
 	return nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
 }
 
 // --- public operations -----------------------------------------------------------
 
-// validateDeps checks that every task ID in ids exists somewhere on the board
-// (any state folder). Returns Invalid if an ID is missing. Returns nil
-// immediately for a nil or empty ids slice.
-func validateDeps(boardDir string, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
+// validateDeps checks that every task ID in ids exists somewhere on the board.
+func validateDeps(snap *Snapshot, ids []string) error {
 	for _, id := range ids {
-		if _, err := find(boardDir, id); err != nil {
+		if snap.Get(id) == nil {
 			return errors.Invalid(fmt.Sprintf("depends_on: task %q not found", id))
 		}
 	}
@@ -265,20 +212,11 @@ func validateDeps(boardDir string, ids []string) error {
 // match), scanning all state folders. Returns an empty non-nil slice if none
 // are found.
 func Dependents(boardDir, taskID string) ([]*models.Task, error) {
-	all, err := List(boardDir, models.StateOrder, "")
+	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*models.Task, 0)
-	for _, t := range all {
-		for _, dep := range t.DependsOn {
-			if dep == taskID {
-				out = append(out, t)
-				break
-			}
-		}
-	}
-	return out, nil
+	return snap.Dependents(taskID), nil
 }
 
 // Create makes a task in drafts/ with status ready.
@@ -286,7 +224,11 @@ func Create(boardDir, title, agent string, labels, dependsOn []string, body stri
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.Invalid("task title must not be empty")
 	}
-	if err := validateDeps(boardDir, dependsOn); err != nil {
+	snap, err := Load(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDeps(snap, dependsOn); err != nil {
 		return nil, err
 	}
 	id, err := board.NextID(boardDir)
@@ -314,78 +256,62 @@ func Get(boardDir, taskID string) (*models.Task, error) {
 	return find(boardDir, taskID)
 }
 
-// List returns tasks in the given states (all states if none given), optionally
-// filtered by status ("" for any). Results are ordered by state then id.
-func List(boardDir string, states []models.TaskState, status string) ([]*models.Task, error) {
-	var wanted *models.TaskStatus
-	if status != "" {
-		s, err := ParseStatus(status)
-		if err != nil {
-			return nil, err
-		}
-		wanted = &s
-	}
-	files, err := board.TaskFiles(boardDir, states...)
-	if err != nil {
-		return nil, err
-	}
-	var out []*models.Task
-	for _, path := range files {
-		task, err := loadTask(path)
-		if err != nil {
-			return nil, err
-		}
-		if wanted != nil && task.Status != *wanted {
-			continue
-		}
-		out = append(out, task)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		si, sj := models.StateIndex(out[i].State), models.StateIndex(out[j].State)
-		if si != sj {
-			return si < sj
-		}
-		return idNum(out[i].ID) < idNum(out[j].ID)
-	})
-	return out, nil
+// EditOpts carries optional field changes for Edit. Nil fields are unchanged.
+type EditOpts struct {
+	Title      *string
+	Agent      *string
+	Labels     *[]string
+	DependsOn  *[]string
+	Body       *string
+	AppendBody *string // appended to the body with a blank-line separator
 }
 
-// Edit changes a task's fields/body. UpdatedAt is bumped. Pass nil for a field
-// to leave it unchanged. Status and state are not edited here.
-func Edit(boardDir, taskID string, title, agent *string, labels, dependsOn *[]string, body *string) (*models.Task, error) {
-	task, err := find(boardDir, taskID)
+// Edit changes a task's fields/body. UpdatedAt is bumped.
+func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
+	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
 	}
+	task := snap.Get(taskID)
+	if task == nil {
+		return nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
+	}
 	oldPath := task.Path
-	if title != nil {
-		if strings.TrimSpace(*title) == "" {
+	if opts.Title != nil {
+		if strings.TrimSpace(*opts.Title) == "" {
 			return nil, errors.Invalid("task title must not be empty")
 		}
-		task.Title = strings.TrimSpace(*title)
+		task.Title = strings.TrimSpace(*opts.Title)
 	}
-	if agent != nil {
-		task.Agent = *agent
+	if opts.Agent != nil {
+		task.Agent = *opts.Agent
 	}
-	if labels != nil {
-		task.Labels = *labels
+	if opts.Labels != nil {
+		task.Labels = *opts.Labels
 	}
-	if dependsOn != nil {
-		if err := validateDeps(boardDir, *dependsOn); err != nil {
+	if opts.DependsOn != nil {
+		if err := validateDeps(snap, *opts.DependsOn); err != nil {
 			return nil, err
 		}
-		task.DependsOn = *dependsOn
+		task.DependsOn = *opts.DependsOn
 	}
-	if body != nil {
-		task.Body = *body
+	if opts.Body != nil {
+		task.Body = *opts.Body
+	}
+	if opts.AppendBody != nil && strings.TrimSpace(*opts.AppendBody) != "" {
+		if strings.TrimSpace(task.Body) == "" {
+			task.Body = *opts.AppendBody
+		} else {
+			task.Body = strings.Trim(task.Body, "\n") + "\n\n" + *opts.AppendBody
+		}
 	}
 	n := now()
 	task.UpdatedAt = &n
 	return save(boardDir, task, oldPath, fmt.Sprintf("north: edit %s", task.ID))
 }
 
-// SetStatus changes an active task's workflow status (frontmatter only; the file
-// stays in tasks/). Rejected unless the task is active and the transition legal.
+// SetStatus changes an active task's workflow status (frontmatter only; the
+// file stays in tasks/). Freeform: any valid status is reachable from any other.
 func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) {
 	target, err := ParseStatus(newStatus)
 	if err != nil {
@@ -397,15 +323,10 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) 
 	}
 	if task.State != models.StateActive {
 		return nil, errors.Conflict(fmt.Sprintf(
-			"task %q is %s; promote it to active before changing status", taskID, task.State))
+			"task %q is %s; move it to the active state before changing status", taskID, task.State))
 	}
 	if target == task.Status {
 		return task, nil
-	}
-	if !models.Transitions[task.Status][target] {
-		return nil, errors.Conflict(fmt.Sprintf(
-			"illegal transition %s → %s (from %s you can go to: %s)",
-			task.Status, target, task.Status, allowedStatuses(task.Status)))
 	}
 	task.Status = target
 	n := now()
@@ -413,65 +334,25 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) 
 	return save(boardDir, task, task.Path, fmt.Sprintf("north: %s → %s", task.ID, target))
 }
 
-// Promote moves a draft onto the active board (drafts/ → tasks/).
-func Promote(boardDir, taskID string) (*models.Task, error) {
+// SetState moves a task's file between state folders (draft/active/archive),
+// preserving status. Freeform: any valid state is reachable from any other.
+func SetState(boardDir, taskID string, newState string) (*models.Task, error) {
+	target, err := ParseState(newState)
+	if err != nil {
+		return nil, err
+	}
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return nil, err
 	}
-	if task.State != models.StateDraft {
-		return nil, errors.Conflict(fmt.Sprintf("only draft tasks can be promoted (task %q is %s)", taskID, task.State))
-	}
-	return changeState(boardDir, task, models.StateActive, "promote")
-}
-
-// Demote sends an active task back to drafts/ (tasks/ → drafts/).
-func Demote(boardDir, taskID string) (*models.Task, error) {
-	task, err := find(boardDir, taskID)
-	if err != nil {
-		return nil, err
-	}
-	if task.State != models.StateActive {
-		return nil, errors.Conflict(fmt.Sprintf("only active tasks can be demoted (task %q is %s)", taskID, task.State))
-	}
-	return changeState(boardDir, task, models.StateDraft, "demote")
-}
-
-// Archive moves a task into archive/ (off the active board), preserving status.
-func Archive(boardDir, taskID string) (*models.Task, error) {
-	task, err := find(boardDir, taskID)
-	if err != nil {
-		return nil, err
-	}
-	if task.State == models.StateArchive {
-		return nil, errors.Conflict(fmt.Sprintf("task %q is already archived", taskID))
-	}
-	return changeState(boardDir, task, models.StateArchive, "archive")
-}
-
-// Restore brings an archived task back to drafts (archive/ → drafts/), giving
-// the human a chance to review it before promoting to active.
-func Restore(boardDir, taskID string) (*models.Task, error) {
-	task, err := find(boardDir, taskID)
-	if err != nil {
-		return nil, err
-	}
-	if task.State != models.StateArchive {
-		return nil, errors.Conflict(fmt.Sprintf("only archived tasks can be restored (task %q is %s)", taskID, task.State))
-	}
-	return changeState(boardDir, task, models.StateDraft, "restore")
-}
-
-// changeState moves a task's file between state folders, preserving status.
-func changeState(boardDir string, task *models.Task, target models.TaskState, verb string) (*models.Task, error) {
-	if !models.StateTransitions[task.State][target] {
-		return nil, errors.Conflict(fmt.Sprintf("cannot %s task %q from %s", verb, task.ID, task.State))
+	if task.State == target {
+		return task, nil
 	}
 	oldPath := task.Path
 	task.State = target
 	n := now()
 	task.UpdatedAt = &n
-	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s %s", verb, task.ID))
+	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → %s", task.ID, target))
 }
 
 // Cleanup archives active done tasks (optionally only those older than N days).
@@ -482,16 +363,17 @@ func Cleanup(boardDir string, olderThanDays int) ([]*models.Task, error) {
 		c := now().Add(-time.Duration(olderThanDays) * 24 * time.Hour)
 		cutoff = &c
 	}
-	done, err := List(boardDir, []models.TaskState{models.StateActive}, string(models.Done))
+	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
 	}
+	done := snap.Filter([]models.TaskState{models.StateActive}, string(models.Done))
 	var archived []*models.Task
 	for _, task := range done {
 		if cutoff != nil && (task.UpdatedAt == nil || task.UpdatedAt.After(*cutoff)) {
 			continue
 		}
-		a, err := Archive(boardDir, task.ID)
+		a, err := SetState(boardDir, task.ID, string(models.StateArchive))
 		if err != nil {
 			return nil, err
 		}
@@ -512,52 +394,14 @@ func Delete(boardDir, taskID string) error {
 	return commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID))
 }
 
-// StatusCounts returns counts of active tasks per status, in board order.
-func StatusCounts(boardDir string) ([]StatusCount, error) {
-	tasks, err := List(boardDir, []models.TaskState{models.StateActive}, "")
-	if err != nil {
-		return nil, err
-	}
-	counts := map[models.TaskStatus]int{}
-	for _, t := range tasks {
-		counts[t.Status]++
-	}
-	out := make([]StatusCount, len(models.Statuses))
-	for i, s := range models.Statuses {
-		out[i] = StatusCount{Status: string(s), Count: counts[s]}
-	}
-	return out, nil
-}
-
 // StatusCount is one row of the board summary.
 type StatusCount struct {
 	Status string
 	Count  int
 }
 
-// StateCount reports how many tasks are in a given state.
-func StateCount(boardDir string, state models.TaskState) (int, error) {
-	ts, err := List(boardDir, []models.TaskState{state}, "")
-	if err != nil {
-		return 0, err
-	}
-	return len(ts), nil
-}
-
-func allowedStatuses(from models.TaskStatus) string {
-	var ss []string
-	for s := range models.Transitions[from] {
-		ss = append(ss, string(s))
-	}
-	if len(ss) == 0 {
-		return "(none)"
-	}
-	sort.Strings(ss)
-	return strings.Join(ss, ", ")
-}
-
 func idNum(taskID string) int {
-	n, err := strconv.Atoi(strings.TrimPrefix(taskID, "task-"))
+	n, err := strconv.Atoi(taskID)
 	if err != nil {
 		return 0
 	}

@@ -28,6 +28,21 @@ func Content() string {
 	return injectVersion(skillMD, Version)
 }
 
+// InstalledVersion extracts the version stamp from an installed SKILL.md's
+// content ("" when no stamp is present).
+func InstalledVersion(content string) string {
+	i := strings.Index(content, versionPrefix)
+	if i < 0 {
+		return ""
+	}
+	rest := content[i+len(versionPrefix):]
+	j := strings.Index(rest, versionSuffix)
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
+}
+
 // injectVersion inserts the version comment after the closing "---" of the
 // frontmatter; if there is no frontmatter, it prepends the comment.
 func injectVersion(content, ver string) string {

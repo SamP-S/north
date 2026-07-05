@@ -26,7 +26,8 @@ const (
 )
 
 var (
-	idRe       = regexp.MustCompile(`^task-(\d+)`)
+	idRe       = regexp.MustCompile(`^(\d+)-`)
+	taskFileRe = regexp.MustCompile(`^\d+-.*\.md$`)
 	nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 )
 
@@ -110,8 +111,9 @@ func InitBoard(root string) (string, error) {
 	return board, nil
 }
 
-// LoadConfig reads "north/config.yml" into a Config (tolerant of missing file
-// and extra keys).
+// LoadConfig reads "north/config.yml" into a Config. A missing file and extra
+// keys are tolerated; malformed YAML is a hard error (a silently ignored typo
+// would silently change behaviour, e.g. turning auto_commit off).
 func LoadConfig(board string) (Config, error) {
 	cfg := DefaultConfig()
 	path := filepath.Join(board, ConfigName)
@@ -124,7 +126,7 @@ func LoadConfig(board string) (Config, error) {
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return cfg, nil // tolerant: fall back to defaults on malformed config
+		return cfg, errors.Invalid(fmt.Sprintf("malformed %s: %v", path, err))
 	}
 	if v, ok := raw["auto_commit"]; ok {
 		cfg.AutoCommit = toBool(v, cfg.AutoCommit)
@@ -163,7 +165,7 @@ func TaskFiles(board string, states ...models.TaskState) ([]string, error) {
 		}
 		var matched []string
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasPrefix(e.Name(), "task-") && strings.HasSuffix(e.Name(), ".md") {
+			if !e.IsDir() && taskFileRe.MatchString(e.Name()) {
 				matched = append(matched, filepath.Join(dir, e.Name()))
 			}
 		}
@@ -173,7 +175,8 @@ func TaskFiles(board string, states ...models.TaskState) ([]string, error) {
 	return files, nil
 }
 
-// NextID returns the next free "task-<n>" id (max across all folders + 1).
+// NextID returns the next free task id — a bare number, max across all
+// folders + 1 (as a string; ids are never reused).
 func NextID(board string) (string, error) {
 	files, err := TaskFiles(board)
 	if err != nil {
@@ -188,7 +191,7 @@ func NextID(board string) (string, error) {
 			}
 		}
 	}
-	return fmt.Sprintf("task-%d", highest+1), nil
+	return strconv.Itoa(highest + 1), nil
 }
 
 // Slug builds a filename-safe slug from a title (Backlog.md-style, dash-separated).
@@ -200,7 +203,7 @@ func Slug(title string) string {
 	return cleaned
 }
 
-// TaskFilename is the on-disk filename for a task: "task-12-add-login.md".
+// TaskFilename is the on-disk filename for a task: "12-add-login.md".
 func TaskFilename(taskID, title string) string {
 	return fmt.Sprintf("%s-%s.md", taskID, Slug(title))
 }

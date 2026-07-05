@@ -1,18 +1,26 @@
 # 6. Testing
 
 Tests run against a real board scaffolded in a `t.TempDir()` (the `newBoard`
-helper in each package's `_test.go`). No mocking of the filesystem — the core is
-plain file I/O, so tests exercise the real thing.
+helper in each package's `_test.go`). No mocking of the filesystem — the core
+is plain file I/O, so tests exercise the real thing. Git tests execute the
+real `git` binary in temp repos (including a linked-worktree case and a
+no-identity case isolated via `GIT_CONFIG_GLOBAL=/dev/null`).
 
 | File | Covers |
 |---|---|
-| `internal/board/board_test.go` | discovery (walk-up), `init` scaffolding, id allocation |
-| `internal/tasks/tasks_test.go` | create/list/edit/delete, status transitions (active-only), filename slugs |
-| `internal/tasks/archive_test.go` | lifecycle: promote/demote/archive/restore + cleanup, state↔status orthogonality |
+| `internal/board/board_test.go` | discovery (walk-up), `init` scaffolding, id allocation, strict config parsing |
+| `internal/tasks/tasks_test.go` | create/list/edit/delete, freeform status, filename slugs, append-body |
+| `internal/tasks/archive_test.go` | freeform state moves, status preservation, cleanup, state↔status orthogonality |
+| `internal/tasks/parse_test.go` | tolerant loading (bad files → warnings), CRLF, scalar coercion, unknown-key round-trip, duplicate-id warnings, editor-doc round-trip |
+| `internal/tasks/doctor_test.go` | doctor detection (duplicates, CRLF, unparseable, dangling deps, cycles, drift) and `--fix` repairs |
+| `internal/tasks/guards_test.go` | not-found ops, cleanup `--older-than`, id reservation |
+| `internal/tasks/deps_test.go` | depends_on validation, Dependents scanning |
 | `internal/tasks/autocommit_test.go` | `auto_commit` commits locally / is off by default |
-| `internal/render/render_test.go` | `--plain` / `--json` output shape |
-| `internal/cli/cli_test.go` | CLI dispatch, promote→move flow, `--json`, skill install, error exit codes |
-| `internal/skill/skill_test.go` | embedded skill content + install to project/global targets |
+| `internal/git/git_test.go` | exec-git staging/commits, subdir boards, linked worktrees, identity fallback |
+| `internal/render/render_test.go` | `--plain` / `--json` output shape (incl. warnings arrays) |
+| `internal/cli/cli_test.go` | CLI dispatch, state/move flow, delete `-y` contract, search/label filters, config cmd, doctor, JSON errors, nested-init refusal, skill check |
+| `internal/skill/skill_test.go` | embedded skill content, version stamps, install targets |
+| `internal/tui/tui_test.go` | shared modals in both views, state picker apply, q/help/r behaviour, display-width truncation, filter-clearing selection, editor templates |
 
 Gate before merging:
 

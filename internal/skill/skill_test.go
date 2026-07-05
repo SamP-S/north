@@ -22,6 +22,15 @@ func TestContentHasVersionAndFrontmatter(t *testing.T) {
 	}
 }
 
+func TestInstalledVersionRoundTrip(t *testing.T) {
+	if got := skill.InstalledVersion(skill.Content()); got != skill.Version {
+		t.Errorf("InstalledVersion = %q, want %q", got, skill.Version)
+	}
+	if got := skill.InstalledVersion("no stamp here"); got != "" {
+		t.Errorf("expected empty for unstamped content, got %q", got)
+	}
+}
+
 func TestInstallProject(t *testing.T) {
 	root := t.TempDir()
 	targets, err := skill.Install(root, false)

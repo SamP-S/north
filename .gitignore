@@ -7,6 +7,10 @@
 # Env / local
 .env
 tmp/
+demo/
 
 # North board (dogfooding — not committed)
 north/
+
+# Working plans (local only)
+docs/plans/

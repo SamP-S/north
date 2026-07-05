@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -26,21 +27,25 @@ func newTaskCmd() *cobra.Command {
 		newTaskListCmd(),
 		newTaskEditCmd(),
 		newTaskMoveCmd(),
-		newTaskPromoteCmd(),
-		newTaskDemoteCmd(),
-		newTaskArchiveCmd(),
-		newTaskRestoreCmd(),
+		newTaskStateCmd(),
 		newTaskDeleteCmd(),
 	)
 	return cmd
 }
 
-// readBody returns the body from --body / --body-file, or nil if neither given.
+// readBody returns the body from --body / --body-file, or nil if neither
+// given. A body file of "-" reads stdin.
 func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
 	if cmd.Flags().Changed("body-file") {
-		data, err := os.ReadFile(bodyFile)
+		var data []byte
+		var err error
+		if bodyFile == "-" {
+			data, err = io.ReadAll(cmd.InOrStdin())
+		} else {
+			data, err = os.ReadFile(bodyFile)
+		}
 		if err != nil {
-			return nil, nerrors.Invalid(fmt.Sprintf("body file not found: %s", bodyFile))
+			return nil, nerrors.Invalid(fmt.Sprintf("cannot read body file %s: %v", bodyFile, err))
 		}
 		s := string(data)
 		return &s, nil
@@ -49,6 +54,14 @@ func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
 		return &body, nil
 	}
 	return nil, nil
+}
+
+// printWarnings writes snapshot warnings to stderr (human and --plain modes;
+// --json carries them in the payload instead).
+func printWarnings(cmd *cobra.Command, warnings []tasks.Warning) {
+	for _, w := range warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
+	}
 }
 
 func newTaskCreateCmd() *cobra.Command {
@@ -92,7 +105,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&labels, "labels", nil, "free-form labels")
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "task ids this depends on")
 	cmd.Flags().StringVar(&body, "body", "", "task body text")
-	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read task body from a file")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read task body from a file (- for stdin)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
@@ -126,7 +139,8 @@ func newTaskViewCmd() *cobra.Command {
 
 func newTaskListCmd() *cobra.Command {
 	var plain, asJSON bool
-	var status, state string
+	var status, state, search string
+	var labels []string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "list tasks (default: active)",
@@ -140,11 +154,22 @@ func newTaskListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ts, err := tasks.List(boardDir, states, status)
+			if status != "" {
+				if _, err := tasks.ParseStatus(status); err != nil {
+					return err
+				}
+			}
+			snap, err := tasks.Load(boardDir)
 			if err != nil {
 				return err
 			}
-			out, err := render.TaskList(ts, plain, asJSON)
+			ts := snap.Filter(states, status)
+			ts = filterSearch(ts, search)
+			ts = filterLabels(ts, labels)
+			if !asJSON {
+				printWarnings(cmd, snap.Warnings)
+			}
+			out, err := render.TaskList(ts, snap.Warnings, plain, asJSON)
 			if err != nil {
 				return err
 			}
@@ -154,8 +179,53 @@ func newTaskListCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
+	cmd.Flags().StringVar(&search, "search", "", "filter by substring over title, body, and labels (case-insensitive)")
+	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
+}
+
+// filterSearch keeps tasks whose title, body, or labels contain q
+// (case-insensitive). Empty q keeps everything.
+func filterSearch(ts []*models.Task, q string) []*models.Task {
+	if q == "" {
+		return ts
+	}
+	q = strings.ToLower(q)
+	out := make([]*models.Task, 0, len(ts))
+	for _, t := range ts {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Body), q) ||
+			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// filterLabels keeps tasks carrying every requested label (exact match).
+func filterLabels(ts []*models.Task, labels []string) []*models.Task {
+	if len(labels) == 0 {
+		return ts
+	}
+	out := make([]*models.Task, 0, len(ts))
+	for _, t := range ts {
+		have := map[string]bool{}
+		for _, l := range t.Labels {
+			have[l] = true
+		}
+		all := true
+		for _, l := range labels {
+			if !have[l] {
+				all = false
+				break
+			}
+		}
+		if all {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // listStates maps the --state flag to the states to list (default: active).
@@ -175,7 +245,7 @@ func listStates(state string) ([]models.TaskState, error) {
 }
 
 func newTaskEditCmd() *cobra.Command {
-	var title, agent, body string
+	var title, agent, body, bodyFile, appendBody string
 	var labels, dependsOn []string
 	var plain, asJSON bool
 	cmd := &cobra.Command{
@@ -187,16 +257,25 @@ func newTaskEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bodyPtr, err := readBody(cmd, body, "")
+			if cmd.Flags().Changed("append-body") &&
+				(cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file")) {
+				return nerrors.Invalid("--append-body cannot be combined with --body/--body-file")
+			}
+			bodyPtr, err := readBody(cmd, body, bodyFile)
 			if err != nil {
 				return err
 			}
-			task, err := tasks.Edit(boardDir, args[0],
-				changedString(cmd, "title", title),
-				changedString(cmd, "agent", agent),
-				changedSlice(cmd, "labels", labels),
-				changedSlice(cmd, "depends-on", dependsOn),
-				bodyPtr)
+			opts := tasks.EditOpts{
+				Title:     changedString(cmd, "title", title),
+				Agent:     changedString(cmd, "agent", agent),
+				Labels:    changedSlice(cmd, "labels", labels),
+				DependsOn: changedSlice(cmd, "depends-on", dependsOn),
+				Body:      bodyPtr,
+			}
+			if cmd.Flags().Changed("append-body") {
+				opts.AppendBody = &appendBody
+			}
+			task, err := tasks.Edit(boardDir, args[0], opts)
 			if err != nil {
 				return err
 			}
@@ -217,6 +296,8 @@ func newTaskEditCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&labels, "labels", nil, "replace labels (empty to clear)")
 	cmd.Flags().StringSliceVar(&dependsOn, "depends-on", nil, "replace dependencies (empty to clear)")
 	cmd.Flags().StringVar(&body, "body", "", "replace body text")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "replace body from a file (- for stdin)")
+	cmd.Flags().StringVar(&appendBody, "append-body", "", "append text to the body (blank-line separated)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
@@ -225,7 +306,7 @@ func newTaskMoveCmd() *cobra.Command {
 	var plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "move <id> <status>",
-		Short: "change an active task's status",
+		Short: "set an active task's status (any status → any status)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
@@ -252,19 +333,18 @@ func newTaskMoveCmd() *cobra.Command {
 	return cmd
 }
 
-// stateCmd builds a simple `task <verb> <id>` lifecycle command.
-func stateCmd(use, short, doneWord string, op func(boardDir, id string) (*models.Task, error)) *cobra.Command {
+func newTaskStateCmd() *cobra.Command {
 	var plain, asJSON bool
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		Args:  cobra.ExactArgs(1),
+		Use:   "state <id> <draft|active|archive>",
+		Short: "set a task's lifecycle state (any state → any state)",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			task, err := op(boardDir, args[0])
+			task, err := tasks.SetState(boardDir, args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -276,28 +356,12 @@ func stateCmd(use, short, doneWord string, op func(boardDir, id string) (*models
 				cmd.Println(out)
 				return nil
 			}
-			cmd.Printf("%s %s (%s)\n", doneWord, task.ID, task.State)
+			cmd.Printf("%s state → %s\n", task.ID, task.State)
 			return nil
 		},
 	}
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
-}
-
-func newTaskPromoteCmd() *cobra.Command {
-	return stateCmd("promote <id>", "promote a draft onto the active board", "Promoted", tasks.Promote)
-}
-
-func newTaskDemoteCmd() *cobra.Command {
-	return stateCmd("demote <id>", "send an active task back to drafts", "Demoted", tasks.Demote)
-}
-
-func newTaskArchiveCmd() *cobra.Command {
-	return stateCmd("archive <id>", "move a task to archive/", "Archived", tasks.Archive)
-}
-
-func newTaskRestoreCmd() *cobra.Command {
-	return stateCmd("restore <id>", "restore an archived task to drafts", "Restored", tasks.Restore)
 }
 
 func newTaskDeleteCmd() *cobra.Command {
@@ -326,9 +390,15 @@ func newTaskDeleteCmd() *cobra.Command {
 			if len(depIDs) > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s depend on %s\n", strings.Join(depIDs, ", "), task.ID)
 			}
-			if !yes && !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
-				cmd.Println("Aborted.")
-				return errAborted
+			if !yes {
+				// Machine modes and non-TTY stdin never prompt: require -y.
+				if plain || asJSON || !stdinIsTTY(cmd) {
+					return nerrors.Invalid("delete requires -y when not run interactively")
+				}
+				if !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
+					return errAborted
+				}
 			}
 			if err := tasks.Delete(boardDir, args[0]); err != nil {
 				return err
@@ -349,9 +419,6 @@ func newTaskDeleteCmd() *cobra.Command {
 					return err
 				}
 				cmd.Println(out)
-				if len(depIDs) > 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning\t%s\n", strings.Join(depIDs, ","))
-				}
 				return nil
 			}
 			cmd.Printf("Deleted %s\n", task.ID)
@@ -388,8 +455,23 @@ func changedSlice(cmd *cobra.Command, name string, val []string) *[]string {
 	return nil
 }
 
+// stdinIsTTY reports whether the command's stdin is an interactive terminal.
+// Non-file readers (tests injecting input) count as interactive.
+func stdinIsTTY(cmd *cobra.Command) bool {
+	f, ok := cmd.InOrStdin().(*os.File)
+	if !ok {
+		return true
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// confirm prompts on stderr and reads a y/N answer from stdin.
 func confirm(cmd *cobra.Command, prompt string) bool {
-	fmt.Fprintf(cmd.OutOrStdout(), "%s [y/N] ", prompt)
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", prompt)
 	scanner := bufio.NewScanner(cmd.InOrStdin())
 	if !scanner.Scan() {
 		return false

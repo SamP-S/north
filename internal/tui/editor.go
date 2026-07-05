@@ -1,7 +1,13 @@
+// editor.go — the $EDITOR flow for creating and editing tasks.
+//
+// The editor buffer uses the real on-disk task-file format (YAML frontmatter +
+// Markdown body), restricted to the editable fields: title, agent, labels,
+// depends_on, and the body. id/state/status are managed by their own keys and
+// never appear in the buffer. Parsing reuses the same frontmatter code as the
+// task files themselves.
 package tui
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -9,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/SamP-S/north/internal/models"
+	"github.com/SamP-S/north/internal/tasks"
 )
 
 type editorMode int
@@ -19,113 +26,48 @@ const (
 )
 
 // editorDoneMsg is sent after $EDITOR exits — the tmp file path is included so
-// the model can read and parse the result.
+// the model can read and parse the result. canceled is set when the editor
+// exited non-zero (e.g. vim's :cq), which aborts the operation.
 type editorDoneMsg struct {
-	tmpPath string
-	mode    editorMode
-	taskID  string // only set for modeEdit
+	tmpPath  string
+	mode     editorMode
+	taskID   string // only set for modeEdit
+	canceled bool
 }
 
-// createTemplate returns a blank task template for $EDITOR.
+// createTemplate returns a blank task skeleton for $EDITOR.
 func createTemplate() string {
-	return "# Task title here\nagent: \nlabels: \ndepends_on: \n\nDescribe the task body here.\n"
+	out, err := tasks.RenderEditorDoc(tasks.EditorDoc{})
+	if err != nil {
+		return "---\ntitle: \nagent: \nlabels: []\ndepends_on: []\n---\n\n"
+	}
+	return out + "Describe the task here.\n"
 }
 
-// taskToTemplate serialises a task into the editor template format.
-func taskToTemplate(t *models.Task) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "# %s\n", t.Title)
-	fmt.Fprintf(&sb, "agent: %s\n", t.Agent)
-	fmt.Fprintf(&sb, "labels: %s\n", strings.Join(t.Labels, ", "))
-	fmt.Fprintf(&sb, "depends_on: %s\n", strings.Join(t.DependsOn, ", "))
-	sb.WriteString("\n")
-	if t.Body != "" {
-		sb.WriteString(t.Body)
-		if !strings.HasSuffix(t.Body, "\n") {
-			sb.WriteString("\n")
+// editTemplate serialises a task's editable fields into the editor format.
+func editTemplate(t *models.Task) (string, error) {
+	return tasks.RenderEditorDoc(tasks.EditorDoc{
+		Title:     t.Title,
+		Agent:     t.Agent,
+		Labels:    t.Labels,
+		DependsOn: t.DependsOn,
+		Body:      t.Body,
+	})
+}
+
+// editorCommand resolves the user's editor ($VISUAL, then $EDITOR, then vi)
+// and builds the exec.Cmd. Values with arguments ("code --wait") are split.
+func editorCommand(path string) *exec.Cmd {
+	for _, v := range []string{os.Getenv("VISUAL"), os.Getenv("EDITOR")} {
+		if fields := strings.Fields(v); len(fields) > 0 {
+			return exec.Command(fields[0], append(fields[1:], path)...) //nolint:gosec
 		}
 	}
-	return sb.String()
-}
-
-// ParseEditorResult parses the editor template and returns title, body, agent,
-// labels, and depends_on. Exported so tests can call it directly.
-//
-// Format:
-//
-//	# Title line
-//	agent: name             (optional)
-//	labels: foo, bar        (optional)
-//	depends_on: task-1, task-2   (optional)
-//
-//	Body text…
-func ParseEditorResult(content string) (title, body, agent string, labels, dependsOn []string) {
-	lines := strings.Split(content, "\n")
-	inHeader := true
-	var bodyLines []string
-
-	for _, line := range lines {
-		if inHeader {
-			if strings.HasPrefix(line, "# ") && title == "" {
-				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
-				continue
-			}
-			if strings.HasPrefix(line, "agent:") && title != "" {
-				agent = strings.TrimSpace(strings.TrimPrefix(line, "agent:"))
-				continue
-			}
-			if strings.HasPrefix(line, "labels:") && title != "" {
-				labels = splitCommaList(strings.TrimPrefix(line, "labels:"))
-				continue
-			}
-			if strings.HasPrefix(line, "depends_on:") && title != "" {
-				dependsOn = splitCommaList(strings.TrimPrefix(line, "depends_on:"))
-				continue
-			}
-			// blank line after header ends the header block
-			if line == "" && title != "" {
-				inHeader = false
-				continue
-			}
-			// any non-header content while title is set ends the header
-			if title != "" {
-				inHeader = false
-				bodyLines = append(bodyLines, line)
-			}
-		} else {
-			bodyLines = append(bodyLines, line)
-		}
-	}
-
-	body = strings.TrimRight(strings.Join(bodyLines, "\n"), "\n")
-	return
-}
-
-// splitCommaList trims a "field: a, b, c" value (with the "field:" prefix
-// already stripped) into its non-empty, whitespace-trimmed elements.
-func splitCommaList(raw string) []string {
-	var out []string
-	for _, v := range strings.Split(strings.TrimSpace(raw), ",") {
-		if v = strings.TrimSpace(v); v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// editorFor returns the user's preferred editor ($EDITOR, $VISUAL, or vi).
-func editorFor() string {
-	if e := os.Getenv("EDITOR"); e != "" {
-		return e
-	}
-	if e := os.Getenv("VISUAL"); e != "" {
-		return e
-	}
-	return "vi"
+	return exec.Command("vi", path)
 }
 
 // openEditor writes content to a temp file, then returns a tea.ExecProcess Cmd
-// that suspends the TUI, opens $EDITOR on the file, and resumes with an
+// that suspends the TUI, opens the editor on the file, and resumes with an
 // editorDoneMsg (or errMsg if setup fails).
 //
 // Call this from Update — the returned Cmd must be returned alongside the model.
@@ -142,12 +84,8 @@ func openEditor(content string, mode editorMode, taskID string) tea.Cmd {
 	}
 	f.Close()
 
-	cmd := exec.Command(editorFor(), path) //nolint:gosec
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			// non-zero exit (e.g. :cq in vim) — treat as cancelled, still try to
-			// read what was saved
-		}
-		return editorDoneMsg{tmpPath: path, mode: mode, taskID: taskID}
+	return tea.ExecProcess(editorCommand(path), func(err error) tea.Msg {
+		// Non-zero exit (e.g. :cq in vim) means "abort, discard my edits".
+		return editorDoneMsg{tmpPath: path, mode: mode, taskID: taskID, canceled: err != nil}
 	})
 }

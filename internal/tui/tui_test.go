@@ -11,270 +11,187 @@ import (
 	"github.com/SamP-S/north/internal/tasks"
 )
 
-func TestParseEditorResult(t *testing.T) {
-	tests := []struct {
-		name          string
-		input         string
-		wantTitle     string
-		wantBody      string
-		wantAgent     string
-		wantLabels    []string
-		wantDependsOn []string
-	}{
-		{
-			name:      "title only",
-			input:     "# My Task\n",
-			wantTitle: "My Task",
-		},
-		{
-			name:      "title and body",
-			input:     "# Fix login\n\nSome body text.\nSecond line.",
-			wantTitle: "Fix login",
-			wantBody:  "Some body text.\nSecond line.",
-		},
-		{
-			name:       "title labels body",
-			input:      "# Add auth\nlabels: backend, api\n\nImplement OAuth.",
-			wantTitle:  "Add auth",
-			wantBody:   "Implement OAuth.",
-			wantLabels: []string{"backend", "api"},
-		},
-		{
-			name:       "agent field",
-			input:      "# Task\nagent: claude\nlabels: ops\n\nbody",
-			wantTitle:  "Task",
-			wantAgent:  "claude",
-			wantBody:   "body",
-			wantLabels: []string{"ops"},
-		},
-		{
-			name:       "labels with spaces",
-			input:      "# Task\nlabels:  foo ,  bar ,baz\n\nbody",
-			wantTitle:  "Task",
-			wantBody:   "body",
-			wantLabels: []string{"foo", "bar", "baz"},
-		},
-		{
-			name:          "depends_on field",
-			input:         "# Task\ndepends_on: task-1, task-2\n\nbody",
-			wantTitle:     "Task",
-			wantBody:      "body",
-			wantDependsOn: []string{"task-1", "task-2"},
-		},
-		{
-			name:          "depends_on with spaces and blank entries",
-			input:         "# Task\ndepends_on:  task-1 , , task-3 \n\nbody",
-			wantTitle:     "Task",
-			wantBody:      "body",
-			wantDependsOn: []string{"task-1", "task-3"},
-		},
-		{
-			name:      "no body",
-			input:     "# Title\n",
-			wantTitle: "Title",
-			wantBody:  "",
-		},
-		{
-			name:      "empty input",
-			input:     "",
-			wantTitle: "",
-		},
-		{
-			name:      "trailing newlines stripped from body",
-			input:     "# T\n\nbody\n\n",
-			wantTitle: "T",
-			wantBody:  "body",
-		},
+func newTestBoard(t *testing.T) string {
+	t.Helper()
+	dir, err := board.InitBoard(t.TempDir())
+	if err != nil {
+		t.Fatalf("init board: %v", err)
 	}
+	return dir
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			title, body, agent, labels, dependsOn := ParseEditorResult(tc.input)
-			if title != tc.wantTitle {
-				t.Errorf("title: got %q, want %q", title, tc.wantTitle)
-			}
-			if body != tc.wantBody {
-				t.Errorf("body: got %q, want %q", body, tc.wantBody)
-			}
-			if agent != tc.wantAgent {
-				t.Errorf("agent: got %q, want %q", agent, tc.wantAgent)
-			}
-			if len(labels) != len(tc.wantLabels) {
-				t.Errorf("labels length: got %d, want %d (%v)", len(labels), len(tc.wantLabels), labels)
-			} else {
-				for i, l := range labels {
-					if l != tc.wantLabels[i] {
-						t.Errorf("labels[%d]: got %q, want %q", i, l, tc.wantLabels[i])
-					}
-				}
-			}
-			if len(dependsOn) != len(tc.wantDependsOn) {
-				t.Errorf("depends_on length: got %d, want %d (%v)", len(dependsOn), len(tc.wantDependsOn), dependsOn)
-			} else {
-				for i, d := range dependsOn {
-					if d != tc.wantDependsOn[i] {
-						t.Errorf("depends_on[%d]: got %q, want %q", i, d, tc.wantDependsOn[i])
-					}
-				}
-			}
-		})
+func mustActive(t *testing.T, dir, title string) *models.Task {
+	t.Helper()
+	task, err := tasks.Create(dir, title, "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
 	}
+	task, err = tasks.SetState(dir, task.ID, "active")
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	return task
+}
+
+// keyRune builds a rune key message.
+func keyRune(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
+
+// rootWithTask returns a root model showing one active task on the board.
+func rootWithTask(t *testing.T, dir string, task *models.Task) Model {
+	t.Helper()
+	m := NewModel(dir)
+	m.width, m.height = 80, 24
+	m.board.columns = []boardColumn{
+		{status: string(task.Status), tasks: []*models.Task{task}, cursor: 0},
+	}
+	return m
 }
 
 func TestSortDescByID(t *testing.T) {
-	make := func(id string) *models.Task { return &models.Task{ID: id} }
-	tasks := []*models.Task{make("task-1"), make("task-10"), make("task-3"), make("task-2")}
-	sortDescByID(tasks)
-	want := []string{"task-10", "task-3", "task-2", "task-1"}
+	mk := func(id string) *models.Task { return &models.Task{ID: id} }
+	ts := []*models.Task{mk("1"), mk("10"), mk("3"), mk("2")}
+	sortDescByID(ts)
+	want := []string{"10", "3", "2", "1"}
 	for i, w := range want {
-		if tasks[i].ID != w {
-			t.Errorf("pos %d: got %q, want %q", i, tasks[i].ID, w)
+		if ts[i].ID != w {
+			t.Errorf("pos %d: got %q, want %q", i, ts[i].ID, w)
 		}
 	}
 }
 
-func TestCreateTemplate(t *testing.T) {
+func TestCreateTemplateParses(t *testing.T) {
 	tmpl := createTemplate()
 	if tmpl == "" {
 		t.Fatal("createTemplate returned empty string")
 	}
-	title, _, _, _, _ := ParseEditorResult(tmpl)
-	if title == "" {
-		t.Error("template should parse to a non-empty title placeholder")
+	doc, err := tasks.ParseEditorDoc(tmpl)
+	if err != nil {
+		t.Fatalf("template should parse in the task-file format: %v", err)
+	}
+	if doc.Title != "" {
+		t.Errorf("blank template should have an empty title, got %q", doc.Title)
 	}
 }
 
-// TestBoardDeleteWarningModal verifies that pressing 'd' when a dependent task
-// exists produces a pendingText that names both the target and its dependent.
-func TestBoardDeleteWarningModal(t *testing.T) {
-	// Set up a real board in a temp directory.
-	dir, err := board.InitBoard(t.TempDir())
+func TestEditTemplateRoundTrip(t *testing.T) {
+	task := &models.Task{
+		Title:     "Fix login",
+		Agent:     "opus",
+		Labels:    []string{"auth"},
+		DependsOn: []string{"4"},
+		Body:      "line one\n\nline two",
+	}
+	tmpl, err := editTemplate(task)
 	if err != nil {
-		t.Fatalf("init board: %v", err)
+		t.Fatal(err)
 	}
-
-	// Create task-1 and make it active.
-	t1, err := tasks.Create(dir, "First task", "", nil, nil, "")
+	doc, err := tasks.ParseEditorDoc(tmpl)
 	if err != nil {
-		t.Fatalf("create task-1: %v", err)
+		t.Fatal(err)
 	}
-	t1, err = tasks.Promote(dir, t1.ID)
-	if err != nil {
-		t.Fatalf("promote task-1: %v", err)
+	if doc.Title != task.Title || doc.Agent != task.Agent || doc.Body != task.Body {
+		t.Errorf("round trip mismatch: %+v", doc)
 	}
-
-	// Create task-2, make it active, then set it to depend on task-1.
-	t2, err := tasks.Create(dir, "Second task", "", nil, nil, "")
-	if err != nil {
-		t.Fatalf("create task-2: %v", err)
-	}
-	t2, err = tasks.Promote(dir, t2.ID)
-	if err != nil {
-		t.Fatalf("promote task-2: %v", err)
-	}
-	deps := []string{t1.ID}
-	_, err = tasks.Edit(dir, t2.ID, nil, nil, nil, &deps, nil)
-	if err != nil {
-		t.Fatalf("edit task-2 depends_on: %v", err)
-	}
-
-	// Build a boardModel with task-1 selected in the first column.
-	m := boardModel{
-		boardDir: dir,
-		columns: []boardColumn{
-			{status: string(models.Ready), tasks: []*models.Task{t1}, cursor: 0},
-		},
-		colIdx: 0,
-		width:  80,
-		height: 24,
-	}
-
-	// Send the 'd' key.
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-
-	pt := updated.pendingText
-	if !strings.Contains(pt, t1.ID) {
-		t.Errorf("pendingText %q does not contain %q", pt, t1.ID)
-	}
-	if !strings.Contains(pt, t2.ID) {
-		t.Errorf("pendingText %q does not contain %q (dependent)", pt, t2.ID)
+	if len(doc.Labels) != 1 || len(doc.DependsOn) != 1 || doc.DependsOn[0] != "4" {
+		t.Errorf("lists lost: %+v", doc)
 	}
 }
 
-// TestListDeleteWarningModal verifies that the list view's delete confirm
-// carries the same dependents warning as the board view's — the two views
-// must behave identically for the same key.
-func TestListDeleteWarningModal(t *testing.T) {
-	dir, err := board.InitBoard(t.TempDir())
-	if err != nil {
-		t.Fatalf("init board: %v", err)
+// TestDeleteConfirmNamesDependents verifies that pressing 'd' when a dependent
+// task exists produces a confirm prompt naming both tasks — in both views.
+func TestDeleteConfirmNamesDependents(t *testing.T) {
+	dir := newTestBoard(t)
+	t1 := mustActive(t, dir, "First task")
+	if _, err := tasks.Create(dir, "Second task", "", nil, []string{t1.ID}, ""); err != nil {
+		t.Fatalf("create dependent: %v", err)
 	}
 
-	t1, err := tasks.Create(dir, "First task", "", nil, nil, "")
-	if err != nil {
-		t.Fatalf("create task-1: %v", err)
-	}
-	t2, err := tasks.Create(dir, "Second task", "", nil, []string{t1.ID}, "")
-	if err != nil {
-		t.Fatalf("create task-2: %v", err)
-	}
-	_ = t2
+	for _, view := range []viewMode{viewBoard, viewList} {
+		m := rootWithTask(t, dir, t1)
+		m.view = view
+		m.list.filtered = []*models.Task{t1}
 
-	m := listModel{
-		boardDir:   dir,
-		filtered:   []*models.Task{t1},
-		activePane: paneList,
-	}
-
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-
-	if updated.confirm != confirmDelete {
-		t.Fatalf("expected confirmDelete, got %v", updated.confirm)
-	}
-	if !strings.Contains(updated.confirmText, t1.ID) {
-		t.Errorf("confirmText %q does not contain %q", updated.confirmText, t1.ID)
-	}
-	if !strings.Contains(updated.confirmText, t2.ID) {
-		t.Errorf("confirmText %q does not contain %q (dependent)", updated.confirmText, t2.ID)
+		updated, _ := m.Update(keyRune('d'))
+		um := updated.(Model)
+		if um.modal.mode != modalConfirmDelete {
+			t.Fatalf("view %v: expected delete confirm, got %v", view, um.modal.mode)
+		}
+		if !strings.Contains(um.modal.confirm, "1") || !strings.Contains(um.modal.confirm, "2") {
+			t.Errorf("view %v: confirm %q should name target and dependent", view, um.modal.confirm)
+		}
 	}
 }
 
-// TestListMoveOpensStatusPicker verifies that 'm' opens the same status-picker
-// modal in the list view as in the board view.
-func TestListMoveOpensStatusPicker(t *testing.T) {
-	dir, err := board.InitBoard(t.TempDir())
-	if err != nil {
-		t.Fatalf("init board: %v", err)
-	}
-	active, err := tasks.Create(dir, "Active task", "", nil, nil, "")
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	active, err = tasks.Promote(dir, active.ID)
-	if err != nil {
-		t.Fatalf("promote: %v", err)
-	}
+// TestStatusPickerOpensInBothViews verifies that 'm' opens the shared status
+// picker regardless of the active view.
+func TestStatusPickerOpensInBothViews(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
 
-	m := listModel{
-		boardDir:   dir,
-		filtered:   []*models.Task{active},
-		activePane: paneList,
-	}
+	for _, view := range []viewMode{viewBoard, viewList} {
+		m := rootWithTask(t, dir, active)
+		m.view = view
+		m.list.filtered = []*models.Task{active}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
-
-	if updated.modal != modalStatusPicker {
-		t.Fatalf("expected modalStatusPicker, got %v", updated.modal)
+		updated, _ := m.Update(keyRune('m'))
+		um := updated.(Model)
+		if um.modal.mode != modalStatusPicker {
+			t.Fatalf("view %v: expected status picker, got %v", view, um.modal.mode)
+		}
 	}
 }
 
-// TestPromoteOrDemoteIgnoresArchived verifies that Promote (the 'p' key) is a
-// no-op on archived tasks — restoring is Archive's ('a') job, so the two keys
-// no longer overlap.
-func TestPromoteOrDemoteIgnoresArchived(t *testing.T) {
-	t1 := &models.Task{ID: "task-1", State: models.StateArchive}
-	if cmd := promoteOrDemote("unused", t1); cmd != nil {
-		t.Error("expected promoteOrDemote to be a no-op for an archived task")
+// TestStatusPickerRejectedForDraft verifies 'm' does nothing for a non-active
+// task (status is active-only).
+func TestStatusPickerRejectedForDraft(t *testing.T) {
+	dir := newTestBoard(t)
+	draft, err := tasks.Create(dir, "Draft task", "", nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := rootWithTask(t, dir, draft)
+	updated, _ := m.Update(keyRune('m'))
+	if updated.(Model).modal.mode != modalNone {
+		t.Error("m should be a no-op for a draft task")
+	}
+}
+
+// TestStatePickerOpensAndApplies verifies that 's' opens the state picker and
+// Enter applies the selected state.
+func TestStatePickerOpensAndApplies(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
+
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('s'))
+	um := updated.(Model)
+	if um.modal.mode != modalStatePicker {
+		t.Fatalf("expected state picker, got %v", um.modal.mode)
+	}
+	if um.modal.cursor != stateIndex(models.StateActive) {
+		t.Errorf("picker cursor should start on the current state")
+	}
+
+	// Move to archive and confirm.
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyDown})
+	um = updated.(Model)
+	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.modal.mode != modalNone {
+		t.Fatal("enter should close the picker")
+	}
+	if cmd == nil {
+		t.Fatal("enter should produce a command")
+	}
+	if msg := cmd(); msg != (reloadMsg{}) {
+		t.Fatalf("state change failed: %v", msg)
+	}
+	task, err := tasks.Get(dir, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.State != models.StateArchive {
+		t.Errorf("expected archive, got %s", task.State)
 	}
 }
 
@@ -287,34 +204,20 @@ func isQuit(cmd tea.Cmd) bool {
 	return ok
 }
 
-// TestQuitIsNoOpOnOpenBoardModal verifies that pressing 'q' while the board's
-// status-picker modal is open neither quits the app nor closes the modal —
-// esc is the only cancel key. esc still closes it.
-func TestQuitIsNoOpOnOpenBoardModal(t *testing.T) {
-	dir, err := board.InitBoard(t.TempDir())
-	if err != nil {
-		t.Fatalf("init board: %v", err)
-	}
-	active, err := tasks.Create(dir, "Active task", "", nil, nil, "")
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if active, err = tasks.Promote(dir, active.ID); err != nil {
-		t.Fatalf("promote: %v", err)
-	}
+// TestQuitIsNoOpOnOpenModal verifies that pressing 'q' while a modal is open
+// neither quits nor closes it — esc is the only cancel key.
+func TestQuitIsNoOpOnOpenModal(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
 
-	m := NewModel(dir)
-	m.width, m.height = 80, 24
-	m.board.columns = []boardColumn{
-		{status: string(models.Ready), tasks: []*models.Task{active}, cursor: 0},
-	}
-	m.board.modal = modalStatusPicker
-
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('m'))
 	um := updated.(Model)
 
-	if um.board.modal != modalStatusPicker {
-		t.Errorf("expected modal to stay open after q, got %v", um.board.modal)
+	updated, cmd := um.Update(keyRune('q'))
+	um = updated.(Model)
+	if um.modal.mode != modalStatusPicker {
+		t.Errorf("expected modal to stay open after q, got %v", um.modal.mode)
 	}
 	if isQuit(cmd) {
 		t.Error("q should not quit the app while a modal is open")
@@ -322,56 +225,98 @@ func TestQuitIsNoOpOnOpenBoardModal(t *testing.T) {
 
 	// esc still cancels.
 	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if updated.(Model).board.modal != modalNone {
+	if updated.(Model).modal.mode != modalNone {
 		t.Error("expected esc to close the modal")
 	}
 }
 
-// TestQuitIsNoOpOnOpenListConfirm verifies the same for the list view's
-// delete/archive confirm.
-func TestQuitIsNoOpOnOpenListConfirm(t *testing.T) {
-	dir, err := board.InitBoard(t.TempDir())
-	if err != nil {
-		t.Fatalf("init board: %v", err)
-	}
-	t1, err := tasks.Create(dir, "First task", "", nil, nil, "")
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	m := NewModel(dir)
-	m.width, m.height = 80, 24
-	m.view = viewList
-	m.list.filtered = []*models.Task{t1}
-	m.list.activePane = paneList
-	m.list.confirm = confirmDelete
-	m.list.confirmText = "delete task-1? [y/n]"
-
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	um := updated.(Model)
-
-	if um.list.confirm != confirmDelete {
-		t.Errorf("expected confirm to stay pending after q, got %v", um.list.confirm)
-	}
-	if isQuit(cmd) {
-		t.Error("q should not quit the app while a confirm is pending")
-	}
-
-	// esc still cancels.
-	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if updated.(Model).list.confirm != confirmNone {
-		t.Error("expected esc to cancel the pending confirm")
-	}
-}
-
-// TestQuitQuitsWhenNoModalOpen is the control case: q still quits normally
-// when nothing is open.
-func TestQuitQuitsWhenNoModalOpen(t *testing.T) {
+// TestQuitInertInHelp verifies q does nothing while the help overlay is open
+// (esc closes it), and quits from the main view.
+func TestQuitInertInHelp(t *testing.T) {
 	m := NewModel(t.TempDir())
 	m.width, m.height = 80, 24
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	updated, _ := m.Update(keyRune('?'))
+	um := updated.(Model)
+	if !um.showHelp {
+		t.Fatal("? should open help")
+	}
+	updated, cmd := um.Update(keyRune('q'))
+	um = updated.(Model)
+	if !um.showHelp {
+		t.Error("q should be inert while help is open")
+	}
+	if isQuit(cmd) {
+		t.Error("q should not quit while help is open")
+	}
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um = updated.(Model)
+	if um.showHelp {
+		t.Error("esc should close the help overlay")
+	}
+	_, cmd = um.Update(keyRune('q'))
 	if !isQuit(cmd) {
-		t.Error("expected q to quit when no modal/confirm is open")
+		t.Error("q should quit once help is closed")
+	}
+}
+
+// TestRefreshKeyReloads verifies 'r' emits a reload.
+func TestRefreshKeyReloads(t *testing.T) {
+	m := NewModel(t.TempDir())
+	m.width, m.height = 80, 24
+	_, cmd := m.Update(keyRune('r'))
+	if cmd == nil {
+		t.Fatal("r should produce a command")
+	}
+	if msg := cmd(); msg != (reloadMsg{}) {
+		t.Errorf("r should emit reloadMsg, got %v", msg)
+	}
+}
+
+// TestTruncateMultibyte verifies board card titles are truncated by display
+// width, never mid-rune.
+func TestTruncateMultibyte(t *testing.T) {
+	dir := newTestBoard(t)
+	m := newBoardModel(dir)
+	m.setSize(40, 20)
+	m.columns = []boardColumn{{
+		status: "ready",
+		tasks: []*models.Task{
+			{ID: "1", Title: strings.Repeat("é", 60), Status: models.Ready, State: models.StateActive},
+			{ID: "2", Title: strings.Repeat("漢", 40), Status: models.Ready, State: models.StateActive},
+		},
+	}}
+	out := m.renderColumn(0, m.columns[0], 20, 10)
+	if strings.Contains(out, "�") {
+		t.Error("truncation produced a replacement character (split rune)")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		// No rendered line may exceed the column width.
+		if w := len([]rune(line)); w > 0 && strings.Contains(line, "…") && w > 60 {
+			t.Errorf("line too wide after truncation: %q", line)
+		}
+	}
+}
+
+// TestSelectByIDClearsFilter verifies Enter-from-board still selects a task
+// that the active list filter would hide.
+func TestSelectByIDClearsFilter(t *testing.T) {
+	dir := newTestBoard(t)
+	m := newListModel(dir)
+	m.setSize(80, 24)
+	m.allTasks = []*models.Task{
+		{ID: "1", Title: "alpha", Status: models.Ready, State: models.StateActive},
+		{ID: "2", Title: "beta", Status: models.Ready, State: models.StateActive},
+	}
+	m.searchQuery = "alpha"
+	m.searchInput.SetValue("alpha")
+	m.filtered = m.applyFilter()
+
+	m.selectByID("2") // hidden by the filter
+	if sel := m.selected(); sel == nil || sel.ID != "2" {
+		t.Errorf("selectByID should clear the filter and select 2, got %v", sel)
+	}
+	if m.searchQuery != "" {
+		t.Error("filter should be cleared")
 	}
 }

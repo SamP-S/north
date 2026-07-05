@@ -15,15 +15,21 @@ import (
 	"github.com/SamP-S/north/internal/tasks"
 )
 
-// TaskList renders a list of tasks.
-func TaskList(tasks []*models.Task, plain, asJSON bool) (string, error) {
+// TaskList renders a list of tasks. In JSON mode the payload is an object
+// carrying the tasks plus any board warnings; human/plain modes print tasks
+// only (warnings go to stderr in the CLI).
+func TaskList(taskList []*models.Task, warnings []tasks.Warning, plain, asJSON bool) (string, error) {
 	if asJSON {
-		summaries := make([]map[string]any, len(tasks))
-		for i, t := range tasks {
+		summaries := make([]map[string]any, len(taskList))
+		for i, t := range taskList {
 			summaries[i] = summary(t)
 		}
-		return marshalJSON(summaries)
+		return marshalJSON(map[string]any{
+			"tasks":    summaries,
+			"warnings": warningStrings(warnings),
+		})
 	}
+	tasks := taskList
 	if plain {
 		lines := make([]string, len(tasks))
 		for i, t := range tasks {
@@ -75,16 +81,18 @@ func TaskDetail(task *models.Task, plain, asJSON bool) (string, error) {
 }
 
 // Board renders a board summary: per-status counts plus draft/archive totals.
-func Board(counts []tasks.StatusCount, drafts, archived int, plain, asJSON bool) (string, error) {
+// JSON mode also carries any board warnings.
+func Board(counts []tasks.StatusCount, drafts, archived int, warnings []tasks.Warning, plain, asJSON bool) (string, error) {
 	if asJSON {
 		active := make(map[string]int, len(counts))
 		for _, c := range counts {
 			active[c.Status] = c.Count
 		}
 		return marshalJSON(map[string]any{
-			"active":  active,
-			"drafts":  drafts,
-			"archive": archived,
+			"active":   active,
+			"drafts":   drafts,
+			"archive":  archived,
+			"warnings": warningStrings(warnings),
 		})
 	}
 	if plain {
@@ -114,6 +122,44 @@ func summary(t *models.Task) map[string]any {
 	m := t.ToMap()
 	delete(m, "body")
 	return m
+}
+
+// DoctorReport renders doctor issues. Human/plain: one line per issue ("board
+// is healthy" when clean); JSON: {"issues": [...]} with structured fields.
+func DoctorReport(issues []tasks.Issue, plain, asJSON bool) (string, error) {
+	if asJSON {
+		out := make([]map[string]any, len(issues))
+		for i, is := range issues {
+			out[i] = map[string]any{
+				"kind":   is.Kind,
+				"file":   is.File,
+				"detail": is.Detail,
+				"fixed":  is.Fixed,
+			}
+		}
+		return marshalJSON(map[string]any{"issues": out})
+	}
+	if len(issues) == 0 {
+		if plain {
+			return "ok", nil
+		}
+		return "Board is healthy — no issues found.", nil
+	}
+	lines := make([]string, len(issues))
+	for i, is := range issues {
+		lines[i] = is.String()
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// warningStrings flattens warnings to their string form (never nil, so JSON
+// renders [] rather than null).
+func warningStrings(warnings []tasks.Warning) []string {
+	out := make([]string, len(warnings))
+	for i, w := range warnings {
+		out[i] = w.String()
+	}
+	return out
 }
 
 func marshalJSON(v any) (string, error) {

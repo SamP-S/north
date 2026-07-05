@@ -1,50 +1,51 @@
 package tasks_test
 
 import (
-	"testing"
-
+	"os/exec"
 	"strings"
+	"testing"
 
 	"github.com/SamP-S/north/internal/board"
 	"github.com/SamP-S/north/internal/tasks"
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-func initRepo(t *testing.T) (string, *gogit.Repository) {
+func gitOut(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+func initRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	repo, err := gogit.PlainInit(root, false)
-	if err != nil {
-		t.Fatal(err)
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.name", "tester"},
+		{"config", "user.email", "tester@example.com"},
+	} {
+		if out, err := gitOut(t, root, args...); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
 	}
 	boardDir, err := board.InitBoard(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return boardDir, repo
+	return boardDir
 }
 
-func commitMessages(t *testing.T, repo *gogit.Repository) []string {
+func commitMessages(t *testing.T, boardDir string) []string {
 	t.Helper()
-	ref, err := repo.Head()
+	out, err := gitOut(t, boardDir, "log", "--format=%s")
 	if err != nil {
 		return nil // no commits yet
 	}
-	iter, err := repo.Log(&gogit.LogOptions{From: ref.Hash()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var msgs []string
-	_ = iter.ForEach(func(c *object.Commit) error {
-		msgs = append(msgs, c.Message)
-		return nil
-	})
-	return msgs
+	return strings.Split(out, "\n")
 }
 
 func TestAutoCommitCreatesCommit(t *testing.T) {
-	boardDir, repo := initRepo(t)
+	boardDir := initRepo(t)
 	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -52,22 +53,22 @@ func TestAutoCommitCreatesCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
-	for _, m := range commitMessages(t, repo) {
-		if strings.HasPrefix(m, "north: create task-1") {
+	for _, m := range commitMessages(t, boardDir) {
+		if strings.HasPrefix(m, "north: create 1") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("no create commit found: %v", commitMessages(t, repo))
+		t.Errorf("no create commit found: %v", commitMessages(t, boardDir))
 	}
 }
 
 func TestNoCommitWhenDisabled(t *testing.T) {
-	boardDir, repo := initRepo(t)
+	boardDir := initRepo(t)
 	if _, err := tasks.Create(boardDir, "x", "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Head(); err == nil {
+	if _, err := gitOut(t, boardDir, "rev-parse", "HEAD"); err == nil {
 		t.Error("expected no commits, but HEAD is valid")
 	}
 }

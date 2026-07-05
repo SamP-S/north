@@ -1,4 +1,7 @@
 // board.go — kanban board sub-model for the North TUI.
+//
+// The board holds navigation state only; action keys (c/e/m/s/d) and every
+// modal live in the root Model so both views behave identically.
 package tui
 
 import (
@@ -8,27 +11,10 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
-)
-
-// modalMode identifies the active overlay modal.
-type modalMode int
-
-const (
-	modalNone         modalMode = iota
-	modalStatusPicker           // status-move picker
-	modalConfirm                // archive/delete confirmation
-)
-
-// confirmKind identifies which destructive action awaits confirmation.
-type confirmKind int
-
-const (
-	confirmNone    confirmKind = iota
-	confirmArchive             // archive a task
-	confirmDelete              // delete a task
 )
 
 // boardDataMsg carries freshly loaded board data back into the model.
@@ -36,6 +22,7 @@ type boardDataMsg struct {
 	cols         []boardColumn
 	draftCount   int
 	archiveCount int
+	warnings     int
 }
 
 // boardColumn holds tasks for one status column together with the cursor.
@@ -53,15 +40,9 @@ type boardModel struct {
 	colIdx       int
 	draftCount   int
 	archiveCount int
+	warnings     int
 	width        int
 	height       int
-
-	// modal state
-	modal       modalMode
-	modalCursor int         // cursor position inside the status-picker list
-	pending     confirmKind // which action awaits confirmation
-	pendingID   string      // task ID pending confirmation
-	pendingText string      // message shown in the confirm modal
 }
 
 // newBoardModel constructs an empty boardModel for boardDir.
@@ -73,11 +54,11 @@ func newBoardModel(boardDir string) boardModel {
 func (m boardModel) Init() tea.Cmd {
 	dir := m.boardDir
 	return func() tea.Msg {
-		cols, draftCount, archiveCount, err := loadData(dir)
+		data, err := loadData(dir)
 		if err != nil {
 			return errMsg{err}
 		}
-		return boardDataMsg{cols: cols, draftCount: draftCount, archiveCount: archiveCount}
+		return data
 	}
 }
 
@@ -94,49 +75,35 @@ func (m boardModel) reload() (boardModel, tea.Cmd) {
 	return m, m.Init()
 }
 
-// Update handles messages for the board sub-model.
+// Update handles messages for the board sub-model (navigation only).
 func (m boardModel) Update(msg tea.Msg) (boardModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case boardDataMsg:
 		return m.applyData(msg), nil
 	case tea.KeyMsg:
-		if m.modal != modalNone {
-			return m.updateModal(msg)
-		}
 		return m.updateKeys(msg)
 	}
 	return m, nil
 }
 
-// View renders the board or an active modal overlay.
+// View renders the board.
 func (m boardModel) View() string {
 	if m.width == 0 {
 		return "loading…"
 	}
-
-	switch m.modal {
-	case modalStatusPicker:
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			m.renderStatusPicker())
-	case modalConfirm:
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			m.renderConfirm())
-	}
-
 	return m.renderBoard()
 }
 
 // ─── data loading ────────────────────────────────────────────────────────────
 
 // loadData fetches all active tasks (grouped by status in models.Statuses
-// order) plus draft and archive counts from the board directory.
-func loadData(boardDir string) ([]boardColumn, int, int, error) {
-	active, err := tasks.List(boardDir, []models.TaskState{models.StateActive}, "")
+// order) plus draft/archive counts and the warning tally, in one snapshot.
+func loadData(boardDir string) (boardDataMsg, error) {
+	snap, err := tasks.Load(boardDir)
 	if err != nil {
-		return nil, 0, 0, err
+		return boardDataMsg{}, err
 	}
+	active := snap.Filter([]models.TaskState{models.StateActive}, "")
 
 	byStatus := make(map[string][]*models.Task, len(models.Statuses))
 	for _, t := range active {
@@ -149,16 +116,12 @@ func loadData(boardDir string) ([]boardColumn, int, int, error) {
 		cols[i] = boardColumn{status: string(s), tasks: byStatus[string(s)]}
 	}
 
-	draftCount, err := tasks.StateCount(boardDir, models.StateDraft)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	archiveCount, err := tasks.StateCount(boardDir, models.StateArchive)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	return cols, draftCount, archiveCount, nil
+	return boardDataMsg{
+		cols:         cols,
+		draftCount:   snap.StateCount(models.StateDraft),
+		archiveCount: snap.StateCount(models.StateArchive),
+		warnings:     len(snap.Warnings),
+	}, nil
 }
 
 // applyData applies a boardDataMsg while preserving column/cursor positions.
@@ -167,6 +130,7 @@ func (m boardModel) applyData(msg boardDataMsg) boardModel {
 	m.columns = msg.cols
 	m.draftCount = msg.draftCount
 	m.archiveCount = msg.archiveCount
+	m.warnings = msg.warnings
 
 	// Clamp the column index.
 	if n := len(m.columns); m.colIdx >= n {
@@ -245,41 +209,6 @@ func (m boardModel) updateKeys(msg tea.KeyMsg) (boardModel, tea.Cmd) {
 		if t := m.selectedTask(); t != nil {
 			return m, func() tea.Msg { return selectTaskMsg{taskID: t.ID} }
 		}
-
-	case key.Matches(msg, keys.Create):
-		return m, openEditor(createTemplate(), modeCreate, "")
-
-	case key.Matches(msg, keys.Edit):
-		if t := m.selectedTask(); t != nil {
-			return m, openEditor(taskToTemplate(t), modeEdit, t.ID)
-		}
-
-	case key.Matches(msg, keys.Move):
-		if t := m.selectedTask(); t != nil && t.State == models.StateActive {
-			m.modal = modalStatusPicker
-			m.modalCursor = statusIndex(t.Status)
-		}
-
-	case key.Matches(msg, keys.Promote):
-		if t := m.selectedTask(); t != nil {
-			return m, promoteOrDemote(m.boardDir, t)
-		}
-
-	case key.Matches(msg, keys.Archive):
-		if t := m.selectedTask(); t != nil {
-			m.modal = modalConfirm
-			m.pending = confirmArchive
-			m.pendingID = t.ID
-			m.pendingText = fmt.Sprintf("archive %s? [y/n]", t.ID)
-		}
-
-	case key.Matches(msg, keys.Delete):
-		if t := m.selectedTask(); t != nil {
-			m.modal = modalConfirm
-			m.pending = confirmDelete
-			m.pendingID = t.ID
-			m.pendingText = deleteConfirmText(m.boardDir, t)
-		}
 	}
 	return m, nil
 }
@@ -299,86 +228,6 @@ func (m *boardModel) clampCursor() {
 		}
 		m.columns[m.colIdx] = col
 	}
-}
-
-// ─── modal handling ──────────────────────────────────────────────────────────
-
-func (m boardModel) updateModal(msg tea.KeyMsg) (boardModel, tea.Cmd) {
-	switch m.modal {
-	case modalStatusPicker:
-		return m.updateStatusPicker(msg)
-	case modalConfirm:
-		return m.updateConfirm(msg)
-	}
-	return m, nil
-}
-
-func (m boardModel) updateStatusPicker(msg tea.KeyMsg) (boardModel, tea.Cmd) {
-	switch {
-	case key.Matches(msg, keys.Up):
-		if m.modalCursor > 0 {
-			m.modalCursor--
-		}
-
-	case key.Matches(msg, keys.Down):
-		if m.modalCursor < len(models.Statuses)-1 {
-			m.modalCursor++
-		}
-
-	case key.Matches(msg, keys.Enter):
-		t := m.selectedTask()
-		if t == nil {
-			m.modal = modalNone
-			return m, nil
-		}
-		newStatus := string(models.Statuses[m.modalCursor])
-		boardDir := m.boardDir
-		taskID := t.ID
-		m.modal = modalNone
-		return m, func() tea.Msg {
-			if _, err := tasks.SetStatus(boardDir, taskID, newStatus); err != nil {
-				return errMsg{err}
-			}
-			return reloadMsg{}
-		}
-
-	case key.Matches(msg, keys.Esc):
-		m.modal = modalNone
-	}
-	return m, nil
-}
-
-func (m boardModel) updateConfirm(msg tea.KeyMsg) (boardModel, tea.Cmd) {
-	switch {
-	case msg.String() == "y" || msg.String() == "Y":
-		taskID := m.pendingID
-		kind := m.pending
-		boardDir := m.boardDir
-		m.modal = modalNone
-		m.pending = confirmNone
-		m.pendingID = ""
-		m.pendingText = ""
-		return m, func() tea.Msg {
-			var err error
-			switch kind {
-			case confirmArchive:
-				_, err = tasks.Archive(boardDir, taskID)
-			case confirmDelete:
-				err = tasks.Delete(boardDir, taskID)
-			}
-			if err != nil {
-				return errMsg{err}
-			}
-			return reloadMsg{}
-		}
-
-	case msg.String() == "n" || msg.String() == "N" || key.Matches(msg, keys.Esc):
-		m.modal = modalNone
-		m.pending = confirmNone
-		m.pendingID = ""
-		m.pendingText = ""
-	}
-	return m, nil
 }
 
 // ─── rendering ───────────────────────────────────────────────────────────────
@@ -424,7 +273,10 @@ func (m boardModel) renderBoard() string {
 
 func (m boardModel) renderFooter() string {
 	info := fmt.Sprintf("  drafts: %d  archive: %d", m.draftCount, m.archiveCount)
-	hints := "↵ view  c create  e edit  m move  p promote/demote  a archive  d delete  tab→list  ? help  q quit"
+	if m.warnings > 0 {
+		info += fmt.Sprintf("  ⚠ %d file warning(s)", m.warnings)
+	}
+	hints := "↵ view  c create  e edit  m status  s state  d delete  r reload  tab→list  ? help  q quit"
 
 	infoW := lipgloss.Width(info)
 	hintsW := lipgloss.Width(hints)
@@ -449,15 +301,12 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 		lines = append(lines, styleID.Render("(empty)"))
 	} else {
 		for j, t := range col.tasks {
-			// Truncate the title to avoid wrapping (rough visible-length estimate).
-			maxTitle := innerW - len(t.ID) - 2
-			if maxTitle < 0 {
-				maxTitle = 0
+			// Truncate by display width so multibyte/wide titles never break.
+			maxTitle := innerW - lipgloss.Width(t.ID) - 2
+			if maxTitle < 1 {
+				maxTitle = 1
 			}
-			title := t.Title
-			if len(title) > maxTitle {
-				title = title[:maxTitle]
-			}
+			title := ansi.Truncate(t.Title, maxTitle, "…")
 			line := styleID.Render(t.ID) + " " + title
 
 			if isActive && j == col.cursor {
@@ -475,12 +324,4 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 		colStyle = styleColumnActive
 	}
 	return colStyle.Width(innerW).Height(innerH).Render(content)
-}
-
-func (m boardModel) renderStatusPicker() string {
-	return renderStatusPicker(m.modalCursor)
-}
-
-func (m boardModel) renderConfirm() string {
-	return styleModal.Render(m.pendingText)
 }

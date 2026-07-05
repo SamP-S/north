@@ -21,19 +21,16 @@ func newBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			counts, err := tasks.StatusCounts(boardDir)
+			snap, err := tasks.Load(boardDir)
 			if err != nil {
 				return err
 			}
-			drafts, err := tasks.StateCount(boardDir, models.StateDraft)
-			if err != nil {
-				return err
+			if !asJSON {
+				printWarnings(cmd, snap.Warnings)
 			}
-			archived, err := tasks.StateCount(boardDir, models.StateArchive)
-			if err != nil {
-				return err
-			}
-			out, err := render.Board(counts, drafts, archived, plain, asJSON)
+			out, err := render.Board(snap.StatusCounts(),
+				snap.StateCount(models.StateDraft), snap.StateCount(models.StateArchive),
+				snap.Warnings, plain, asJSON)
 			if err != nil {
 				return err
 			}
@@ -62,7 +59,7 @@ func newCleanupCmd() *cobra.Command {
 				return err
 			}
 			if plain || asJSON {
-				out, err := render.TaskList(archived, plain, asJSON)
+				out, err := render.TaskList(archived, nil, plain, asJSON)
 				if err != nil {
 					return err
 				}

@@ -104,7 +104,7 @@ func TestSlug(t *testing.T) {
 }
 
 func TestTaskFilename(t *testing.T) {
-	if got := board.TaskFilename("task-12", "Add login"); got != "task-12-add-login.md" {
+	if got := board.TaskFilename("12", "Add login"); got != "12-add-login.md" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -123,18 +123,16 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadConfigTolerant(t *testing.T) {
+func TestLoadConfigRejectsMalformedYAML(t *testing.T) {
 	boardDir := newBoard(t)
-	// Malformed YAML falls back to defaults instead of erroring.
+	// Malformed YAML must be a hard error, not a silent fall-back — a typo
+	// would otherwise silently disable auto_commit.
 	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte("auto_commit: [oops"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := board.LoadConfig(boardDir)
-	if err != nil {
-		t.Fatalf("should be tolerant: %v", err)
-	}
-	if cfg.AutoCommit {
-		t.Error("expected default false on malformed config")
+	_, err := board.LoadConfig(boardDir)
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("expected invalid error, got %v", err)
 	}
 }
 

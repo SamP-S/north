@@ -13,13 +13,13 @@ import (
 func sample() *models.Task {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	return &models.Task{
-		ID:        "task-1",
+		ID:        "1",
 		Title:     "Add login",
 		State:     models.StateActive,
 		Status:    models.Ready,
 		Agent:     "opus4.8",
 		Labels:    []string{"auth"},
-		DependsOn: []string{"task-4"},
+		DependsOn: []string{"4"},
 		CreatedAt: &now,
 		UpdatedAt: &now,
 		Body:      "do the thing",
@@ -27,32 +27,38 @@ func sample() *models.Task {
 }
 
 func TestTaskListPlain(t *testing.T) {
-	out, err := render.TaskList([]*models.Task{sample()}, true, false)
+	out, err := render.TaskList([]*models.Task{sample()}, nil, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "task-1\tactive\tready\tAdd login" {
+	if out != "1\tactive\tready\tAdd login" {
 		t.Errorf("plain output: %q", out)
 	}
 }
 
 func TestTaskListJSONOmitsBody(t *testing.T) {
-	out, err := render.TaskList([]*models.Task{sample()}, false, true)
+	out, err := render.TaskList([]*models.Task{sample()}, nil, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got []map[string]any
+	var got struct {
+		Tasks    []map[string]any `json:"tasks"`
+		Warnings []string         `json:"warnings"`
+	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("want 1 task, got %d", len(got))
+	if len(got.Tasks) != 1 {
+		t.Fatalf("want 1 task, got %d", len(got.Tasks))
 	}
-	if _, ok := got[0]["body"]; ok {
+	if _, ok := got.Tasks[0]["body"]; ok {
 		t.Error("list JSON should omit body")
 	}
-	if got[0]["id"] != "task-1" {
-		t.Errorf("id: %v", got[0]["id"])
+	if got.Tasks[0]["id"] != "1" {
+		t.Errorf("id: %v", got.Tasks[0]["id"])
+	}
+	if got.Warnings == nil {
+		t.Error("warnings should be [] not null")
 	}
 }
 
@@ -81,12 +87,12 @@ func TestTaskDetailHumanShowsBody(t *testing.T) {
 }
 
 func TestTaskListHuman(t *testing.T) {
-	out, err := render.TaskList([]*models.Task{sample()}, false, false)
+	out, err := render.TaskList([]*models.Task{sample()}, nil, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Human output shows id, state, status, and title.
-	for _, want := range []string{"task-1", "active", "ready", "Add login"} {
+	for _, want := range []string{"1", "active", "ready", "Add login"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("human list missing %q: %q", want, out)
 		}
@@ -94,7 +100,7 @@ func TestTaskListHuman(t *testing.T) {
 }
 
 func TestTaskListEmpty(t *testing.T) {
-	out, err := render.TaskList(nil, false, false)
+	out, err := render.TaskList(nil, nil, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

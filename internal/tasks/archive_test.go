@@ -3,106 +3,113 @@ package tasks_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
 )
 
-func TestArchiveAndRestore(t *testing.T) {
+func TestStateFreeform(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "x")
+	// Any state → any state in one step, including archive → active directly.
+	for _, s := range []string{"active", "archive", "active", "draft", "archive", "draft"} {
+		task, err := tasks.SetState(boardDir, "1", s)
+		if err != nil {
+			t.Fatalf("state %s: %v", s, err)
+		}
+		if string(task.State) != s {
+			t.Errorf("expected state %s, got %s", s, task.State)
+		}
+	}
+}
+
+func TestArchiveMovesFile(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	archived, err := tasks.Archive(boardDir, "task-1")
+	archived, err := tasks.SetState(boardDir, "1", "archive")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if archived.State != models.StateArchive || filepath.Base(filepath.Dir(archived.Path)) != "archive" {
 		t.Errorf("not archived: %+v", archived)
 	}
-	// Excluded from active list, present in archive list.
-	if active, _ := tasks.List(boardDir, []models.TaskState{models.StateActive}, ""); len(active) != 0 {
+	if active := list(t, boardDir, []models.TaskState{models.StateActive}, ""); len(active) != 0 {
 		t.Errorf("active not empty: %v", active)
 	}
-	if arc, _ := tasks.List(boardDir, []models.TaskState{models.StateArchive}, ""); len(arc) != 1 {
+	if arc := list(t, boardDir, []models.TaskState{models.StateArchive}, ""); len(arc) != 1 {
 		t.Errorf("archive list: %v", arc)
-	}
-	// Restore brings it back to drafts for review, not straight to active.
-	restored, err := tasks.Restore(boardDir, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if restored.State != models.StateDraft {
-		t.Errorf("restore should land in drafts, got %+v", restored)
 	}
 }
 
-func TestArchivePreservesStatus(t *testing.T) {
+func TestStateSameIsNoOp(t *testing.T) {
+	boardDir := newBoard(t)
+	task := mustCreate(t, boardDir, "x")
+	before := task.UpdatedAt
+	same, err := tasks.SetState(boardDir, "1", "draft")
+	if err != nil {
+		t.Fatalf("same-state move should be a no-op, got %v", err)
+	}
+	// Compare at stored (RFC3339, second) precision — the reloaded task loses
+	// the in-memory nanoseconds.
+	if same.UpdatedAt == nil || before == nil ||
+		same.UpdatedAt.Format(time.RFC3339) != before.Format(time.RFC3339) {
+		t.Errorf("no-op state move must not bump updated_at")
+	}
+}
+
+func TestStatePreservesStatus(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	for _, s := range []string{"in_progress", "done"} {
-		if _, err := tasks.SetStatus(boardDir, "task-1", s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := tasks.Archive(boardDir, "task-1"); err != nil {
+	if _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	task, _ := tasks.Get(boardDir, "task-1")
+	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := tasks.Get(boardDir, "1")
 	if task.Status != models.Done {
-		t.Errorf("archive should preserve status done, got %s", task.Status)
+		t.Errorf("state change should preserve status done, got %s", task.Status)
 	}
 }
 
 func TestCannotChangeStatusWhenArchived(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	if _, err := tasks.Archive(boardDir, "task-1"); err != nil {
+	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := tasks.SetStatus(boardDir, "task-1", "in_progress")
+	_, err := tasks.SetStatus(boardDir, "1", "in_progress")
 	if !isBoardErr(err, "conflict") {
 		t.Fatalf("expected conflict, got %v", err)
 	}
 }
 
-func TestDemote(t *testing.T) {
+func TestStateUnknownRejected(t *testing.T) {
 	boardDir := newBoard(t)
-	mustActive(t, boardDir, "x")
-	demoted, err := tasks.Demote(boardDir, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if demoted.State != models.StateDraft {
-		t.Errorf("not demoted: %+v", demoted)
-	}
-}
-
-func TestPromoteOnlyDraft(t *testing.T) {
-	boardDir := newBoard(t)
-	mustActive(t, boardDir, "x") // already active
-	_, err := tasks.Promote(boardDir, "task-1")
-	if !isBoardErr(err, "conflict") {
-		t.Fatalf("expected conflict promoting active task, got %v", err)
+	mustCreate(t, boardDir, "x")
+	_, err := tasks.SetState(boardDir, "1", "limbo")
+	if !isBoardErr(err, "invalid") {
+		t.Fatalf("expected invalid, got %v", err)
 	}
 }
 
 func TestCleanupArchivesActiveDone(t *testing.T) {
 	boardDir := newBoard(t)
-	mustActive(t, boardDir, "done one")    // task-1
-	mustActive(t, boardDir, "still going") // task-2
-	for _, s := range []string{"in_progress", "done"} {
-		if _, err := tasks.SetStatus(boardDir, "task-1", s); err != nil {
-			t.Fatal(err)
-		}
+	mustActive(t, boardDir, "done one")    // 1
+	mustActive(t, boardDir, "still going") // 2
+	if _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
+		t.Fatal(err)
 	}
 	archived, err := tasks.Cleanup(boardDir, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(archived) != 1 || archived[0].ID != "task-1" {
+	if len(archived) != 1 || archived[0].ID != "1" {
 		t.Errorf("cleanup archived: %v", archived)
 	}
-	active, _ := tasks.List(boardDir, []models.TaskState{models.StateActive}, "")
-	if len(active) != 1 || active[0].ID != "task-2" {
+	active := list(t, boardDir, []models.TaskState{models.StateActive}, "")
+	if len(active) != 1 || active[0].ID != "2" {
 		t.Errorf("active: %v", active)
 	}
 }

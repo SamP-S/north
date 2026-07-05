@@ -16,83 +16,107 @@ frontmatter, stored under a `north/` directory in the repo. The board is found
 by walking up from the working directory (like `.git`), so commands work from
 any subdirectory. There is no server — `north` operates directly on files.
 
-Always start by running `north board` to see the current state. If it reports no
-board, run `north init` first.
+Task ids are bare numbers (`1`, `12`), unique across the whole board.
 
 ## Two axes: state and status
 
-A task has two independent properties.
+A task has two independent properties. Both are **freeform** — any value can
+change to any other value in a single command; there is no required path.
 
-- **State** = where the task is in its lifecycle (its folder):
-  `draft` → `active` → `archive`.
+- **State** = where the task is in its lifecycle (which folder it lives in):
   - `draft` — captured but not yet on the active board (a human gate).
-  - `active` — being worked.
+  - `active` — on the board, being worked.
   - `archive` — off the board, kept for history.
-- **Status** = the workflow column, only meaningful while **active**:
-  `ready → in_progress → done | failed | blocked`, and
-  `done | failed | blocked → ready` for rework.
+- **Status** = the workflow column, only meaningful (and only changeable)
+  while the task is **active**:
+  - `ready` — available to be picked up.
+  - `in_progress` — actively being worked.
+  - `done` — finished successfully.
+  - `failed` — attempted but did not work out; body should say why.
+  - `blocked` — cannot proceed (waiting on a dependency, decision, or human);
+    body should say what unblocks it.
 
-New tasks start as a **draft** with status `ready`. You must **promote** a draft
-to active before you can change its status.
+New tasks start as a **draft** with status `ready`. Move a task to `active`
+before changing its status.
+
+## Typical loop
+
+```bash
+north task list --status ready --plain    # what is available?
+north task view 12 --json                 # read the full brief (body included)
+north task move 12 in_progress            # claim it
+# …do the work…
+north task edit 12 --append-body "Results: implemented X, tests pass."
+north task move 12 done                   # or: failed / blocked (say why in the body)
+```
+
+When you finish, set `done`. If the work cannot succeed, set `failed`. If you
+are stuck on something outside your control, set `blocked`. In every non-done
+case, append an explanation to the body first.
 
 ## Commands
 
-Lifecycle (move between states):
+Create and lifecycle:
 
 ```bash
-north task create "<title>" [--agent A] [--labels a,b] [--depends-on task-3] [--body "..." | --body-file F]
-north task promote <id>     # draft   → active
-north task demote <id>      # active  → draft
-north task archive <id>     # draft/active → archive
-north task restore <id>     # archive → draft (for review before re-activating)
-north task delete <id> -y   # remove permanently
+north task create "<title>" [--agent A] [--labels a,b] [--depends-on 3,4] [--body "..." | --body-file F]
+north task state <id> <draft|active|archive>   # move between lifecycle states (any → any)
+north task delete <id> -y                      # remove permanently (always pass -y)
 ```
 
-All lifecycle commands accept `[--plain | --json]`.
-
-Status (active tasks only):
+Status (active tasks only, any → any):
 
 ```bash
-north task move <id> <status> [--plain | --json]   # ready | in_progress | done | failed | blocked
+north task move <id> <status>    # ready | in_progress | done | failed | blocked
 ```
 
-Edit fields (rename, retag, or rewrite — does not touch state or status):
+Edit fields and body:
 
 ```bash
-north task edit <id> [--title T] [--agent A] [--labels a,b] [--depends-on task-3] [--body "..."] [--plain | --json]
+north task edit <id> [--title T] [--agent A] [--labels a,b] [--depends-on 3,4]
+north task edit <id> --append-body "note"      # append to the body (safe for logging progress)
+north task edit <id> --body "..." | --body-file F   # REPLACE the whole body
 ```
 
-`--labels`/`--depends-on` replace the full list (pass an empty value to clear).
-Unlike `create`, `edit` has no `--body-file`.
+**`--body` and `--body-file` replace the entire body — prior content is lost.
+Prefer `--append-body` for progress notes and results.** For multi-line text,
+use `--body-file` (or `--body-file -` to read stdin) rather than trying to
+escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
+(pass an empty value to clear).
 
-Query:
+Query and maintenance:
 
 ```bash
-north task list [--state draft|active|archive|all] [--status S] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--search TEXT] [--label L] [--plain | --json]
 north task view <id> [--plain | --json]
-north board [--plain | --json]                     # counts per status (active) + draft/archive tally
-north cleanup [--older-than DAYS] [--plain | --json]   # archive active 'done' tasks
+north board [--plain | --json]        # counts per status (active) + draft/archive tally
+north cleanup [--older-than DAYS]     # archive active 'done' tasks
+north doctor [--fix]                  # board integrity check (duplicates, cycles, bad files)
+north config get|set|list             # board settings (e.g. auto_commit)
 ```
 
-## TUI
+## Output and errors
 
-`north tui` launches an interactive terminal UI for human use. **Agents must not
-use it** — it requires a real TTY and provides no machine-readable output. Use
-the CLI commands above for all agent-driven board interaction.
+- Every task/board command supports `--plain` (tab-separated) and `--json`.
+  The default is human-formatted; always pass one of the two.
+- On failure: exit code is non-zero and `error: <message>` is printed to
+  stderr. With `--json`, the error is emitted instead as
+  `{"error":{"code":"not_found|conflict|invalid|internal","message":"…"}}`.
+- List/board `--json` payloads include a `"warnings"` array naming any task
+  files that could not be parsed; in human/plain modes warnings go to stderr.
 
 ## Rules for agents
 
-- Run `north board` before acting to understand the current state.
-- Every command supports `--plain` (tab-separated) or `--json` for parseable
-  output; the default is human-formatted. This is uniform across the board:
-  `board`, `cleanup`, and every `task` subcommand (`create`, `view`, `list`,
-  `edit`, `move`, `promote`, `demote`, `archive`, `restore`, `delete`).
-- A freshly created task is a **draft** — `promote` it before `move`-ing its
-  status. `north task move` on a draft/archived task is rejected.
-- `move` changes status in place (the file stays in `tasks/`). promote / demote /
-  archive / restore move the file between folders and preserve status. `edit`
-  changes title/agent/labels/depends_on/body in place and touches neither.
-- Put descriptions, plans, blockers, and results in the task **body** — north
-  does not impose body structure.
-- Prefer driving the board through these commands rather than editing task files
-  by hand, so ids, status, and timestamps stay consistent.
+- Run `north board` when you need an overview or are unsure a board exists
+  (if it reports no board, run `north init`); skip it when the request already
+  names a task.
+- A freshly created task is a **draft** — `north task state <id> active` puts
+  it on the board before `move` can change its status.
+- Check a task's `depends_on` before starting it: dependencies that are not
+  `done` are a signal the task may not be ready (north does not enforce this).
+- Record plans, progress, blockers, and results in the task **body**
+  (prefer `--append-body`); north does not impose body structure.
+- Drive the board through these commands rather than editing task files by
+  hand, so ids, status, and timestamps stay consistent.
+- Never use `north tui` — it needs a real TTY and produces no machine-readable
+  output.

@@ -3,6 +3,7 @@ package tasks_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,52 +21,122 @@ func writeRaw(t *testing.T, boardDir, stateFolder, filename, content string) {
 	}
 }
 
-func TestLoadRejectsMalformedFiles(t *testing.T) {
+func TestLoadToleratesMalformedFiles(t *testing.T) {
 	cases := []struct {
 		name, file, content string
 	}{
-		{"unterminated frontmatter", "task-1-a.md", "---\nid: task-1\ntitle: a\n"},
-		{"missing id", "task-2-a.md", "---\ntitle: a\nstatus: ready\n---\n"},
-		{"missing title", "task-3-a.md", "---\nid: task-3\nstatus: ready\n---\n"},
-		{"unknown status", "task-4-a.md", "---\nid: task-4\ntitle: a\nstatus: bogus\n---\n"},
-		{"broken yaml", "task-5-a.md", "---\nid: [unclosed\n---\n"},
+		{"unterminated frontmatter", "1-a.md", "---\nid: \"1\"\ntitle: a\n"},
+		{"missing id", "2-a.md", "---\ntitle: a\nstatus: ready\n---\n"},
+		{"missing title", "3-a.md", "---\nid: \"3\"\nstatus: ready\n---\n"},
+		{"unknown status", "4-a.md", "---\nid: \"4\"\ntitle: a\nstatus: bogus\n---\n"},
+		{"broken yaml", "5-a.md", "---\nid: [unclosed\n---\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			boardDir := newBoard(t)
+			mustCreate(t, boardDir, "good one")
 			writeRaw(t, boardDir, "tasks", c.file, c.content)
-			// Listing loads every file; a bad one must surface as Invalid.
-			if _, err := tasks.List(boardDir, nil, ""); !isBoardErr(err, "invalid") {
-				t.Fatalf("expected invalid, got %v", err)
+			// One bad file must never abort the load — it becomes a warning
+			// naming the file, and the good task still lists.
+			snap, err := tasks.Load(boardDir)
+			if err != nil {
+				t.Fatalf("tolerant load errored: %v", err)
+			}
+			if len(snap.Tasks) != 1 {
+				t.Errorf("good task lost: %v", snap.Tasks)
+			}
+			if len(snap.Warnings) != 1 || !strings.Contains(snap.Warnings[0].String(), c.file) {
+				t.Errorf("expected one warning naming %s, got %v", c.file, snap.Warnings)
 			}
 		})
 	}
 }
 
-func TestLoadAcceptsMinimalValidFile(t *testing.T) {
+func TestLoadAcceptsCRLF(t *testing.T) {
 	boardDir := newBoard(t)
-	writeRaw(t, boardDir, "tasks", "task-7-hand.md",
-		"---\nid: task-7\ntitle: hand written\nstatus: in_progress\n---\n\nbody text\n")
-	task, err := tasks.Get(boardDir, "task-7")
+	writeRaw(t, boardDir, "tasks", "6-crlf.md",
+		"---\r\nid: \"6\"\r\ntitle: windows file\r\nstatus: ready\r\n---\r\nbody line\r\n")
+	task, err := tasks.Get(boardDir, "6")
+	if err != nil {
+		t.Fatalf("CRLF file should parse: %v", err)
+	}
+	if task.Title != "windows file" || task.Body != "body line" {
+		t.Errorf("CRLF parse mangled fields: %+v", task)
+	}
+}
+
+func TestLoadCoercesScalars(t *testing.T) {
+	boardDir := newBoard(t)
+	// Unquoted numeric id and deps, as a human might hand-write them.
+	writeRaw(t, boardDir, "tasks", "7-hand.md",
+		"---\nid: 7\ntitle: hand written\nstatus: in_progress\ndepends_on: [7]\n---\n\nbody text\n")
+	task, err := tasks.Get(boardDir, "7")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if task.State != models.StateActive || task.Status != models.InProgress {
 		t.Errorf("unexpected: state=%s status=%s", task.State, task.Status)
 	}
+	if len(task.DependsOn) != 1 || task.DependsOn[0] != "7" {
+		t.Errorf("numeric depends_on not coerced: %v", task.DependsOn)
+	}
 	if task.Body != "body text" {
 		t.Errorf("body: %q", task.Body)
+	}
+}
+
+func TestUnknownFrontmatterKeysSurviveRewrite(t *testing.T) {
+	boardDir := newBoard(t)
+	writeRaw(t, boardDir, "tasks", "8-custom.md",
+		"---\nid: \"8\"\ntitle: custom fields\nstatus: ready\npriority: high\nowner: sam\n---\nbody\n")
+	// A status change rewrites the file in place…
+	if _, err := tasks.SetStatus(boardDir, "8", "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	// …and an edit renames it; unknown keys must survive both.
+	title := "renamed"
+	if _, err := tasks.Edit(boardDir, "8", tasks.EditOpts{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := tasks.Get(boardDir, "8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(task.Path)
+	if !strings.Contains(string(data), "priority: high") || !strings.Contains(string(data), "owner: sam") {
+		t.Errorf("unknown keys lost on rewrite:\n%s", data)
+	}
+	if !strings.Contains(string(data), "status: in_progress") || !strings.Contains(string(data), "title: renamed") {
+		t.Errorf("owned keys not updated:\n%s", data)
+	}
+}
+
+func TestSnapshotFlagsDuplicateIDs(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "original") // 1
+	// Simulate a git merge that brought in a second file with the same id.
+	writeRaw(t, boardDir, "drafts", "1-merged-copy.md",
+		"---\nid: \"1\"\ntitle: merged copy\nstatus: ready\n---\n")
+	snap, err := tasks.Load(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Tasks) != 1 {
+		t.Errorf("duplicate should be excluded from tasks: %v", snap.Tasks)
+	}
+	if len(snap.Warnings) != 1 || !strings.Contains(snap.Warnings[0].Err, "duplicate id") {
+		t.Errorf("expected duplicate-id warning, got %v", snap.Warnings)
 	}
 }
 
 func TestRoundTripFidelity(t *testing.T) {
 	boardDir := newBoard(t)
 	// Pre-create the dep so validateDeps is satisfied.
-	mustCreate(t, boardDir, "dep") // task-1
+	mustCreate(t, boardDir, "dep") // 1
 	// Unicode title and a body containing a literal "---" line.
 	title := "Café — déjà vu"
 	body := "first line\n\n---\na horizontal rule inside the body\n---\n\nlast line"
-	created, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"task-1"}, body)
+	created, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"1"}, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,5 +156,29 @@ func TestRoundTripFidelity(t *testing.T) {
 	// Timestamps persist at RFC3339 (second) precision.
 	if got.CreatedAt == nil || got.CreatedAt.Format(time.RFC3339) != created.CreatedAt.Format(time.RFC3339) {
 		t.Errorf("created_at not preserved: got %v want %v", got.CreatedAt, created.CreatedAt)
+	}
+}
+
+func TestEditorDocRoundTrip(t *testing.T) {
+	doc := tasks.EditorDoc{
+		Title:     "Fix the télé",
+		Agent:     "opus",
+		Labels:    []string{"a", "b"},
+		DependsOn: []string{"4"},
+		Body:      "line one\n\nline two",
+	}
+	out, err := tasks.RenderEditorDoc(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := tasks.ParseEditorDoc(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != doc.Title || got.Agent != doc.Agent || got.Body != doc.Body {
+		t.Errorf("round trip: %+v != %+v", got, doc)
+	}
+	if len(got.Labels) != 2 || len(got.DependsOn) != 1 || got.DependsOn[0] != "4" {
+		t.Errorf("lists lost: %+v", got)
 	}
 }

@@ -8,11 +8,24 @@ up looking for it) and the home for per-board settings.
 auto_commit: false   # commit each board change locally (never pushes)
 ```
 
-- `auto_commit` — when `true`, North runs `git add` + `git commit` of the changed
-  `north/…` files after each mutation; when `false` (default) it only writes/moves
-  files and leaves git to you. North never pushes or pulls.
+- `auto_commit` — when `true`, North shells out to the system `git` to
+  `add` + `commit` the changed `north/…` files after each mutation; when
+  `false` (default) it only writes/moves files and leaves git to you. Commits
+  work in linked worktrees and fall back to a `north <north@localhost>`
+  identity when the user has none configured. North never pushes or pulls.
 
-States, statuses, and the `task-` id prefix are hardcoded for now (making them
+Read and write settings with the CLI rather than editing by hand:
+
+```bash
+north config list
+north config get auto_commit
+north config set auto_commit true
+```
+
+A malformed `config.yml` is a hard error (`invalid`), not a silent fallback —
+a YAML typo must not silently change behaviour.
+
+States, statuses, and the id scheme are hardcoded for now (making them
 configurable here is future work).
 
 ## State
