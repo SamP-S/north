@@ -5,10 +5,13 @@ agent how to drive the `north` CLI. The skill is embedded in the binary and
 installed into the user's agent skill directories on demand.
 
 ```bash
-north skill install            # project: ./.claude/skills + ./.opencode/skills
-north skill install --global   # home dir: ~/.claude/skills + ~/.config/opencode/skills
+north skill install                    # project: ./.claude/skills + ./.opencode/skills
+north skill install --target claude    # one tool only (claude|opencode, repeatable)
+north skill install --global           # home dir: ~/.claude/skills + ~/.config/opencode/skills
 north skill show               # print the embedded SKILL.md
-north skill check [--global]   # compare installed version stamps against the binary
+north skill check [--global]           # compare installed version stamps against the binary
+                                       # (a missing tool is a warning; outdated or
+                                       #  nothing-installed-anywhere exits 1)
 ```
 
 - One skill named `north` (`<dir>/north/SKILL.md`).

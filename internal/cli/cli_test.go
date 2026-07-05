@@ -283,7 +283,7 @@ func TestCLISkillInstall(t *testing.T) {
 func TestCLISkillCheck(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
-	// Before install: missing → non-zero exit.
+	// Before install: nothing anywhere → non-zero exit.
 	if _, err := run(t, dir, "skill", "check"); err == nil {
 		t.Error("skill check should fail before install")
 	}
@@ -294,6 +294,36 @@ func TestCLISkillCheck(t *testing.T) {
 	}
 	if !strings.Contains(out, "up to date") {
 		t.Errorf("skill check output: %q", out)
+	}
+}
+
+func TestCLISkillInstallTarget(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	out, err := run(t, dir, "skill", "install", "--target", "claude")
+	if err != nil {
+		t.Fatalf("selective install: %v (%s)", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "north", "SKILL.md")); err != nil {
+		t.Error("claude skill should be installed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".opencode")); !os.IsNotExist(err) {
+		t.Error("opencode dir should not be created for --target claude")
+	}
+
+	// A selective install must pass check: missing is a warning, not an error.
+	out, err = run(t, dir, "skill", "check")
+	if err != nil {
+		t.Fatalf("check after selective install: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "up to date") || !strings.Contains(out, "not installed") {
+		t.Errorf("check output: %q", out)
+	}
+
+	// Unknown target is rejected.
+	if _, err := run(t, dir, "skill", "install", "--target", "cursor"); err == nil ||
+		!strings.Contains(err.Error(), "unknown skill target") {
+		t.Errorf("unknown target: %v", err)
 	}
 }
 

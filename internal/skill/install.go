@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Agent describes an AI coding agent and where its skills live.
@@ -31,9 +32,14 @@ type Target struct {
 	Path  string // absolute path to the SKILL.md file
 }
 
-// Targets resolves install locations for every agent. When global is true they
-// resolve under the user's home dir, otherwise under projectRoot.
-func Targets(projectRoot string, global bool) ([]Target, error) {
+// Targets resolves install locations for the named agents (all when names is
+// empty). When global is true they resolve under the user's home dir,
+// otherwise under projectRoot. Unknown names are an error.
+func Targets(projectRoot string, global bool, names ...string) ([]Target, error) {
+	selected, err := selectAgents(names)
+	if err != nil {
+		return nil, err
+	}
 	var home string
 	if global {
 		h, err := os.UserHomeDir()
@@ -43,7 +49,7 @@ func Targets(projectRoot string, global bool) ([]Target, error) {
 		home = h
 	}
 	var targets []Target
-	for _, a := range agents {
+	for _, a := range selected {
 		base := a.ProjectDir
 		root := projectRoot
 		if global {
@@ -60,10 +66,38 @@ func Targets(projectRoot string, global bool) ([]Target, error) {
 	return targets, nil
 }
 
-// Install writes the embedded SKILL.md into every agent's skill dir (under
-// projectRoot, or the home dir when global). Returns the written targets.
-func Install(projectRoot string, global bool) ([]Target, error) {
-	targets, err := Targets(projectRoot, global)
+// selectAgents maps names to registry entries; empty names selects all.
+func selectAgents(names []string) ([]Agent, error) {
+	if len(names) == 0 {
+		return agents, nil
+	}
+	var out []Agent
+	for _, n := range names {
+		found := false
+		for _, a := range agents {
+			if a.Name == n {
+				out = append(out, a)
+				found = true
+				break
+			}
+		}
+		if !found {
+			known := make([]string, len(agents))
+			for i, a := range agents {
+				known[i] = a.Name
+			}
+			return nil, fmt.Errorf("unknown skill target %q (expected one of: %s)",
+				n, strings.Join(known, ", "))
+		}
+	}
+	return out, nil
+}
+
+// Install writes the embedded SKILL.md into the named agents' skill dirs (all
+// agents when names is empty), under projectRoot or the home dir when global.
+// Returns the written targets.
+func Install(projectRoot string, global bool, names ...string) ([]Target, error) {
+	targets, err := Targets(projectRoot, global, names...)
 	if err != nil {
 		return nil, err
 	}

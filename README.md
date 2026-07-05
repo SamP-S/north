@@ -103,7 +103,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north cleanup [--older-than DAYS]` | Archive active done tasks |
 | `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files) |
 | `north config list\|get\|set` | Read/write board settings (`auto_commit`) |
-| `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
+| `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
 | `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
 | `north completion <shell>` | Shell completions (bash/zsh/fish/powershell) |
@@ -143,9 +143,10 @@ and your identity config all behave normally. It never pushes or pulls.
 ## Agents
 North ships an installable **skill** that teaches agents the CLI:
 ```bash
-north skill install            # ./.claude/skills + ./.opencode/skills
-north skill install --global   # ~/.claude/skills + ~/.config/opencode/skills
-north skill check              # is the installed skill this binary's version?
+north skill install                    # ./.claude/skills + ./.opencode/skills
+north skill install --target claude    # just one tool (claude|opencode)
+north skill install --global           # ~/.claude/skills + ~/.config/opencode/skills
+north skill check                      # is the installed skill this binary's version?
 ```
 The skill describes the state/status model, the commands, a typical work loop,
 and the output/error contract. It works with Claude Code and opencode (and any

@@ -39,25 +39,30 @@ func newSkillCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stale := 0
+			outdated, missing := 0, 0
 			for _, t := range targets {
 				data, err := os.ReadFile(t.Path)
 				if err != nil {
-					cmd.Printf("%s: missing (%s) — run `north skill install`\n", t.Agent, t.Path)
-					stale++
+					// Missing is only a warning — installs may be selective
+					// (`install --target`), so absence is not an error.
+					cmd.Printf("%s: not installed (%s)\n", t.Agent, t.Path)
+					missing++
 					continue
 				}
 				installed := skill.InstalledVersion(string(data))
 				if installed != skill.Version {
 					cmd.Printf("%s: outdated (installed %s, binary %s) — run `north skill install`\n",
 						t.Agent, installed, skill.Version)
-					stale++
+					outdated++
 					continue
 				}
 				cmd.Printf("%s: up to date (%s)\n", t.Agent, installed)
 			}
-			if stale > 0 {
-				return nerrors.Conflict(fmt.Sprintf("%d skill install(s) missing or outdated", stale))
+			if outdated > 0 {
+				return nerrors.Conflict(fmt.Sprintf("%d skill install(s) outdated", outdated))
+			}
+			if missing == len(targets) {
+				return nerrors.NotFound("skill not installed anywhere — run `north skill install`")
 			}
 			return nil
 		},
@@ -68,9 +73,10 @@ func newSkillCheckCmd() *cobra.Command {
 
 func newSkillInstallCmd() *cobra.Command {
 	var global bool
+	var targetNames []string
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "install the north skill for Claude Code and opencode",
+		Short: "install the north skill for Claude Code and/or opencode",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := "."
@@ -81,9 +87,9 @@ func newSkillInstallCmd() *cobra.Command {
 					root = board.Root(b)
 				}
 			}
-			targets, err := skill.Install(root, global)
+			targets, err := skill.Install(root, global, targetNames...)
 			if err != nil {
-				return err
+				return nerrors.Invalid(err.Error())
 			}
 			for _, t := range targets {
 				cmd.Printf("Installed %s skill → %s\n", t.Agent, t.Path)
@@ -92,6 +98,7 @@ func newSkillInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "install into the home-dir skill locations instead of the project")
+	cmd.Flags().StringSliceVar(&targetNames, "target", nil, "install only for these tools: claude|opencode (repeatable; default both)")
 	return cmd
 }
 
