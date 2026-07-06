@@ -304,15 +304,16 @@ func (m listModel) renderDetail(t *models.Task) string {
 	fmt.Fprintf(&sb, "assignee:    %s\n", t.Assignee)
 	fmt.Fprintf(&sb, "depends_on:  %s\n", m.renderDeps(t))
 
+	const tsFormat = "2006-01-02 15:04:05" // timestamps are stored (and shown) in UTC
 	created := ""
 	if t.CreatedAt != nil {
-		created = t.CreatedAt.Format("2006-01-02")
+		created = t.CreatedAt.Format(tsFormat)
 	}
 	fmt.Fprintf(&sb, "created_at:  %s\n", created)
 
 	updated := ""
 	if t.UpdatedAt != nil {
-		updated = t.UpdatedAt.Format("2006-01-02")
+		updated = t.UpdatedAt.Format(tsFormat)
 	}
 	fmt.Fprintf(&sb, "updated_at:  %s\n", updated)
 
