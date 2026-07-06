@@ -15,6 +15,7 @@ no-identity case isolated via `GIT_CONFIG_GLOBAL=/dev/null`).
 | `internal/tasks/doctor_test.go` | doctor detection (duplicates, CRLF, unparseable, dangling deps, cycles, drift) and `--fix` repairs |
 | `internal/tasks/guards_test.go` | not-found ops, cleanup `--older-than`, id reservation |
 | `internal/tasks/deps_test.go` | depends_on validation, Dependents scanning |
+| `internal/tasks/sort_test.go` | sort keys (id/updated/title/assignee), directions, unassigned-last |
 | `internal/tasks/autocommit_test.go` | `auto_commit` commits locally / is off by default |
 | `internal/git/git_test.go` | exec-git staging/commits, subdir boards, linked worktrees, identity fallback |
 | `internal/render/render_test.go` | `--plain` / `--json` output shape (incl. warnings arrays) |
