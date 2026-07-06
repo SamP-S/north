@@ -26,7 +26,42 @@ const (
 	modalStatePicker             // set any task's state (s)
 	modalConfirmDelete           // confirm a delete (d)
 	modalTaskView                // read-only task popup (enter, board view)
+	modalSortPicker              // choose the task ordering (o)
 )
+
+// sortMsg carries a chosen ordering from the sort picker to the root model.
+type sortMsg struct {
+	key  tasks.SortKey
+	desc bool
+}
+
+// sortChoices lists the picker entries: each key descending, then ascending.
+func sortChoices() []sortMsg {
+	var out []sortMsg
+	for _, k := range tasks.SortKeys {
+		out = append(out, sortMsg{k, true}, sortMsg{k, false})
+	}
+	return out
+}
+
+// sortLabel renders a picker entry ("updated ↓").
+func sortLabel(c sortMsg) string {
+	arrow := "↑"
+	if c.desc {
+		arrow = "↓"
+	}
+	return string(c.key) + " " + arrow
+}
+
+// sortIndex returns the picker index for the given ordering.
+func sortIndex(key tasks.SortKey, desc bool) int {
+	for i, c := range sortChoices() {
+		if c.key == key && c.desc == desc {
+			return i
+		}
+	}
+	return 0
+}
 
 // modal is the root model's modal state.
 type modal struct {
@@ -55,6 +90,13 @@ func (m modal) pickerItems() []string {
 			items[i] = string(s)
 		}
 		return items
+	case modalSortPicker:
+		choices := sortChoices()
+		items := make([]string, len(choices))
+		for i, c := range choices {
+			items[i] = sortLabel(c)
+		}
+		return items
 	}
 	return nil
 }
@@ -63,6 +105,26 @@ func (m modal) pickerItems() []string {
 // and a command to run when the modal resolved into an action.
 func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 	switch m.mode {
+	case modalSortPicker:
+		items := m.pickerItems()
+		switch {
+		case key.Matches(km, keys.Up):
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case key.Matches(km, keys.Down):
+			if m.cursor < len(items)-1 {
+				m.cursor++
+			}
+		case key.Matches(km, keys.Enter):
+			choice := sortChoices()[m.cursor]
+			m.mode = modalNone
+			return m, func() tea.Msg { return choice }
+		case key.Matches(km, keys.Esc):
+			m.mode = modalNone
+		}
+		return m, nil
+
 	case modalStatusPicker, modalStatePicker:
 		items := m.pickerItems()
 		switch {
@@ -149,10 +211,13 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 // view renders the active modal's content (to be centered by the caller).
 func (m modal) view() string {
 	switch m.mode {
-	case modalStatusPicker, modalStatePicker:
+	case modalStatusPicker, modalStatePicker, modalSortPicker:
 		title := "set status"
-		if m.mode == modalStatePicker {
+		switch m.mode {
+		case modalStatePicker:
 			title = "set state"
+		case modalSortPicker:
+			title = "sort by"
 		}
 		var sb strings.Builder
 		sb.WriteString(styleHeader.Render(title) + "\n\n")

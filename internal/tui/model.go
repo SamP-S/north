@@ -70,6 +70,8 @@ type Model struct {
 	searchInput textinput.Model
 	searching   bool
 	query       string
+	sortKey     tasks.SortKey
+	sortDesc    bool
 	width       int
 	height      int
 }
@@ -86,6 +88,8 @@ func NewModel(boardDir string) Model {
 		board:       newBoardModel(boardDir),
 		list:        newListModel(boardDir),
 		searchInput: ti,
+		sortKey:     tasks.SortID,
+		sortDesc:    true, // newest first
 	}
 }
 
@@ -161,6 +165,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// active, because reloads are triggered from the list view too.
 	case boardDataMsg:
 		m.board = m.board.applyData(msg)
+		return m, nil
+
+	case sortMsg:
+		m.sortKey, m.sortDesc = msg.key, msg.desc
+		m.board.setSort(msg.key, msg.desc)
+		m.list.setSort(msg.key, msg.desc)
+		m.notice = notice{noticeSuccess, "sorted by " + sortLabel(msg)}
 		return m, nil
 
 	case selectTaskMsg:
@@ -277,6 +288,10 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, openEditor(tmpl, modeEdit, t.ID)
 		}
+		return m, nil
+
+	case key.Matches(msg, keys.Sort):
+		m.modal = modal{mode: modalSortPicker, cursor: sortIndex(m.sortKey, m.sortDesc)}
 		return m, nil
 
 	case key.Matches(msg, keys.Move):
@@ -404,8 +419,8 @@ func (m Model) View() string {
 
 // Footer hint lines for each view.
 const (
-	boardHints = "↵ view  c create  e edit  m status  s state  d delete  r reload  / filter  tab→list  ? help  q quit"
-	listHints  = "j/k navigate  g/G top/bottom  ←/→ panes  c create  e edit  m status  s state  d delete  r reload  / filter  tab→board  ? help  q quit"
+	boardHints = "↵ view  c create  e edit  m status  s state  o sort  d delete  r reload  / filter  tab→list  ? help  q quit"
+	listHints  = "j/k navigate  ←/→ panes  c create  e edit  m status  s state  o sort  d delete  r reload  / filter  tab→board  ? help  q quit"
 )
 
 // footer renders the active view's key-hint bar, wrapped to the terminal
@@ -444,6 +459,7 @@ func (m Model) helpView() string {
 		{"c", "create task in $EDITOR"},
 		{"e", "edit task in $EDITOR"},
 		{"m", "set status"},
+		{"o", "sort order (id/updated/title/assignee)"},
 		{"s", "set state (draft/active/archive)"},
 		{"d", "delete task"},
 		{"r", "reload from disk"},

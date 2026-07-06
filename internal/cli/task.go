@@ -138,8 +138,8 @@ func newTaskViewCmd() *cobra.Command {
 }
 
 func newTaskListCmd() *cobra.Command {
-	var plain, asJSON bool
-	var status, state, search string
+	var plain, asJSON, reverse bool
+	var status, state, search, sortBy string
 	var labels []string
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -163,9 +163,20 @@ func newTaskListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			key, err := tasks.ParseSortKey(sortBy)
+			if err != nil {
+				return err
+			}
 			ts := snap.Filter(states, status)
 			ts = filterSearch(ts, search)
 			ts = filterLabels(ts, labels)
+			// Natural directions: newest first for id/updated, A→Z for
+			// title/assignee; --reverse flips.
+			desc := key == tasks.SortID || key == tasks.SortUpdated
+			if reverse {
+				desc = !desc
+			}
+			tasks.Sort(ts, key, desc)
 			if !asJSON {
 				printWarnings(cmd, snap.Warnings)
 			}
@@ -181,6 +192,8 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
 	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, assignee, labels, and body (case-insensitive)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
+	cmd.Flags().StringVar(&sortBy, "sort", "id", "sort by: id|updated|title|assignee (id/updated newest-first, title/assignee A→Z)")
+	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }

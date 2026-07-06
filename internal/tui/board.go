@@ -47,6 +47,8 @@ type boardModel struct {
 	columns  []boardColumn // filter applied
 	tags     map[string]string
 	filter   string
+	sortKey  tasks.SortKey
+	sortDesc bool
 	colIdx   int
 	warnings int
 	width    int
@@ -55,7 +57,7 @@ type boardModel struct {
 
 // newBoardModel constructs an empty boardModel for boardDir.
 func newBoardModel(boardDir string) boardModel {
-	return boardModel{boardDir: boardDir}
+	return boardModel{boardDir: boardDir, sortKey: tasks.SortID, sortDesc: true}
 }
 
 // Init loads the initial board data.
@@ -80,6 +82,12 @@ func (m *boardModel) setSize(width, height int) {
 // setFilter applies a search query to the columns, preserving cursors.
 func (m *boardModel) setFilter(q string) {
 	m.filter = q
+	m.rebuild()
+}
+
+// setSort changes the column ordering.
+func (m *boardModel) setSort(key tasks.SortKey, desc bool) {
+	m.sortKey, m.sortDesc = key, desc
 	m.rebuild()
 }
 
@@ -110,9 +118,8 @@ func (m boardModel) View() string {
 
 // ─── data loading ────────────────────────────────────────────────────────────
 
-// loadData builds the seven board columns in one snapshot. Every column is
-// sorted by ascending numeric id (file order is lexicographic — "10" would
-// sort before "2").
+// loadData builds the seven board columns in one snapshot. Ordering is
+// applied later, in rebuild, under the model's current sort.
 func loadData(boardDir string) (boardDataMsg, error) {
 	snap, err := tasks.Load(boardDir)
 	if err != nil {
@@ -140,9 +147,6 @@ func loadData(boardDir string) (boardDataMsg, error) {
 		title: "archive", state: models.StateArchive,
 		tasks: snap.Filter([]models.TaskState{models.StateArchive}, ""),
 	})
-	for i := range cols {
-		sortAscByID(cols[i].tasks)
-	}
 
 	return boardDataMsg{cols: cols, tags: cardTags(snap), warnings: len(snap.Warnings)}, nil
 }
@@ -206,14 +210,13 @@ func (m *boardModel) rebuild() {
 	m.columns = make([]boardColumn, len(m.all))
 	for i, col := range m.all {
 		filtered := col
-		if m.filter != "" {
-			filtered.tasks = nil
-			for _, t := range col.tasks {
-				if matchesFilter(t, m.filter) {
-					filtered.tasks = append(filtered.tasks, t)
-				}
+		filtered.tasks = make([]*models.Task, 0, len(col.tasks))
+		for _, t := range col.tasks {
+			if m.filter == "" || matchesFilter(t, m.filter) {
+				filtered.tasks = append(filtered.tasks, t)
 			}
 		}
+		tasks.Sort(filtered.tasks, m.sortKey, m.sortDesc)
 		if i < len(old) {
 			filtered.cursor = old[i].cursor
 		}

@@ -91,7 +91,7 @@ escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
 Query and maintenance:
 
 ```bash
-north task list [--state draft|active|archive|all] [--status S] [--search TEXT] [--label L] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
 north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS]     # archive active 'done' tasks

@@ -48,15 +48,54 @@ func rootWithTask(t *testing.T, dir string, task *models.Task) Model {
 	return m
 }
 
-func TestSortDescByID(t *testing.T) {
+func TestDefaultSortNewestFirst(t *testing.T) {
 	mk := func(id string) *models.Task { return &models.Task{ID: id} }
 	ts := []*models.Task{mk("1"), mk("10"), mk("3"), mk("2")}
-	sortDescByID(ts)
+	tasks.Sort(ts, tasks.SortID, true)
 	want := []string{"10", "3", "2", "1"}
 	for i, w := range want {
 		if ts[i].ID != w {
 			t.Errorf("pos %d: got %q, want %q", i, ts[i].ID, w)
 		}
+	}
+}
+
+// TestSortPickerApplies verifies 'o' opens the sort picker and a selection
+// re-orders both views.
+func TestSortPickerApplies(t *testing.T) {
+	m := NewModel(t.TempDir())
+	m.width, m.height = 80, 24
+	a := &models.Task{ID: "1", Title: "zzz", Status: models.Ready, State: models.StateActive}
+	b := &models.Task{ID: "2", Title: "aaa", Status: models.Ready, State: models.StateActive}
+	m.board.all = []boardColumn{{status: "ready", tasks: []*models.Task{a, b}}}
+	m.board.rebuild()
+	m.list.allTasks = []*models.Task{a, b}
+	m.list.refilter()
+
+	// Default: id descending — 2 first.
+	if m.board.columns[0].tasks[0].ID != "2" || m.list.filtered[0].ID != "2" {
+		t.Fatal("default order should be id descending")
+	}
+
+	updated, _ := m.Update(keyRune('o'))
+	um := updated.(Model)
+	if um.modal.mode != modalSortPicker {
+		t.Fatalf("o should open the sort picker, got %v", um.modal.mode)
+	}
+	// Move to "title ↑" and confirm.
+	um.modal.cursor = sortIndex(tasks.SortTitle, false)
+	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if cmd == nil {
+		t.Fatal("enter should produce the sort message")
+	}
+	updated, _ = um.Update(cmd())
+	um = updated.(Model)
+	if got := um.list.filtered[0].Title; got != "aaa" {
+		t.Errorf("list should sort by title ascending, got %q first", got)
+	}
+	if got := um.board.columns[0].tasks[0].Title; got != "aaa" {
+		t.Errorf("board should sort by title ascending, got %q first", got)
 	}
 }
 

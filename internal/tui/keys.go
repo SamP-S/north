@@ -18,6 +18,7 @@ type keyMap struct {
 	Create key.Binding
 	Edit   key.Binding
 	Move   key.Binding
+	Sort   key.Binding
 	State  key.Binding
 	Delete key.Binding
 	Search key.Binding
@@ -68,6 +69,10 @@ var keys = keyMap{
 	Move: key.NewBinding(
 		key.WithKeys("m"),
 		key.WithHelp("m", "set status"),
+	),
+	Sort: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", "sort order"),
 	),
 	State: key.NewBinding(
 		key.WithKeys("s"),

@@ -6,8 +6,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -37,6 +35,8 @@ type listModel struct {
 	allTasks   []*models.Task
 	filtered   []*models.Task
 	filter     string
+	sortKey    tasks.SortKey
+	sortDesc   bool
 	warnings   int
 	cursor     int
 	activePane paneMode
@@ -58,6 +58,8 @@ func newListModel(boardDir string) listModel {
 		boardDir: boardDir,
 		vp:       viewport.New(0, 0),
 		mdStyle:  detectMarkdownStyle(),
+		sortKey:  tasks.SortID,
+		sortDesc: true, // newest first
 	}
 }
 
@@ -88,9 +90,7 @@ func (m listModel) reload() (listModel, tea.Cmd) {
 	if err != nil {
 		return m, func() tea.Msg { return errMsg{err} }
 	}
-	ts := snap.Filter(nil, "")
-	sortDescByID(ts)
-	m.allTasks = ts
+	m.allTasks = snap.Filter(nil, "")
 	m.warnings = len(snap.Warnings)
 	m.refilter()
 	return m, nil
@@ -102,9 +102,16 @@ func (m *listModel) setFilter(q string) {
 	m.refilter()
 }
 
+// setSort changes the row ordering.
+func (m *listModel) setSort(key tasks.SortKey, desc bool) {
+	m.sortKey, m.sortDesc = key, desc
+	m.refilter()
+}
+
 // refilter recomputes the visible rows, clamps the cursor, and refreshes the
 // detail viewport.
 func (m *listModel) refilter() {
+	tasks.Sort(m.allTasks, m.sortKey, m.sortDesc)
 	m.filtered = m.applyFilter()
 	m.cursor = min(m.cursor, max(0, len(m.filtered)-1))
 	m.syncViewport()
@@ -365,26 +372,6 @@ func matchesFilter(t *models.Task, query string) bool {
 		strings.Contains(strings.ToLower(t.Assignee), q) ||
 		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) ||
 		strings.Contains(strings.ToLower(t.Body), q)
-}
-
-// sortDescByID sorts tasks by their numeric id in descending order (newest
-// first), ignoring state.
-func sortDescByID(ts []*models.Task) {
-	sort.Slice(ts, func(i, j int) bool {
-		return taskIDNum(ts[i].ID) > taskIDNum(ts[j].ID)
-	})
-}
-
-// sortAscByID sorts tasks by their numeric id in ascending order.
-func sortAscByID(ts []*models.Task) {
-	sort.Slice(ts, func(i, j int) bool {
-		return taskIDNum(ts[i].ID) < taskIDNum(ts[j].ID)
-	})
-}
-
-func taskIDNum(id string) int {
-	n, _ := strconv.Atoi(id)
-	return n
 }
 
 // selectByID moves the cursor to the task with the given ID and focuses the

@@ -543,3 +543,27 @@ func TestCLIJSONError(t *testing.T) {
 		t.Error("jsonRequested should detect --json on the failing command")
 	}
 }
+
+func TestCLIListSort(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "banana")
+	run(t, dir, "task", "create", "apple")
+
+	// Default: id descending (newest first).
+	out, _ := run(t, dir, "task", "list", "--state", "draft", "--plain")
+	if !strings.Contains(out, "2\tdraft") || strings.Index(out, "apple") > strings.Index(out, "banana") {
+		t.Errorf("default sort should be newest first: %q", out)
+	}
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--sort", "title", "--plain")
+	if strings.Index(out, "apple") > strings.Index(out, "banana") {
+		t.Errorf("--sort title should be A→Z: %q", out)
+	}
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--sort", "title", "--reverse", "--plain")
+	if strings.Index(out, "banana") > strings.Index(out, "apple") {
+		t.Errorf("--sort title --reverse should be Z→A: %q", out)
+	}
+	if _, err := run(t, dir, "task", "list", "--sort", "priority"); err == nil {
+		t.Error("unknown sort key should be rejected")
+	}
+}
