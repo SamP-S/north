@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/SamP-S/north/internal/board"
+	nerrors "github.com/SamP-S/north/internal/errors"
 )
 
 // run executes the north command tree with args in the given working dir,
@@ -541,6 +542,240 @@ func TestCLIJSONError(t *testing.T) {
 	}
 	if !jsonRequested(cmd) {
 		t.Error("jsonRequested should detect --json on the failing command")
+	}
+}
+
+func errorCode(t *testing.T, err error) string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	be, ok := nerrors.As(err)
+	if !ok {
+		return "internal"
+	}
+	return be.Code()
+}
+
+func TestCLIExitCodeContract(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	// not_found → 3.
+	_, err := run(t, dir, "task", "view", "99")
+	if got := nerrors.ExitCode(err); got != 3 {
+		t.Errorf("not_found exit = %d, want 3 (%v)", got, err)
+	}
+	// invalid (bad status) → 2.
+	run(t, dir, "task", "create", "x")
+	_, err = run(t, dir, "task", "move", "1", "bogus")
+	if got := nerrors.ExitCode(err); got != 2 {
+		t.Errorf("invalid exit = %d, want 2 (%v)", got, err)
+	}
+	// usage (wrong arg count, unknown flag) → 2.
+	_, err = run(t, dir, "task", "move", "1")
+	if got := nerrors.ExitCode(err); got != 2 {
+		t.Errorf("arg-count exit = %d, want 2 (%v)", got, err)
+	}
+	_, err = run(t, dir, "task", "list", "--bogus")
+	if got := nerrors.ExitCode(err); got != 2 {
+		t.Errorf("unknown-flag exit = %d, want 2 (%v)", got, err)
+	}
+	// conflict (re-init) → 4.
+	_, err = run(t, dir, "init")
+	if got := nerrors.ExitCode(err); got != 4 {
+		t.Errorf("conflict exit = %d, want 4 (%v)", got, err)
+	}
+}
+
+func TestCLIBatchMove(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "a")
+	run(t, dir, "task", "create", "b")
+	run(t, dir, "task", "state", "1,2", "active")
+	out, err := run(t, dir, "task", "move", "1,2,1", "done")
+	if err != nil {
+		t.Fatalf("batch move: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "1 → done") || !strings.Contains(out, "2 → done") {
+		t.Errorf("per-id report missing: %q", out)
+	}
+	if strings.Count(out, "1 → done") != 1 {
+		t.Errorf("duplicate id not deduplicated: %q", out)
+	}
+}
+
+func TestCLIBatchContinuesOnError(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "a")
+	out, err := run(t, dir, "task", "move", "1,99", "done")
+	if err == nil {
+		t.Fatal("partial failure must exit non-zero")
+	}
+	if code := errorCode(t, err); code != "not_found" {
+		t.Errorf("shared failure code = %q, want not_found", code)
+	}
+	if !strings.Contains(out, "1 → done") {
+		t.Errorf("surviving id should still be processed: %q", out)
+	}
+	if !strings.Contains(out, "error [not_found]") {
+		t.Errorf("per-id error report missing: %q", out)
+	}
+	// The good task really moved.
+	if v, _ := run(t, dir, "task", "view", "1", "--plain"); !strings.Contains(v, "status:     done") {
+		t.Errorf("task 1 not moved: %q", v)
+	}
+}
+
+func TestCLIBatchJSON(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "a")
+	out, err := run(t, dir, "task", "move", "1,99", "done", "--json")
+	if err == nil {
+		t.Fatal("expected non-zero on partial failure")
+	}
+	if !strings.Contains(out, `"tasks"`) || !strings.Contains(out, `"errors"`) ||
+		!strings.Contains(out, `"not_found"`) {
+		t.Errorf("batch json payload: %q", out)
+	}
+}
+
+func TestCLIBatchDelete(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "a")
+	run(t, dir, "task", "create", "b")
+	// Batch delete without -y refuses.
+	if _, err := run(t, dir, "task", "delete", "1,2"); err == nil {
+		t.Error("batch delete without -y should refuse")
+	}
+	out, err := run(t, dir, "task", "delete", "1,2", "-y")
+	if err != nil {
+		t.Fatalf("batch delete: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "Deleted 1") || !strings.Contains(out, "Deleted 2") {
+		t.Errorf("per-id report: %q", out)
+	}
+	if l, _ := run(t, dir, "task", "list", "--state", "all", "--plain"); strings.TrimSpace(l) != "" {
+		t.Errorf("tasks remain: %q", l)
+	}
+}
+
+func TestCLIListAssigneeFilter(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "mine", "--assignee", "claude")
+	run(t, dir, "task", "create", "yours", "--assignee", "john")
+	run(t, dir, "task", "create", "nobody")
+	out, _ := run(t, dir, "task", "list", "--state", "draft", "--assignee", "claude", "--plain")
+	if !strings.Contains(out, "mine") || strings.Contains(out, "yours") || strings.Contains(out, "nobody") {
+		t.Errorf("--assignee claude: %q", out)
+	}
+	// Empty value matches unassigned tasks.
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--assignee", "", "--plain")
+	if !strings.Contains(out, "nobody") || strings.Contains(out, "mine") {
+		t.Errorf("--assignee '': %q", out)
+	}
+}
+
+func TestCLIPlainListColumns(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x", "--assignee", "claude", "--labels", "auth,web")
+	out, _ := run(t, dir, "task", "list", "--state", "draft", "--plain")
+	if !strings.Contains(out, "1\tdraft\tready\tclaude\tauth,web\tx") {
+		t.Errorf("plain columns: %q", out)
+	}
+}
+
+func TestCLICreateFillsTemplate(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	// Bodyless create fills from north/task-template.md.
+	run(t, dir, "task", "create", "scaffolded")
+	out, _ := run(t, dir, "task", "view", "1", "--plain")
+	if !strings.Contains(out, "## Summary") || !strings.Contains(out, "## Acceptance Criteria") {
+		t.Errorf("template not applied: %q", out)
+	}
+	// An explicit body wins.
+	run(t, dir, "task", "create", "explicit", "--body", "my body")
+	out, _ = run(t, dir, "task", "view", "2", "--plain")
+	if strings.Contains(out, "## Summary") || !strings.Contains(out, "my body") {
+		t.Errorf("--body should override template: %q", out)
+	}
+	// A deleted template means a blank body, not the embedded default.
+	if err := os.Remove(filepath.Join(dir, "north", "task-template.md")); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "task", "create", "blank")
+	out, _ = run(t, dir, "task", "view", "3", "--plain")
+	if strings.Contains(out, "## Summary") {
+		t.Errorf("missing template must mean blank body: %q", out)
+	}
+}
+
+func TestCLIInitEpilogueAndModes(t *testing.T) {
+	dir := t.TempDir()
+	out, err := run(t, dir, "init")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Optional next steps") ||
+		!strings.Contains(out, "north skill install") ||
+		!strings.Contains(out, "auto_commit true") {
+		t.Errorf("epilogue missing: %q", out)
+	}
+	dir2 := t.TempDir()
+	out, err = run(t, dir2, "init", "--plain")
+	if err != nil || strings.Contains(out, "Optional next steps") {
+		t.Errorf("--plain must suppress the epilogue: %q %v", out, err)
+	}
+	dir3 := t.TempDir()
+	out, err = run(t, dir3, "init", "--json")
+	if err != nil || !strings.Contains(out, `"board"`) || strings.Contains(out, "Optional") {
+		t.Errorf("--json init: %q %v", out, err)
+	}
+}
+
+func TestCLIConfigVersionReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	if out, err := run(t, dir, "config", "get", "version"); err != nil || strings.TrimSpace(out) != "1" {
+		t.Errorf("config get version: %q %v", out, err)
+	}
+	if out, _ := run(t, dir, "config", "list"); !strings.Contains(out, "version: 1") {
+		t.Errorf("config list: %q", out)
+	}
+	_, err := run(t, dir, "config", "set", "version", "2")
+	if err == nil || errorCode(t, err) != "invalid" {
+		t.Errorf("config set version should refuse as invalid: %v", err)
+	}
+}
+
+func TestCLINewerBoardRefused(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	if err := os.WriteFile(filepath.Join(dir, "north", "config.yml"),
+		[]byte("version: 99\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := run(t, dir, "task", "list")
+	if err == nil || errorCode(t, err) != "conflict" ||
+		!strings.Contains(err.Error(), "newer north") {
+		t.Errorf("newer board should refuse with conflict: %v", err)
+	}
+	// init must not scaffold a nested board under a newer one.
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, sub, "init"); err == nil {
+		t.Error("init under a newer board should refuse")
+	}
+	if _, err := os.Stat(filepath.Join(sub, "north")); !os.IsNotExist(err) {
+		t.Error("nested board was created under a newer board")
 	}
 }
 

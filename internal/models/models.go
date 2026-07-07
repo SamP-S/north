@@ -7,9 +7,10 @@
 //   - Status is the workflow column (ready/in_progress/done/failed/blocked),
 //     stored only in frontmatter. It only changes while the task is active.
 //
-// Both axes are freeform: any status can move to any other status, and any
-// state to any other state, in a single step. The fixed status/state *lists*
-// are hardcoded for the MVP (configurable statuses are deferred).
+// Both axes allow free movement within a fixed value set: any status can move
+// to any other status, and any state to any other state, in a single step —
+// but unknown values are rejected. The status/state *lists* are hardcoded for
+// the MVP (configurable statuses are deferred).
 package models
 
 import "time"

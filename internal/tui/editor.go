@@ -35,13 +35,18 @@ type editorDoneMsg struct {
 	canceled bool
 }
 
-// createTemplate returns a blank task skeleton for $EDITOR.
-func createTemplate() string {
+// createTemplate returns a blank task skeleton for $EDITOR, with the body
+// prefilled from the board's task-template.md when one exists.
+func createTemplate(boardDir string) string {
 	out, err := tasks.RenderEditorDoc(tasks.EditorDoc{})
 	if err != nil {
 		return "---\ntitle: \nassignee: \nlabels: []\ndepends_on: []\n---\n\n"
 	}
-	return out + "Describe the task here.\n"
+	body := tasks.TemplateBody(boardDir)
+	if body == "" {
+		body = "Describe the task here."
+	}
+	return out + body + "\n"
 }
 
 // editTemplate serialises a task's editable fields into the editor format.

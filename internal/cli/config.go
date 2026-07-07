@@ -9,8 +9,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// configKeys lists the settable config keys with get/set accessors.
-var configKeys = []string{"auto_commit"}
+// configKeys lists the config keys visible to list/get. version is read-only
+// (the board's format stamp); set refuses it.
+var configKeys = []string{"version", "auto_commit"}
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -35,6 +36,8 @@ func loadBoardConfig() (string, board.Config, error) {
 
 func configValue(cfg board.Config, key string) (string, error) {
 	switch key {
+	case "version":
+		return strconv.Itoa(cfg.Version), nil
 	case "auto_commit":
 		return strconv.FormatBool(cfg.AutoCommit), nil
 	default:
@@ -57,7 +60,7 @@ func newConfigListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "print every config key and value",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, cfg, err := loadBoardConfig()
 			if err != nil {
@@ -79,7 +82,7 @@ func newConfigGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <key>",
 		Short: "print one config value",
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, cfg, err := loadBoardConfig()
 			if err != nil {
@@ -99,7 +102,7 @@ func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "set one config value",
-		Args:  cobra.ExactArgs(2),
+		Args:  exactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, cfg, err := loadBoardConfig()
 			if err != nil {
@@ -107,6 +110,8 @@ func newConfigSetCmd() *cobra.Command {
 			}
 			key, value := args[0], args[1]
 			switch key {
+			case "version":
+				return nerrors.Invalid("version is read-only (the board's format stamp)")
 			case "auto_commit":
 				b, err := strconv.ParseBool(value)
 				if err != nil {

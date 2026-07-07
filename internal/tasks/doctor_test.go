@@ -29,6 +29,45 @@ func TestDoctorCleanBoard(t *testing.T) {
 	}
 }
 
+func TestDoctorGitattributes(t *testing.T) {
+	boardDir := newBoard(t)
+	if err := os.Remove(filepath.Join(boardDir, ".gitattributes")); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issueKinds(issues)["gitattributes"] != 1 {
+		t.Fatalf("missing .gitattributes not reported: %v", issues)
+	}
+	// --fix restores it.
+	issues, err = tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || !issues[0].Fixed {
+		t.Errorf("fix should restore .gitattributes: %v", issues)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".gitattributes")); err != nil {
+		t.Errorf(".gitattributes not restored: %v", err)
+	}
+}
+
+func TestDoctorFlagsUnknownStatus(t *testing.T) {
+	boardDir := newBoard(t)
+	// A hand-edited status outside the fixed set is unparseable, not silent.
+	writeRaw(t, boardDir, "tasks", "1-weird.md",
+		"---\nid: \"1\"\ntitle: weird\nstatus: someday\n---\n")
+	issues, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issueKinds(issues)["unparseable"] != 1 {
+		t.Errorf("unknown status should surface as unparseable: %v", issues)
+	}
+}
+
 func TestDoctorDetects(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "original") // 1

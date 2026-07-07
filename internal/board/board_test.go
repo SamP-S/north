@@ -3,6 +3,7 @@ package board_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/SamP-S/north/internal/board"
@@ -133,6 +134,99 @@ func TestLoadConfigRejectsMalformedYAML(t *testing.T) {
 	_, err := board.LoadConfig(boardDir)
 	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
 		t.Fatalf("expected invalid error, got %v", err)
+	}
+}
+
+func TestInitScaffoldsBoardFiles(t *testing.T) {
+	boardDir := newBoard(t)
+	tmpl, err := os.ReadFile(filepath.Join(boardDir, board.TemplateName))
+	if err != nil {
+		t.Fatalf("task-template.md missing: %v", err)
+	}
+	if string(tmpl) != board.DefaultTaskTemplate {
+		t.Errorf("template content: %q", tmpl)
+	}
+	ga, err := os.ReadFile(filepath.Join(boardDir, board.GitattributesName))
+	if err != nil {
+		t.Fatalf(".gitattributes missing: %v", err)
+	}
+	if string(ga) != "* text eol=lf\n" {
+		t.Errorf(".gitattributes content: %q", ga)
+	}
+	// User edits to the template survive a re-init.
+	custom := []byte("## Mine\n")
+	if err := os.WriteFile(filepath.Join(boardDir, board.TemplateName), custom, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := board.InitBoard(board.Root(boardDir)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(boardDir, board.TemplateName))
+	if string(got) != string(custom) {
+		t.Error("re-init overwrote an edited template")
+	}
+}
+
+func TestConfigVersionStamp(t *testing.T) {
+	boardDir := newBoard(t)
+	data, err := os.ReadFile(filepath.Join(boardDir, "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "version: 1") {
+		t.Errorf("init should stamp version: 1, got %q", data)
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Version != board.FormatVersion {
+		t.Errorf("version = %d, want %d", cfg.Version, board.FormatVersion)
+	}
+	// A zero-version config write is normalised to the current format.
+	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = board.LoadConfig(boardDir)
+	if cfg.Version != board.FormatVersion || !cfg.AutoCommit {
+		t.Errorf("normalised write: %+v", cfg)
+	}
+}
+
+func TestNewerVersionRefused(t *testing.T) {
+	boardDir := newBoard(t)
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"),
+		[]byte("version: 2\nauto_commit: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// LoadConfig refuses…
+	_, err := board.LoadConfig(boardDir)
+	if be, ok := nerrors.As(err); !ok || be.Code() != "conflict" {
+		t.Fatalf("LoadConfig on newer board: %v", err)
+	}
+	// …and discovery refuses too, so every command is covered.
+	_, err = board.LocateBoard(board.Root(boardDir))
+	if be, ok := nerrors.As(err); !ok || be.Code() != "conflict" {
+		t.Fatalf("LocateBoard on newer board: %v", err)
+	}
+}
+
+func TestMissingVersionIsV1(t *testing.T) {
+	boardDir := newBoard(t)
+	// A pre-stamp board (no version key) loads as v1.
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"),
+		[]byte("auto_commit: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Version != 1 || !cfg.AutoCommit {
+		t.Errorf("pre-stamp board: %+v", cfg)
+	}
+	if _, err := board.LocateBoard(board.Root(boardDir)); err != nil {
+		t.Errorf("pre-stamp board should still be discoverable: %v", err)
 	}
 }
 

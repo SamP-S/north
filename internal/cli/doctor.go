@@ -19,7 +19,7 @@ func newDoctorCmd() *cobra.Command {
 			"filename/frontmatter id drift, dangling depends_on references, dependency\n" +
 			"cycles, and CRLF line endings. With --fix, safe repairs are applied\n" +
 			"(CRLF rewrite, duplicate renumbering, filename renames).",
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {

@@ -100,7 +100,7 @@ func TestSortPickerApplies(t *testing.T) {
 }
 
 func TestCreateTemplateParses(t *testing.T) {
-	tmpl := createTemplate()
+	tmpl := createTemplate(t.TempDir())
 	if tmpl == "" {
 		t.Fatal("createTemplate returned empty string")
 	}

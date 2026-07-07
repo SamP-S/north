@@ -11,10 +11,11 @@ axes:
   `ready, in_progress, blocked, done, failed`. Status can change in any
   state but is only shown on the board while the task is **active**.
 
-Both axes are **freeform**: any state can move to any other state, and any
-status to any other status, in a single step. North validates the *value*
-(unknown states/statuses are rejected) but does not prescribe a path — the
-user is allowed to use the board how they want.
+Both axes allow **free movement within a fixed value set**: any state can
+move to any other state, and any status to any other status, in a single
+step. North validates the *value* (unknown states/statuses are rejected —
+hand-edited ones surface via warnings and `north doctor`) but does not
+prescribe a path — the user is allowed to use the board how they want.
 
 ## Task schema (frontmatter)
 ```yaml
@@ -73,9 +74,27 @@ future work.
 
 Bare numbers (`"12"`), allocated as `max(existing) + 1` across every folder
 (drafts, tasks, archive), so ids are never reused while a task exists. Stored
-as quoted YAML strings so they never degrade to integers. Duplicate ids (e.g.
-after a git merge where two branches each created the same id) are detected on
-every load (warning) and repaired by `north doctor --fix`.
+as quoted YAML strings so they never degrade to integers. Mutating commands
+serialise through a brief advisory file lock (`north/.lock`, created
+`O_CREATE|O_EXCL`, stolen when stale), so concurrent `north` processes cannot
+mint the same id. Duplicate ids can still arrive from outside (a git merge
+where two branches each created the same id): they are detected on every load
+(warning) and repaired by `north doctor --fix`.
+
+## Board files
+
+Besides the state folders, `init` scaffolds three board-owned files (each
+written only when missing, so user edits survive re-init):
+
+- `config.yml` — discovery marker + settings, stamped `version: 1` (see
+  [05_configuration.md](05_configuration.md)). A board with a newer stamp is
+  refused on load ("created by a newer north") rather than misread.
+- `task-template.md` — the body scaffold bodyless creates are filled from
+  (Summary / Acceptance Criteria / Notes / Changes / Comments). A suggestion,
+  not schema: the user may edit or delete it (missing/empty ⇒ blank bodies),
+  and North never parses it back.
+- `.gitattributes` (`* text eol=lf`) — keeps board files LF on every clone.
+  `north doctor` warns when it is missing; `--fix` restores it.
 
 ## Tolerant loading
 
@@ -84,4 +103,4 @@ tolerant snapshot: a malformed task file becomes a *warning* naming the file
 (stderr, or `"warnings"` in `--json`) instead of an error — one bad file never
 takes down the board. `north doctor` reports (and `--fix` repairs where safe)
 malformed files, duplicate ids, filename/id drift, dangling `depends_on`,
-dependency cycles, and CRLF files.
+dependency cycles, CRLF files, and a missing `.gitattributes`.

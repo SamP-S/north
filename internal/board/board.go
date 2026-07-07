@@ -23,7 +23,33 @@ import (
 const (
 	BoardDirname = "north"
 	ConfigName   = "config.yml"
+
+	// TemplateName is the editable body scaffold used by bodyless creates.
+	TemplateName = "task-template.md"
+	// GitattributesName guards board files against CRLF drift on any clone.
+	GitattributesName = ".gitattributes"
+
+	// FormatVersion is the board format this binary reads and writes. Boards
+	// stamped with a newer version are refused on load.
+	FormatVersion = 1
 )
+
+// DefaultTaskTemplate is what init scaffolds into north/task-template.md. It
+// is a suggestion, never a schema: North writes it once and never parses it
+// back, and a missing or empty template means new tasks get a blank body —
+// this constant is not a runtime fallback.
+const DefaultTaskTemplate = `## Summary
+
+## Acceptance Criteria
+
+## Notes
+
+## Changes
+
+## Comments
+`
+
+const gitattributesContent = "* text eol=lf\n"
 
 var (
 	idRe       = regexp.MustCompile(`^(\d+)-`)
@@ -33,12 +59,13 @@ var (
 
 // Config holds per-board settings from "north/config.yml".
 type Config struct {
+	Version    int  `yaml:"version"`
 	AutoCommit bool `yaml:"auto_commit"`
 }
 
-// DefaultConfig returns the MVP defaults (auto_commit false).
+// DefaultConfig returns the MVP defaults (current format version, auto_commit false).
 func DefaultConfig() Config {
-	return Config{AutoCommit: false}
+	return Config{Version: FormatVersion, AutoCommit: false}
 }
 
 // LocateBoard walks up from start (default cwd) to find the "north/" board dir
@@ -58,6 +85,9 @@ func LocateBoard(start string) (string, error) {
 	for {
 		candidate := filepath.Join(current, BoardDirname, ConfigName)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if err := checkVersion(candidate); err != nil {
+				return "", err
+			}
 			return filepath.Join(current, BoardDirname), nil
 		}
 		parent := filepath.Dir(current)
@@ -108,7 +138,44 @@ func InitBoard(root string) (string, error) {
 			return "", err
 		}
 	}
+	templatePath := filepath.Join(board, TemplateName)
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		if err := os.WriteFile(templatePath, []byte(DefaultTaskTemplate), 0o644); err != nil {
+			return "", err
+		}
+	}
+	gaPath := filepath.Join(board, GitattributesName)
+	if _, err := os.Stat(gaPath); os.IsNotExist(err) {
+		if err := WriteGitattributes(board); err != nil {
+			return "", err
+		}
+	}
 	return board, nil
+}
+
+// WriteGitattributes writes the board's .gitattributes ("* text eol=lf"),
+// overwriting. Used by init and `doctor --fix`.
+func WriteGitattributes(board string) error {
+	return os.WriteFile(filepath.Join(board, GitattributesName), []byte(gitattributesContent), 0o644)
+}
+
+// checkVersion refuses a config.yml stamped with a newer format version.
+// Unreadable or malformed files are tolerated here — LoadConfig raises those
+// where config values actually matter.
+func checkVersion(configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil
+	}
+	var raw map[string]any
+	if yaml.Unmarshal(data, &raw) != nil {
+		return nil
+	}
+	if v := toInt(raw["version"], FormatVersion); v > FormatVersion {
+		return errors.Conflict(fmt.Sprintf(
+			"board format version %d was created by a newer north (this binary supports version %d) — upgrade north", v, FormatVersion))
+	}
+	return nil
 }
 
 // LoadConfig reads "north/config.yml" into a Config. A missing file and extra
@@ -131,11 +198,21 @@ func LoadConfig(board string) (Config, error) {
 	if v, ok := raw["auto_commit"]; ok {
 		cfg.AutoCommit = toBool(v, cfg.AutoCommit)
 	}
+	// A missing version key means a board from before the stamp existed — v1.
+	cfg.Version = toInt(raw["version"], FormatVersion)
+	if cfg.Version > FormatVersion {
+		return cfg, errors.Conflict(fmt.Sprintf(
+			"board format version %d was created by a newer north (this binary supports version %d) — upgrade north", cfg.Version, FormatVersion))
+	}
 	return cfg, nil
 }
 
-// WriteConfig writes config.yml. Returns the path.
+// WriteConfig writes config.yml, stamping the current format version when the
+// config carries none. Returns the path.
 func WriteConfig(board string, cfg Config) (string, error) {
+	if cfg.Version == 0 {
+		cfg.Version = FormatVersion
+	}
 	path := filepath.Join(board, ConfigName)
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -206,6 +283,18 @@ func Slug(title string) string {
 // TaskFilename is the on-disk filename for a task: "12-add-login.md".
 func TaskFilename(taskID, title string) string {
 	return fmt.Sprintf("%s-%s.md", taskID, Slug(title))
+}
+
+func toInt(v any, fallback int) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case string:
+		if p, err := strconv.Atoi(n); err == nil {
+			return p
+		}
+	}
+	return fallback
 }
 
 func toBool(v any, fallback bool) bool {

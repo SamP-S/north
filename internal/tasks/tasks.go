@@ -3,9 +3,10 @@
 //
 // Every task is one Markdown file. North uses two orthogonal axes: the task's
 // state is the folder it lives in (drafts/ tasks/ archive/), and its status is
-// a frontmatter key (ready/in_progress/blocked/done/failed). Both axes are
-// freeform — any value can move to any other in one step, in any state. Each mutation optionally makes a local git commit when
-// auto_commit is set.
+// a frontmatter key (ready/in_progress/blocked/done/failed). Movement is free
+// within each fixed value set — any value to any other in one step, in any
+// state. Mutations serialise through the advisory board lock and optionally
+// make a local git commit when auto_commit is set.
 package tasks
 
 import (
@@ -218,11 +219,27 @@ func Dependents(boardDir, taskID string) ([]*models.Task, error) {
 	return snap.Dependents(taskID), nil
 }
 
+// TemplateBody returns the board's task-template.md content, used to fill
+// bodyless creates. A missing or empty template means a blank body — the
+// template is an init-time scaffold, not a runtime fallback.
+func TemplateBody(boardDir string) string {
+	data, err := os.ReadFile(filepath.Join(boardDir, board.TemplateName))
+	if err != nil {
+		return ""
+	}
+	return strings.Trim(normalizeNewlines(string(data)), "\n")
+}
+
 // Create makes a task in drafts/ with status ready.
 func Create(boardDir, title, assignee string, labels, dependsOn []string, body string) (*models.Task, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.Invalid("task title must not be empty")
 	}
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
@@ -267,6 +284,11 @@ type EditOpts struct {
 
 // Edit changes a task's fields/body. UpdatedAt is bumped.
 func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
@@ -318,6 +340,11 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) 
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return nil, err
@@ -338,6 +365,11 @@ func SetState(boardDir, taskID string, newState string) (*models.Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return nil, err
@@ -381,6 +413,11 @@ func Cleanup(boardDir string, olderThanDays int) ([]*models.Task, error) {
 
 // Delete removes a task file.
 func Delete(boardDir, taskID string) error {
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	task, err := find(boardDir, taskID)
 	if err != nil {
 		return err

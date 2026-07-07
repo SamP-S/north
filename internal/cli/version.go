@@ -9,7 +9,7 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "print the north version",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			cmd.Println("north " + version.Version)
 		},

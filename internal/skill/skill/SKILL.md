@@ -20,8 +20,9 @@ Task ids are bare numbers (`1`, `12`), unique across the whole board.
 
 ## Two axes: state and status
 
-A task has two independent properties. Both are **freeform** — any value can
-change to any other value in a single command; there is no required path.
+A task has two independent properties. Each takes one value from a fixed set,
+but movement is free — any value can change to any other value in a single
+command; there is no required path.
 
 - **State** = where the task is in its lifecycle (which folder it lives in):
   - `draft` — captured but not yet on the active board (a human gate).
@@ -60,15 +61,24 @@ Create and lifecycle:
 
 ```bash
 north task create "<title>" [--assignee A] [--labels a,b] [--depends-on 3,4] [--body "..." | --body-file F]
-north task state <id> <draft|active|archive>   # move between lifecycle states (any → any)
-north task delete <id> -y                      # remove permanently (always pass -y)
+north task state <ids> <draft|active|archive>  # move between lifecycle states (any → any)
+north task delete <ids> -y                     # remove permanently (always pass -y)
 ```
+
+A bodyless `create` fills the body from `north/task-template.md` (Summary /
+Acceptance Criteria / Notes / Changes / Comments by default — the user may
+have edited or deleted it). Follow the section layout it gives you.
 
 Status (any → any, in any state):
 
 ```bash
-north task move <id> <status>    # ready | in_progress | blocked | done | failed
+north task move <ids> <status>   # ready | in_progress | blocked | done | failed
 ```
+
+`move`, `state`, and `delete` take one id or a comma-delimited batch
+(`north task move 2,3,4 done`): ids are deduplicated, every id is attempted
+(continue-on-error) with a per-id report, and any failure makes the exit
+non-zero.
 
 Status can be set in any state, but it only shows on the board while the task
 is active (a note is printed on stderr otherwise) — normally set state to
@@ -91,7 +101,7 @@ escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
 Query and maintenance:
 
 ```bash
-north task list [--state draft|active|archive|all] [--status S] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
 north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS]     # archive active 'done' tasks
@@ -103,8 +113,13 @@ north config get|set|list             # board settings (e.g. auto_commit)
 
 - Every task/board command supports `--plain` (tab-separated) and `--json`.
   The default is human-formatted; always pass one of the two.
-- On failure: exit code is non-zero and `error: <message>` is printed to
-  stderr. With `--json`, the error is emitted instead as
+- `task list --plain` columns: `id  state  status  assignee  labels  title`
+  (tab-separated; assignee/labels empty when unset, labels comma-joined).
+- Exit codes are one contract in every output mode: **0** success,
+  **1** internal, **2** invalid/usage, **3** not_found, **4** conflict.
+  A partially failed batch exits with the shared failure code (1 when mixed).
+- On failure `error [<code>]: <message>` is printed to stderr. With `--json`,
+  the error is emitted instead as
   `{"error":{"code":"not_found|conflict|invalid|internal","message":"…"}}`.
 - List/board `--json` payloads include a `"warnings"` array naming any task
   files that could not be parsed; in human/plain modes warnings go to stderr.

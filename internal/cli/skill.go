@@ -33,7 +33,7 @@ func newSkillCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "report whether installed skills match this binary's version",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targets, err := skill.Targets(skillRoot(), global)
 			if err != nil {
@@ -77,7 +77,7 @@ func newSkillInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "install the north skill for Claude Code and/or opencode",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := "."
 			if !global {
@@ -106,7 +106,7 @@ func newSkillShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "print the embedded skill",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.Print(skill.Content())
 			return nil

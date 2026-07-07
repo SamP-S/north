@@ -277,7 +277,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 
 	case key.Matches(msg, keys.Create):
-		return m, openEditor(createTemplate(), modeCreate, "")
+		return m, openEditor(createTemplate(m.boardDir), modeCreate, "")
 
 	case key.Matches(msg, keys.Edit):
 		if t := m.selectedTask(); t != nil {

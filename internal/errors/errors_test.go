@@ -34,3 +34,21 @@ func TestAsDetectsBoardError(t *testing.T) {
 		t.Errorf("As should reject a plain error")
 	}
 }
+
+func TestExitCode(t *testing.T) {
+	cases := []struct {
+		err  error
+		want int
+	}{
+		{nil, 0},
+		{stderrors.New("boom"), 1},
+		{errors.Invalid("bad"), 2},
+		{errors.NotFound("gone"), 3},
+		{errors.Conflict("clash"), 4},
+	}
+	for _, c := range cases {
+		if got := errors.ExitCode(c.err); got != c.want {
+			t.Errorf("ExitCode(%v) = %d, want %d", c.err, got, c.want)
+		}
+	}
+}

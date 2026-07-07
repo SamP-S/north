@@ -5,9 +5,15 @@ Created by `north init`. It is both the **board-discovery marker** (North walks
 up looking for it) and the home for per-board settings.
 
 ```yaml
+version: 1           # board format stamp (read-only; written by init)
 auto_commit: false   # commit each board change locally (never pushes)
 ```
 
+- `version` — the board format this North wrote. Loading a board with a
+  newer stamp is refused ("created by a newer north") instead of misread; a
+  missing key means a pre-stamp board and is treated as version 1. The key is
+  read-only: it shows in `config list`/`get`, and `set` refuses it. There is
+  no migration machinery until a `version: 2` exists.
 - `auto_commit` — when `true`, North shells out to the system `git` to
   `add` + `commit` the changed `north/…` files after each mutation; when
   `false` (default) it only writes/moves files and leaves git to you. Commits
@@ -26,7 +32,8 @@ A malformed `config.yml` is a hard error (`invalid`), not a silent fallback —
 a YAML typo must not silently change behaviour.
 
 States, statuses, and the id scheme are hardcoded for now (making them
-configurable here is future work).
+configurable here is future work). The task body template is deliberately a
+file (`north/task-template.md`), not a config setting.
 
 ## State
 North keeps no global state — there is no `~/.north`, no daemon, and no

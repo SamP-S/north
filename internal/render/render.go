@@ -17,7 +17,9 @@ import (
 
 // TaskList renders a list of tasks. In JSON mode the payload is an object
 // carrying the tasks plus any board warnings; human/plain modes print tasks
-// only (warnings go to stderr in the CLI).
+// only (warnings go to stderr in the CLI). The --plain columns are
+// id, state, status, assignee, labels (comma-joined), title — empty when
+// unset, title always last.
 func TaskList(taskList []*models.Task, warnings []tasks.Warning, plain, asJSON bool) (string, error) {
 	if asJSON {
 		summaries := make([]map[string]any, len(taskList))
@@ -33,7 +35,8 @@ func TaskList(taskList []*models.Task, warnings []tasks.Warning, plain, asJSON b
 	if plain {
 		lines := make([]string, len(tasks))
 		for i, t := range tasks {
-			lines[i] = fmt.Sprintf("%s\t%s\t%s\t%s", t.ID, t.State, t.Status, t.Title)
+			lines[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s",
+				t.ID, t.State, t.Status, t.Assignee, strings.Join(t.Labels, ","), t.Title)
 		}
 		return strings.Join(lines, "\n"), nil
 	}

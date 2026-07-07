@@ -43,8 +43,9 @@ north board                                 # active counts per status
 ---
 
 ## Two axes: state and status
-A task has two independent properties. Both are **freeform** — any value can
-move to any other value in a single command:
+A task has two independent properties. Each takes one value from a fixed
+set, but movement between values is free — any value to any other value in a
+single command:
 
 - **State** — its lifecycle *location* (the folder): `draft`, `active`,
   `archive`. Changed with `north task state <id> <state>`.
@@ -61,12 +62,20 @@ though status only shows on the board once the task is active.
 `north init` scaffolds, inside your repo:
 ```
 north/
-  config.yml         # board marker + settings (auto_commit)
+  config.yml         # board marker + settings (version, auto_commit)
+  task-template.md   # body scaffold for bodyless creates (yours to edit)
+  .gitattributes     # "* text eol=lf" — keeps board files LF on every clone
   drafts/            # state: draft
   tasks/             # state: active   (status in frontmatter)
   archive/           # state: archive
 ```
-A task is one file, `<n>-<title-slug>.md`, in its state folder.
+A task is one file, `<n>-<title-slug>.md`, in its state folder. `config.yml`
+carries a `version: 1` format stamp; a board written by a newer North is
+refused rather than misread. Creating a task without `--body` fills it from
+`task-template.md` (Summary / Acceptance Criteria / Notes / Changes /
+Comments) — edit or delete the file to change what new tasks start with;
+North never parses it back. Mutating commands take a brief advisory lock
+(`north/.lock`) so concurrent `north` calls cannot mint duplicate ids.
 
 ### Task file
 ```yaml
@@ -93,16 +102,16 @@ Malformed files never break the board — they surface as warnings, and
 |---|---|
 | `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
 | `north task create <title> [--assignee --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
-| `north task list [--state …] [--status S] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse]` | List tasks (default active, newest first) |
+| `north task list [--state …] [--status S] [--assignee A] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse]` | List tasks (default active, newest first) |
 | `north task view <id>` | Show a task |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
-| `north task move <id> <status>` | Set status (any → any, in any state) |
-| `north task state <id> <draft\|active\|archive>` | Set lifecycle state (any → any) |
-| `north task delete <id> [-y]` | Delete a task (`-y` required in machine/non-TTY modes) |
+| `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
+| `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
+| `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS]` | Archive active done tasks |
-| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files) |
-| `north config list\|get\|set` | Read/write board settings (`auto_commit`) |
+| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes) |
+| `north config list\|get\|set` | Read/write board settings (`auto_commit`; `version` is read-only) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
 | `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
@@ -110,9 +119,15 @@ Malformed files never break the board — they surface as warnings, and
 | `north version` | Print the north version |
 
 Every task/board command accepts `--plain` (tab-separated) or `--json` for
-stable, parseable output; ids are bare numbers (`north task view 12`). With
-`--json`, errors are emitted as `{"error":{"code":…,"message":…}}`. `NO_COLOR`
-is honoured in the TUI.
+stable, parseable output; ids are bare numbers (`north task view 12`).
+`task list --plain` columns are `id  state  status  assignee  labels  title`.
+`move`/`state`/`delete` accept a comma-delimited id batch — deduplicated,
+continue-on-error, with a per-id report. Failures print
+`error [<code>]: <message>` to stderr (with `--json`, a
+`{"error":{"code":…,"message":…}}` object instead), and exit codes follow one
+contract in every mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
+4 conflict (a partially failed batch exits with the shared failure code).
+`NO_COLOR` is honoured in the TUI.
 
 ---
 

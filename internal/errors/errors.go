@@ -42,3 +42,23 @@ func As(err error) (BoardError, bool) {
 	be, ok := err.(BoardError)
 	return be, ok
 }
+
+// ExitCode maps an error to the universal CLI exit-code contract, identical
+// in every output mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
+// 4 conflict.
+func ExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if be, ok := As(err); ok {
+		switch be.Code() {
+		case "invalid":
+			return 2
+		case "not_found":
+			return 3
+		case "conflict":
+			return 4
+		}
+	}
+	return 1
+}

@@ -21,7 +21,7 @@ import (
 
 // Issue is one problem found by Doctor.
 type Issue struct {
-	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf
+	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf | gitattributes
 	File   string // filename (base) the issue is about ("" for board-wide issues)
 	Detail string
 	Fixed  bool // true when fix mode repaired it
@@ -41,11 +41,30 @@ func (i Issue) String() string {
 // Doctor checks the whole board and returns every issue found, most severe
 // first. With fix true it also repairs: CRLF files are rewritten with LF,
 // duplicate ids are renumbered to fresh ids (the first holder keeps the id, so
-// existing depends_on references stay valid), and drifted filenames are
-// renamed to match their frontmatter id. Unparseable files, dangling deps, and
-// cycles are report-only.
+// existing depends_on references stay valid), drifted filenames are renamed to
+// match their frontmatter id, and a missing north/.gitattributes is restored.
+// Unparseable files, dangling deps, and cycles are report-only.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	var issues []Issue
+	if fix {
+		unlock, err := board.Lock(boardDir)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
+
+	// Pass 0: board-file scaffolding init owns.
+	if _, err := os.Stat(filepath.Join(boardDir, board.GitattributesName)); os.IsNotExist(err) {
+		issue := Issue{Kind: "gitattributes", File: board.GitattributesName,
+			Detail: "missing (guards board files against CRLF drift on clone)"}
+		if fix {
+			if err := board.WriteGitattributes(boardDir); err == nil {
+				issue.Fixed = true
+			}
+		}
+		issues = append(issues, issue)
+	}
 
 	// Pass 1: raw line-ending check (before parsing, since CRLF used to break it).
 	files, err := board.TaskFiles(boardDir)

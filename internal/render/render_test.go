@@ -31,7 +31,7 @@ func TestTaskListPlain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "1\tactive\tready\tAdd login" {
+	if out != "1\tactive\tready\topus4.8\tauth\tAdd login" {
 		t.Errorf("plain output: %q", out)
 	}
 }

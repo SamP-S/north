@@ -15,7 +15,7 @@ func newBoardCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "board",
 		Short: "board summary (counts per status)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
@@ -48,7 +48,7 @@ func newCleanupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "archive done tasks",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
