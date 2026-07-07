@@ -314,6 +314,15 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				confirm: deleteConfirmText(m.boardDir, t)}
 		}
 		return m, nil
+
+	case key.Matches(msg, keys.Doctor):
+		issues, err := tasks.Doctor(m.boardDir, false)
+		if err != nil {
+			m.notice = notice{noticeError, err.Error()}
+			return m, nil
+		}
+		m.modal = newDoctorModal(issues, m.width, m.height)
+		return m, nil
 	}
 
 	return m.delegate(msg)
@@ -433,7 +442,7 @@ func (m Model) footer() string {
 		warnings = m.list.warnings
 	}
 	if warnings > 0 {
-		hints = fmt.Sprintf("⚠ %d file warning(s)  ", warnings) + hints
+		hints = fmt.Sprintf("⚠ %d file warning(s) — D doctor  ", warnings) + hints
 	}
 	return styleFooter.Width(m.width).Render("  " + hints)
 }
@@ -462,6 +471,7 @@ func (m Model) helpView() string {
 		{"o", "sort order (id/updated/title/assignee)"},
 		{"s", "set state (draft/active/archive)"},
 		{"d", "delete task"},
+		{"D", "doctor — board integrity report (f applies --fix)"},
 		{"r", "reload from disk"},
 		{"/", "filter tasks (board & list)"},
 		{"esc", "cancel / clear filter"},

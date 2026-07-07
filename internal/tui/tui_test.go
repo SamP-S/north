@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -634,5 +635,70 @@ func TestCardTags(t *testing.T) {
 	tags = cardTags(snap)
 	if tags["2"] != "" || tags["3"] != "" {
 		t.Errorf("archived-dependency tags should be empty, got %q/%q", tags["2"], tags["3"])
+	}
+}
+
+// TestDoctorModalHealthy verifies that 'D' opens the doctor popup and shows a
+// clean bill of health on a fresh board.
+func TestDoctorModalHealthy(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
+
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('D'))
+	um := updated.(Model)
+	if um.modal.mode != modalDoctor {
+		t.Fatalf("expected doctor modal, got %v", um.modal.mode)
+	}
+	if !strings.Contains(um.modal.view(), "healthy") {
+		t.Errorf("healthy board should say so: %q", um.modal.view())
+	}
+	// esc closes.
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(Model).modal.mode != modalNone {
+		t.Error("esc should close the doctor popup")
+	}
+}
+
+// TestDoctorModalFix verifies the popup lists issues and that 'f' repairs
+// them in place and reloads the board.
+func TestDoctorModalFix(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
+	// A CRLF task file is a fixable issue.
+	crlf := dir + "/tasks/9-crlf.md"
+	if err := os.WriteFile(crlf,
+		[]byte("---\r\nid: \"9\"\r\ntitle: crlf\r\nstatus: ready\r\n---\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('D'))
+	um := updated.(Model)
+	if !strings.Contains(um.modal.view(), "crlf") {
+		t.Fatalf("issue missing from report: %q", um.modal.view())
+	}
+
+	updated, cmd := um.Update(keyRune('f'))
+	um = updated.(Model)
+	if um.modal.mode != modalDoctor {
+		t.Fatal("fix should keep the report open")
+	}
+	if !strings.Contains(um.modal.view(), "(fixed)") {
+		t.Errorf("fix report should mark repairs: %q", um.modal.view())
+	}
+	if cmd == nil {
+		t.Fatal("fix should trigger a reload")
+	}
+	if _, ok := cmd().(reloadMsg); !ok {
+		t.Error("fix command should resolve to reloadMsg")
+	}
+	// The file really was repaired.
+	data, err := os.ReadFile(crlf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "\r") {
+		t.Error("CRLF file not rewritten by the TUI fix")
 	}
 }

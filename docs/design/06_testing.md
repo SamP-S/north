@@ -22,7 +22,7 @@ no-identity case isolated via `GIT_CONFIG_GLOBAL=/dev/null`).
 | `internal/render/render_test.go` | `--plain` / `--json` output shape (incl. warnings arrays) |
 | `internal/cli/cli_test.go` | CLI dispatch, state/move flow, batch ids (move/state/delete, continue-on-error), delete `-y` contract, search/label/assignee filters, plain columns, template-filled creates, exit-code contract, config cmd (incl. read-only version), doctor, JSON errors, init epilogue/modes, nested/newer-board refusal, skill check |
 | `internal/skill/skill_test.go` | embedded skill content, version stamps, install targets |
-| `internal/tui/tui_test.go` | shared modals in both views, state picker apply, q/help/r behaviour, display-width truncation, filter-clearing selection, editor templates |
+| `internal/tui/tui_test.go` | shared modals in both views, state picker apply, doctor popup (report + `f` fix/reload), q/help/r behaviour, display-width truncation, filter-clearing selection, editor templates |
 
 Gate before merging:
 

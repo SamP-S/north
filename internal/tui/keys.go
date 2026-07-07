@@ -21,6 +21,7 @@ type keyMap struct {
 	Sort   key.Binding
 	State  key.Binding
 	Delete key.Binding
+	Doctor key.Binding
 	Search key.Binding
 }
 
@@ -81,6 +82,10 @@ var keys = keyMap{
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete"),
+	),
+	Doctor: key.NewBinding(
+		key.WithKeys("D"),
+		key.WithHelp("D", "doctor"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),

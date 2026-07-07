@@ -143,6 +143,7 @@ contract in every mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
 - **`/`** live-filters **both views** in place (id, title, assignee, labels, body — case-insensitive) — the board narrows its columns, the list its rows; **esc** clears the filter.
 - A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
 - **`o`** opens a sort picker (id / updated / title / assignee, each ascending or descending; default id ↓); **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
+- **`D`** opens the doctor popup — the same integrity report as `north doctor`, scrollable in place; **`f`** inside applies `--fix` and reloads the board. The footer's file-warning indicator points at it.
 
 The TUI is keyboard-only by design (no mouse) and for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 

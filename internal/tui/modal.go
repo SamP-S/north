@@ -27,6 +27,7 @@ const (
 	modalConfirmDelete           // confirm a delete (d)
 	modalTaskView                // read-only task popup (enter, board view)
 	modalSortPicker              // choose the task ordering (o)
+	modalDoctor                  // board integrity report (D; f applies --fix)
 )
 
 // sortMsg carries a chosen ordering from the sort picker to the root model.
@@ -192,6 +193,31 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 		}
 		return m, nil
 
+	case modalDoctor:
+		switch {
+		case key.Matches(km, keys.Up):
+			m.vp.LineUp(1)
+		case key.Matches(km, keys.Down):
+			m.vp.LineDown(1)
+		case key.Matches(km, keys.Top):
+			m.vp.GotoTop()
+		case key.Matches(km, keys.Bottom):
+			m.vp.GotoBottom()
+		case km.String() == "f":
+			issues, err := tasks.Doctor(boardDir, true)
+			if err != nil {
+				m.mode = modalNone
+				return m, func() tea.Msg { return errMsg{err} }
+			}
+			m.vp.SetContent(doctorContent(issues))
+			m.vp.GotoTop()
+			// The board reloads underneath while the fix report stays open.
+			return m, func() tea.Msg { return reloadMsg{} }
+		case key.Matches(km, keys.Esc), key.Matches(km, keys.Enter):
+			m.mode = modalNone
+		}
+		return m, nil
+
 	case modalConfirmDelete:
 		switch strings.ToLower(km.String()) {
 		case "y", "enter":
@@ -234,8 +260,30 @@ func (m modal) view() string {
 	case modalTaskView:
 		footer := styleFooter.Render("j/k scroll  g/G top/bottom  e edit  esc close")
 		return styleModal.Render(m.vp.View() + "\n" + footer)
+	case modalDoctor:
+		footer := styleFooter.Render("j/k scroll  f fix  esc close")
+		return styleModal.Render(styleHeader.Render("doctor") + "\n\n" + m.vp.View() + "\n" + footer)
 	}
 	return ""
+}
+
+// newDoctorModal builds the doctor popup around a fresh report.
+func newDoctorModal(issues []tasks.Issue, width, height int) modal {
+	vp := viewport.New(max(20, width-14), max(5, height-8))
+	vp.SetContent(doctorContent(issues))
+	return modal{mode: modalDoctor, vp: vp}
+}
+
+// doctorContent renders a doctor report for the popup viewport.
+func doctorContent(issues []tasks.Issue) string {
+	if len(issues) == 0 {
+		return "Board is healthy — no issues found."
+	}
+	lines := make([]string, len(issues))
+	for i, is := range issues {
+		lines[i] = is.String()
+	}
+	return strings.Join(lines, "\n")
 }
 
 // statusIndex returns the index of s in models.Statuses, defaulting to 0.
