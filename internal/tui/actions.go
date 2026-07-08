@@ -13,11 +13,16 @@ import (
 
 // runTaskOp wraps a task mutation into a tea.Cmd: errMsg on failure, an
 // actionDoneMsg carrying the given notice (which also triggers a reload) on
-// success.
-func runTaskOp(op func() error, ok notice) tea.Cmd {
+// success. Advisory warnings from the op escalate the notice to a warning
+// and are appended to its text.
+func runTaskOp(op func() ([]string, error), ok notice) tea.Cmd {
 	return func() tea.Msg {
-		if err := op(); err != nil {
+		warns, err := op()
+		if err != nil {
 			return errMsg{err}
+		}
+		if len(warns) > 0 {
+			return actionDoneMsg{notice{noticeWarn, ok.text + " — " + strings.Join(warns, "; ")}}
 		}
 		return actionDoneMsg{ok}
 	}

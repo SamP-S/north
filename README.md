@@ -102,7 +102,7 @@ Malformed files never break the board — they surface as warnings, and
 |---|---|
 | `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
 | `north task create <title> [--assignee --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
-| `north task list [--state …] [--status S] [--assignee A] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse]` | List tasks (default active, newest first) |
+| `north task list [--state …] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse]` | List tasks (default active, newest first) |
 | `north task view <id>` | Show a task |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
@@ -111,7 +111,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS]` | Archive active done tasks |
 | `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes) |
-| `north config list\|get\|set` | Read/write board settings (`auto_commit`; `version` is read-only) |
+| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`; `version` is read-only) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
 | `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
@@ -144,10 +144,37 @@ contract in every mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
 - A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
 - **`o`** opens a sort picker (id / updated / title / assignee, each ascending or descending; default id ↓); **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
 - **`D`** opens the doctor popup — the same integrity report as `north doctor`, scrollable in place; **`f`** inside applies `--fix` and reloads the board. The footer's file-warning indicator points at it.
+- **`y`** yanks the selected task's bare id to the clipboard via OSC 52 (terminal-handled — no external tools, works over SSH).
+- **`L`** opens the dependency picker: every task in the board (draft/active first in the current sort, archive last), with the selection's existing deps pre-checked. Resolved candidates are marked ✓ (linking them documents lineage; it gates nothing), invalid ones (itself, anything that would create a cycle) are greyed with the reason rather than hidden. **space** toggles, **/** filters in place, **enter** applies, and a pinned "(clear all)" row empties the set.
 
 The TUI is keyboard-only by design (no mouse) and for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 
 ---
+
+## Dependencies
+`depends_on` links tasks: a dependency is **resolved** once its task is
+`done` or archived (archive is terminal, so it counts as done). The links are
+queryable — `north task list --deps met` is "what is workable", `--deps
+unmet` is "what is waiting" (the TUI's `!` tag, same rule) — and how strictly
+they are *enforced* is per-board config:
+
+```bash
+north config set deps_enforcement hint|validated|strict   # default: validated
+```
+
+- **hint** — never refuses; warns on dangling/forward references, self-refs,
+  cycles, and finishing with unmet deps. Maximum freeform.
+- **validated** (default) — the graph must stay well-formed: dangling ids,
+  self-refs, and cycles are refused on write, and deleting a task heals its
+  dependents (the id is dropped from their `depends_on`). Workflow order
+  stays advisory: moving to `done`/`in_progress` with unmet deps warns.
+- **strict** — validated, plus moving to `done`/`in_progress` with unmet
+  dependencies is refused. Archiving is always allowed (terminal = abandon).
+
+Enforcement affects writes only — no stored data — so levels switch freely
+with no migration. Warnings go to stderr (or a `"warnings"` array in `--json`
+mutation payloads); `north doctor` reports dangling refs and cycles at every
+level, and `--fix` removes dangling refs.
 
 ## Git
 By default North does not commit — your task changes appear in `git status` and

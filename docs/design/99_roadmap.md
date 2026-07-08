@@ -19,23 +19,16 @@ branches that each created the same id. They are detected on every load
 (warnings; the extra task is excluded from the snapshot) and repaired by
 `north doctor --fix`, which renumbers the later file.
 
-### `depends_on` is an ordering hint
+### `depends_on` enforcement is per-board config
 
-Existence and referential integrity are enforced on write, delete warns about
-dependents, and `north doctor` reports cycles. Writes do not walk the graph —
-whether the field should be a formally enforced DAG is an open design
-question (see the deferred `depends_on` design pass below).
+Settled 2026-07-08 (plan 047): `deps_enforcement: hint | validated | strict`
+(default validated) grades write-side enforcement — see
+`docs/design/02_board-data-model.md` for the event matrix. The read side is
+`task list --deps met|unmet` plus the TUI's `!` tag and `L` link picker, all
+sharing one resolution rule (done or archived = resolved). A full layered
+`north sequence` view stays deferred with the multi-agent story.
 
 ---
-
-## Deferred — flagged for a possible v1.0 look
-
-- **`depends_on` design pass** — decide what the field formally is (ordering
-  hint vs enforced DAG), and from that: cycle policy (write-time refusal vs
-  doctor-only as today) and the read side — `list --unblocked`/`--blocked`
-  filters (reusing the TUI's dep-resolution logic) as the cheap shape of a
-  sequences view; a full layered `north sequence` stays with the multi-agent
-  story. Needs refinement before any of it is built.
 
 ## Deferred — v1.0 release prep
 
@@ -44,11 +37,6 @@ question (see the deferred `depends_on` design pass below).
 
 ## Deferred — post-v1.0
 
-- **`north undo`/`redo`** — needs a design review: the git-revert-only shape
-  (revert the last trailer-tagged `north:` commit under a stateless
-  clean-tree guard; redo = revert the revert) works but is auto_commit-only,
-  which felt too conditional; shadow storage was rejected as redundant. Park
-  until that tension has a better answer.
 - **Multi-agent claims cluster** — claims + `pick --claim` + `agent-name` +
   `require_claim` + `watch --json` stand or fall together. kanban-md's
   implementation is not a model to copy (frontmatter claims aren't atomic
@@ -70,10 +58,18 @@ question (see the deferred `depends_on` design pass below).
   first), themes/config (`tui:` block; interacts with custom statuses).
   The TUI remains keyboard-only by design — mouse support is a non-goal.
 
-## Deferred — v2.0-era (distribution)
+## Deferred — v2.0-era
 
 North is a developer tool; `go install` is the standard, sufficient install
 path for v1.0 — distribution machinery isn't necessary yet.
+
+- **`north undo`/`redo`** (moved from post-v1.0, 2026-07-08) — needs a design
+  review: the git-revert-only shape (revert the last trailer-tagged `north:`
+  commit under a stateless clean-tree guard; redo = revert the revert) works
+  but is auto_commit-only, which felt too conditional; shadow storage was
+  rejected as redundant. Parked until that tension has a better answer;
+  meanwhile git is the undo (uncommitted → `git restore`, auto_commit →
+  `git revert`).
 
 - goreleaser release binaries, Homebrew tap, Scoop, AUR, Nix flake; man pages
   ride along with whatever packaging lands first.
@@ -85,6 +81,15 @@ Already done, pruned from candidates: `north doctor --fix`, self-healing
 duplicate-id handling on load, atomic writes (temp+rename), CI test/vet
 matrix incl. Windows, `north skill check` (update = rerun `skill install`,
 which overwrites), `config get/set/list` with validation.
+
+Deferred-review pulls implemented for v1.0 (2026-07-08, plan 047): TUI `y`
+yank (bare id via OSC 52), the `depends_on` pass — `deps_enforcement`
+config (hint/validated/strict, default validated; cycles/self-refs/dangling
+refused at validated+, strict refuses done/in_progress with unmet deps,
+delete heals dependents at validated+), `task list --deps met|unmet`,
+mutation `--json` warnings arrays, doctor `--fix` removes dangling refs,
+and the TUI `L` dependency picker (all states, resolved ✓, invalid greyed
+with reasons, in-modal filter).
 
 Accepted for v1.0 and implemented (2026-07-07, plan 046): advisory file lock
 (`north/.lock`), `version: 1` format stamp (read-only config key, newer boards

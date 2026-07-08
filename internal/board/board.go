@@ -57,15 +57,48 @@ var (
 	nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 )
 
-// Config holds per-board settings from "north/config.yml".
-type Config struct {
-	Version    int  `yaml:"version"`
-	AutoCommit bool `yaml:"auto_commit"`
+// DepsEnforcement grades how strictly depends_on is enforced on writes.
+// Enforcement never touches stored data, so levels switch freely.
+type DepsEnforcement string
+
+const (
+	// DepsHint never refuses a dependency-related action; it only warns
+	// (dangling/forward references, self-refs, cycles, out-of-order moves).
+	DepsHint DepsEnforcement = "hint"
+	// DepsValidated keeps the graph well-formed — dangling ids, self-refs,
+	// and cycles are refused on write, delete heals dependents — while
+	// workflow order (finishing with unmet deps) only warns. The default.
+	DepsValidated DepsEnforcement = "validated"
+	// DepsStrict is validated plus workflow enforcement: moving to done or
+	// in_progress with unmet dependencies is refused.
+	DepsStrict DepsEnforcement = "strict"
+)
+
+// DepsEnforcements lists the levels, loosest first.
+var DepsEnforcements = []DepsEnforcement{DepsHint, DepsValidated, DepsStrict}
+
+// ParseDepsEnforcement coerces a string to a DepsEnforcement level.
+func ParseDepsEnforcement(value string) (DepsEnforcement, error) {
+	for _, l := range DepsEnforcements {
+		if DepsEnforcement(value) == l {
+			return l, nil
+		}
+	}
+	return "", errors.Invalid(fmt.Sprintf(
+		"unknown deps_enforcement %q (expected one of: hint, validated, strict)", value))
 }
 
-// DefaultConfig returns the MVP defaults (current format version, auto_commit false).
+// Config holds per-board settings from "north/config.yml".
+type Config struct {
+	Version         int             `yaml:"version"`
+	AutoCommit      bool            `yaml:"auto_commit"`
+	DepsEnforcement DepsEnforcement `yaml:"deps_enforcement"`
+}
+
+// DefaultConfig returns the defaults (current format version, auto_commit
+// false, deps validated).
 func DefaultConfig() Config {
-	return Config{Version: FormatVersion, AutoCommit: false}
+	return Config{Version: FormatVersion, AutoCommit: false, DepsEnforcement: DepsValidated}
 }
 
 // LocateBoard walks up from start (default cwd) to find the "north/" board dir
@@ -198,6 +231,14 @@ func LoadConfig(board string) (Config, error) {
 	if v, ok := raw["auto_commit"]; ok {
 		cfg.AutoCommit = toBool(v, cfg.AutoCommit)
 	}
+	if v, ok := raw["deps_enforcement"]; ok {
+		s, _ := v.(string)
+		level, err := ParseDepsEnforcement(s)
+		if err != nil {
+			return cfg, errors.Invalid(fmt.Sprintf("%s: %v", path, err))
+		}
+		cfg.DepsEnforcement = level
+	}
 	// A missing version key means a board from before the stamp existed — v1.
 	cfg.Version = toInt(raw["version"], FormatVersion)
 	if cfg.Version > FormatVersion {
@@ -212,6 +253,9 @@ func LoadConfig(board string) (Config, error) {
 func WriteConfig(board string, cfg Config) (string, error) {
 	if cfg.Version == 0 {
 		cfg.Version = FormatVersion
+	}
+	if cfg.DepsEnforcement == "" {
+		cfg.DepsEnforcement = DepsValidated
 	}
 	path := filepath.Join(board, ConfigName)
 	out, err := yaml.Marshal(cfg)

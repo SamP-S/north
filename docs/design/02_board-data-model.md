@@ -96,6 +96,33 @@ written only when missing, so user edits survive re-init):
 - `.gitattributes` (`* text eol=lf`) — keeps board files LF on every clone.
   `north doctor` warns when it is missing; `--fix` restores it.
 
+## Dependencies
+
+`depends_on` holds task ids. A dependency is **resolved** when its task is
+`done` or in `archive/` (terminal ≈ done) — one definition shared by the
+CLI's `--deps met|unmet` filter, write-side enforcement, and the TUI's `!`
+tag. An id that resolves to no task (or a cycle member) reads as unmet
+forever until repaired.
+
+How strictly the links are enforced is the `deps_enforcement` config key
+(hint | validated | strict — see [05_configuration.md](05_configuration.md)).
+Enforcement gates **writes only** — it never rewrites stored data on load, so
+switching levels needs no migration and merged-in damage stays doctor's
+domain:
+
+| Event | hint | validated (default) | strict |
+|---|---|---|---|
+| dangling id on create/edit | warn (forward refs allowed) | refuse | refuse |
+| self-reference / cycle on edit | warn | refuse | refuse |
+| `move done`/`in_progress`, deps unmet | warn | warn | refuse |
+| `state archive`, deps unmet | allow | allow | allow (terminal = abandon) |
+| delete with dependents | warn, refs left dangling | heal: id dropped from dependents | heal |
+
+Delete-healing runs under the same lock hold and bumps the dependents'
+`updated_at`. `north doctor` flags dangling refs and cycles at every level;
+`--fix` removes dangling refs (including deliberate forward references —
+running `--fix` is an explicit ask).
+
 ## Tolerant loading
 
 All read paths (list, board, TUI, lookups) parse the whole board through one

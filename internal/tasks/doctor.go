@@ -42,8 +42,9 @@ func (i Issue) String() string {
 // first. With fix true it also repairs: CRLF files are rewritten with LF,
 // duplicate ids are renumbered to fresh ids (the first holder keeps the id, so
 // existing depends_on references stay valid), drifted filenames are renamed to
-// match their frontmatter id, and a missing north/.gitattributes is restored.
-// Unparseable files, dangling deps, and cycles are report-only.
+// match their frontmatter id, dangling depends_on references are removed, and
+// a missing north/.gitattributes is restored. Unparseable files and cycles
+// are report-only.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	var issues []Issue
 	if fix {
@@ -155,13 +156,37 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		}
 	}
 
-	// Dangling depends_on.
+	// Dangling depends_on. With fix, the unknown ids are removed from the
+	// file's depends_on in one rewrite. (Deliberate forward references on
+	// hint-level boards are removed too — running --fix is an explicit ask.)
 	for _, p := range tasksParsed {
+		var dangling []string
 		for _, dep := range p.deps {
 			if !idSet[dep] {
-				issues = append(issues, Issue{Kind: "dangling-dep", File: filepath.Base(p.path),
-					Detail: fmt.Sprintf("depends_on references unknown task %q", dep)})
+				dangling = append(dangling, dep)
 			}
+		}
+		if len(dangling) == 0 {
+			continue
+		}
+		fixed := false
+		if fix {
+			if task, err := loadTask(p.path); err == nil {
+				kept := task.DependsOn[:0]
+				for _, dep := range task.DependsOn {
+					if idSet[dep] {
+						kept = append(kept, dep)
+					}
+				}
+				task.DependsOn = kept
+				if _, err := save(boardDir, task, p.path, fmt.Sprintf("north: doctor remove dangling deps of %s", task.ID)); err == nil {
+					fixed = true
+				}
+			}
+		}
+		for _, dep := range dangling {
+			issues = append(issues, Issue{Kind: "dangling-dep", File: filepath.Base(p.path),
+				Detail: fmt.Sprintf("depends_on references unknown task %q", dep), Fixed: fixed})
 		}
 	}
 

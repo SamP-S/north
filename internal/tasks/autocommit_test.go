@@ -49,7 +49,7 @@ func TestAutoCommitCreatesCommit(t *testing.T) {
 	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tasks.Create(boardDir, "committed task", "", nil, nil, ""); err != nil {
+	if _, _, err := tasks.Create(boardDir, "committed task", "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -65,7 +65,7 @@ func TestAutoCommitCreatesCommit(t *testing.T) {
 
 func TestNoCommitWhenDisabled(t *testing.T) {
 	boardDir := initRepo(t)
-	if _, err := tasks.Create(boardDir, "x", "", nil, nil, ""); err != nil {
+	if _, _, err := tasks.Create(boardDir, "x", "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := gitOut(t, boardDir, "rev-parse", "HEAD"); err == nil {

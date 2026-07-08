@@ -88,6 +88,41 @@ func (s *Snapshot) Filter(states []models.TaskState, status string) []*models.Ta
 	return out
 }
 
+// UnmetDeps returns t's unresolved dependencies: ids whose task is missing
+// from the snapshot or neither done nor archived (archive is terminal and
+// counts as done). Nil when every dependency is resolved. This is the one
+// definition of "waiting" shared by the CLI's --deps filter, enforcement,
+// and the TUI's ! tag.
+func (s *Snapshot) UnmetDeps(t *models.Task) []string {
+	var out []string
+	for _, d := range t.DependsOn {
+		dt := s.byID[d]
+		if dt == nil || (dt.Status != models.Done && dt.State != models.StateArchive) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// TransitiveDependents returns every task id that transitively depends on id
+// (directly or through other tasks). Adding any of them as a dependency of
+// id's task would create a cycle.
+func (s *Snapshot) TransitiveDependents(id string) map[string]bool {
+	out := map[string]bool{}
+	queue := []string{id}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, t := range s.Dependents(cur) {
+			if !out[t.ID] {
+				out[t.ID] = true
+				queue = append(queue, t.ID)
+			}
+		}
+	}
+	return out
+}
+
 // Dependents returns every task whose DependsOn contains id (exact match).
 // Returns an empty non-nil slice if none are found.
 func (s *Snapshot) Dependents(id string) []*models.Task {

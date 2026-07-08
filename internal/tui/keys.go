@@ -22,6 +22,8 @@ type keyMap struct {
 	State  key.Binding
 	Delete key.Binding
 	Doctor key.Binding
+	Yank   key.Binding
+	Link   key.Binding
 	Search key.Binding
 }
 
@@ -86,6 +88,14 @@ var keys = keyMap{
 	Doctor: key.NewBinding(
 		key.WithKeys("D"),
 		key.WithHelp("D", "doctor"),
+	),
+	Yank: key.NewBinding(
+		key.WithKeys("y"),
+		key.WithHelp("y", "yank id"),
+	),
+	Link: key.NewBinding(
+		key.WithKeys("L"),
+		key.WithHelp("L", "link dependencies"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),

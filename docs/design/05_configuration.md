@@ -5,8 +5,9 @@ Created by `north init`. It is both the **board-discovery marker** (North walks
 up looking for it) and the home for per-board settings.
 
 ```yaml
-version: 1           # board format stamp (read-only; written by init)
-auto_commit: false   # commit each board change locally (never pushes)
+version: 1                   # board format stamp (read-only; written by init)
+auto_commit: false           # commit each board change locally (never pushes)
+deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
 ```
 
 - `version` — the board format this North wrote. Loading a board with a
@@ -14,6 +15,12 @@ auto_commit: false   # commit each board change locally (never pushes)
   missing key means a pre-stamp board and is treated as version 1. The key is
   read-only: it shows in `config list`/`get`, and `set` refuses it. There is
   no migration machinery until a `version: 2` exists.
+- `deps_enforcement` — how strictly `depends_on` is enforced on writes:
+  `hint` (warn only, forward refs allowed), `validated` (default — dangling
+  ids/self-refs/cycles refused, delete heals dependents, workflow order
+  warns), `strict` (validated + `move done`/`in_progress` with unmet deps
+  refused). Writes-only: changing the level never touches stored tasks. See
+  the event matrix in [02_board-data-model.md](02_board-data-model.md).
 - `auto_commit` — when `true`, North shells out to the system `git` to
   `add` + `commit` the changed `north/…` files after each mutation; when
   `false` (default) it only writes/moves files and leaves git to you. Commits

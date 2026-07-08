@@ -43,7 +43,7 @@ before changing its status.
 ## Typical loop
 
 ```bash
-north task list --status ready --plain    # what is available?
+north task list --status ready --deps met --plain   # what is workable now?
 north task view 12 --json                 # read the full brief (body included)
 north task move 12 in_progress            # claim it
 # …do the work…
@@ -101,13 +101,31 @@ escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
 Query and maintenance:
 
 ```bash
-north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--deps met|unmet] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
 north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS]     # archive active 'done' tasks
 north doctor [--fix]                  # board integrity check (duplicates, cycles, bad files)
-north config get|set|list             # board settings (e.g. auto_commit)
+north config get|set|list             # board settings (auto_commit, deps_enforcement)
 ```
+
+## Dependencies
+
+A `depends_on` entry is **resolved** once that task is `done` or archived.
+`--deps met` filters to workable tasks; `--deps unmet` to waiting ones.
+Enforcement is per-board (`config get deps_enforcement`):
+
+- `hint` — everything allowed; problems are stderr warnings.
+- `validated` (default) — dangling ids, self-refs, and cycles are refused
+  (`invalid`); deleting a task auto-removes it from dependents' `depends_on`;
+  moving to done/in_progress with unmet deps succeeds with a warning.
+- `strict` — additionally, `move <id> done|in_progress` is **refused**
+  (`conflict`, exit 4) while deps are unmet. The error names the unmet ids:
+  complete those tasks first, or `edit --depends-on` to drop stale links.
+  Archiving is always allowed.
+
+Successful mutations may carry advisory warnings: stderr lines in
+plain/human modes, a `"warnings"` array in `--json` payloads.
 
 ## Output and errors
 
@@ -131,8 +149,8 @@ north config get|set|list             # board settings (e.g. auto_commit)
   names a task.
 - A freshly created task is a **draft** — `north task state <id> active` puts
   it on the board before `move` can change its status.
-- Check a task's `depends_on` before starting it: dependencies that are not
-  `done` are a signal the task may not be ready (north does not enforce this).
+- Prefer `--deps met` when picking work; on strict boards north refuses
+  starting/finishing a task whose dependencies are unmet.
 - Record plans, progress, blockers, and results in the task **body**
   (prefer `--append-body`); north does not impose body structure.
 - Set `--assignee` to the identity working the task — a person ("john") or an

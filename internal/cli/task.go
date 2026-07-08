@@ -64,6 +64,39 @@ func printWarnings(cmd *cobra.Command, warnings []tasks.Warning) {
 	}
 }
 
+// printTaskResult renders a mutated task in machine modes, returning true
+// when it printed. Advisory op warnings go to stderr in human/plain modes
+// and into a "warnings" key in the JSON payload.
+func printTaskResult(cmd *cobra.Command, task *models.Task, warns []string, plain, asJSON bool) (bool, error) {
+	if !asJSON {
+		for _, w := range warns {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
+		}
+	}
+	switch {
+	case asJSON:
+		m := task.ToMap()
+		if warns == nil {
+			warns = []string{}
+		}
+		m["warnings"] = warns
+		data, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		cmd.Println(string(data))
+		return true, nil
+	case plain:
+		out, err := render.TaskDetail(task, true, false)
+		if err != nil {
+			return false, err
+		}
+		cmd.Println(out)
+		return true, nil
+	}
+	return false, nil
+}
+
 // splitIDs parses a comma-delimited id argument, trimming and deduplicating
 // while preserving order.
 func splitIDs(arg string) ([]string, error) {
@@ -100,11 +133,16 @@ func errCode(err error) string {
 // batchReport renders a batch's per-id results and returns the summarising
 // error for the exit-code contract: nil when everything succeeded, otherwise
 // an error carrying the shared failure code (internal when the codes differ).
-func batchReport(cmd *cobra.Command, done []*models.Task, errs []batchErr,
+// warns are advisory op warnings — stderr in human/plain, a "warnings" key
+// in the JSON payload.
+func batchReport(cmd *cobra.Command, done []*models.Task, errs []batchErr, warns []string,
 	plain, asJSON bool, line func(*models.Task) string) error {
 	switch {
 	case asJSON:
-		out := map[string]any{"tasks": taskMaps(done), "errors": errMaps(errs)}
+		if warns == nil {
+			warns = []string{}
+		}
+		out := map[string]any{"tasks": taskMaps(done), "errors": errMaps(errs), "warnings": warns}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			return err
@@ -120,6 +158,9 @@ func batchReport(cmd *cobra.Command, done []*models.Task, errs []batchErr,
 		}
 	}
 	if !asJSON {
+		for _, w := range warns {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
+		}
 		for _, e := range errs {
 			fmt.Fprintf(cmd.ErrOrStderr(), "error [%s]: %s\n", errCode(e.Err), e.Err)
 		}
@@ -185,17 +226,12 @@ func newTaskCreateCmd() *cobra.Command {
 			if bodyPtr != nil {
 				bodyStr = *bodyPtr
 			}
-			task, err := tasks.Create(boardDir, args[0], assignee, labels, dependsOn, bodyStr)
+			task, warns, err := tasks.Create(boardDir, args[0], assignee, labels, dependsOn, bodyStr)
 			if err != nil {
 				return err
 			}
-			if plain || asJSON {
-				out, err := render.TaskDetail(task, plain, asJSON)
-				if err != nil {
-					return err
-				}
-				cmd.Println(out)
-				return nil
+			if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
+				return err
 			}
 			cmd.Printf("Created %s (%s): %s\n", task.ID, task.State, task.Title)
 			return nil
@@ -239,7 +275,7 @@ func newTaskViewCmd() *cobra.Command {
 
 func newTaskListCmd() *cobra.Command {
 	var plain, asJSON, reverse bool
-	var status, state, search, sortBy, assignee string
+	var status, state, search, sortBy, assignee, deps string
 	var labels []string
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -273,6 +309,20 @@ func newTaskListCmd() *cobra.Command {
 			if cmd.Flags().Changed("assignee") {
 				ts = filterAssignee(ts, assignee)
 			}
+			switch deps {
+			case "":
+			case "met", "unmet":
+				wantUnmet := deps == "unmet"
+				kept := make([]*models.Task, 0, len(ts))
+				for _, t := range ts {
+					if (len(snap.UnmetDeps(t)) > 0) == wantUnmet {
+						kept = append(kept, t)
+					}
+				}
+				ts = kept
+			default:
+				return nerrors.Invalid(fmt.Sprintf("unknown --deps %q (expected met or unmet)", deps))
+			}
 			// Natural directions: newest first for id/updated, A→Z for
 			// title/assignee; --reverse flips.
 			desc := key == tasks.SortID || key == tasks.SortUpdated
@@ -296,6 +346,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, assignee, labels, and body (case-insensitive)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
 	cmd.Flags().StringVar(&assignee, "assignee", "", "filter by assignee (exact match; empty matches unassigned)")
+	cmd.Flags().StringVar(&deps, "deps", "", "filter by dependency resolution: met|unmet (a dep resolves when done or archived)")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "sort by: id|updated|title|assignee (id/updated newest-first, title/assignee A→Z)")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
 	addOutputFlags(cmd, &plain, &asJSON)
@@ -406,17 +457,12 @@ func newTaskEditCmd() *cobra.Command {
 			if cmd.Flags().Changed("append-body") {
 				opts.AppendBody = &appendBody
 			}
-			task, err := tasks.Edit(boardDir, args[0], opts)
+			task, warns, err := tasks.Edit(boardDir, args[0], opts)
 			if err != nil {
 				return err
 			}
-			if plain || asJSON {
-				out, err := render.TaskDetail(task, plain, asJSON)
-				if err != nil {
-					return err
-				}
-				cmd.Println(out)
-				return nil
+			if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
+				return err
 			}
 			cmd.Printf("Edited %s\n", task.ID)
 			return nil
@@ -449,34 +495,31 @@ func newTaskMoveCmd() *cobra.Command {
 				return err
 			}
 			if len(ids) == 1 {
-				task, err := tasks.SetStatus(boardDir, ids[0], args[1])
+				task, warns, err := tasks.SetStatus(boardDir, ids[0], args[1])
 				if err != nil {
 					return err
 				}
 				noteInactive(cmd, task)
-				if plain || asJSON {
-					out, err := render.TaskDetail(task, plain, asJSON)
-					if err != nil {
-						return err
-					}
-					cmd.Println(out)
-					return nil
+				if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
+					return err
 				}
 				cmd.Printf("%s → %s\n", task.ID, task.Status)
 				return nil
 			}
 			var done []*models.Task
 			var errs []batchErr
+			var warnsAll []string
 			for _, id := range ids {
-				task, err := tasks.SetStatus(boardDir, id, args[1])
+				task, warns, err := tasks.SetStatus(boardDir, id, args[1])
 				if err != nil {
 					errs = append(errs, batchErr{ID: id, Err: err})
 					continue
 				}
 				noteInactive(cmd, task)
+				warnsAll = append(warnsAll, warns...)
 				done = append(done, task)
 			}
-			return batchReport(cmd, done, errs, plain, asJSON, func(t *models.Task) string {
+			return batchReport(cmd, done, errs, warnsAll, plain, asJSON, func(t *models.Task) string {
 				return fmt.Sprintf("%s → %s", t.ID, t.Status)
 			})
 		},
@@ -535,7 +578,7 @@ func newTaskStateCmd() *cobra.Command {
 				}
 				done = append(done, task)
 			}
-			return batchReport(cmd, done, errs, plain, asJSON, func(t *models.Task) string {
+			return batchReport(cmd, done, errs, nil, plain, asJSON, func(t *models.Task) string {
 				return fmt.Sprintf("%s state → %s", t.ID, t.State)
 			})
 		},
@@ -565,20 +608,22 @@ func newTaskDeleteCmd() *cobra.Command {
 				}
 				var done []*models.Task
 				var errs []batchErr
+				var warnsAll []string
 				for _, id := range ids {
 					task, err := tasks.Get(boardDir, id)
 					if err != nil {
 						errs = append(errs, batchErr{ID: id, Err: err})
 						continue
 					}
-					warnDependents(cmd, boardDir, task)
-					if err := tasks.Delete(boardDir, id); err != nil {
+					warns, err := tasks.Delete(boardDir, id)
+					if err != nil {
 						errs = append(errs, batchErr{ID: id, Err: err})
 						continue
 					}
+					warnsAll = append(warnsAll, warns...)
 					done = append(done, task)
 				}
-				return batchReport(cmd, done, errs, plain, asJSON, func(t *models.Task) string {
+				return batchReport(cmd, done, errs, warnsAll, plain, asJSON, func(t *models.Task) string {
 					return fmt.Sprintf("Deleted %s", t.ID)
 				})
 			}
@@ -586,37 +631,24 @@ func newTaskDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			depIDs := warnDependents(cmd, boardDir, task)
 			if !yes {
 				// Machine modes and non-TTY stdin never prompt: require -y.
 				if plain || asJSON || !stdinIsTTY(cmd) {
 					return nerrors.Invalid("delete requires -y when not run interactively")
 				}
+				// Surface dependents before the decision, not after.
+				warnDependents(cmd, boardDir, task)
 				if !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 					return errAborted
 				}
 			}
-			if err := tasks.Delete(boardDir, ids[0]); err != nil {
+			warns, err := tasks.Delete(boardDir, ids[0])
+			if err != nil {
 				return err
 			}
-			if asJSON {
-				m := task.ToMap()
-				m["warnings"] = depIDs
-				data, err := json.MarshalIndent(m, "", "  ")
-				if err != nil {
-					return err
-				}
-				cmd.Println(string(data))
-				return nil
-			}
-			if plain {
-				out, err := render.TaskDetail(task, true, false)
-				if err != nil {
-					return err
-				}
-				cmd.Println(out)
-				return nil
+			if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
+				return err
 			}
 			cmd.Printf("Deleted %s\n", task.ID)
 			return nil

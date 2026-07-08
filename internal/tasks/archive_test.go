@@ -61,7 +61,7 @@ func TestStateSameIsNoOp(t *testing.T) {
 func TestStatePreservesStatus(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	if _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
+	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
@@ -80,7 +80,7 @@ func TestStatusChangeWhenArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Freeform: status is editable in any state, including archive.
-	task, err := tasks.SetStatus(boardDir, "1", "in_progress")
+	task, _, err := tasks.SetStatus(boardDir, "1", "in_progress")
 	if err != nil {
 		t.Fatalf("status change on archived task: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "done one")    // 1
 	mustActive(t, boardDir, "still going") // 2
-	if _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
+	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
 	archived, err := tasks.Cleanup(boardDir, 0)

@@ -198,14 +198,88 @@ func find(boardDir, taskID string) (*models.Task, error) {
 
 // --- public operations -----------------------------------------------------------
 
-// validateDeps checks that every task ID in ids exists somewhere on the board.
-func validateDeps(snap *Snapshot, ids []string) error {
+// depsPolicy loads the board's deps_enforcement level.
+func depsPolicy(boardDir string) (board.DepsEnforcement, error) {
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		return "", err
+	}
+	if cfg.DepsEnforcement == "" {
+		return board.DepsValidated, nil
+	}
+	return cfg.DepsEnforcement, nil
+}
+
+// dedupIDs drops duplicates from a depends_on list, preserving order.
+func dedupIDs(ids []string) []string {
+	seen := map[string]bool{}
+	out := ids[:0]
 	for _, id := range ids {
-		if snap.Get(id) == nil {
-			return errors.Invalid(fmt.Sprintf("depends_on: task %q not found", id))
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// checkDeps vets a proposed depends_on set for the task with taskID ("" on
+// create, when no cycle or self-reference is possible yet): dangling ids,
+// self-references, and cycles. At hint level every problem is a warning; at
+// validated and strict each is refused.
+func checkDeps(snap *Snapshot, level board.DepsEnforcement, taskID string, deps []string) ([]string, error) {
+	hint := level == board.DepsHint
+	var warns []string
+	for _, id := range deps {
+		switch {
+		case taskID != "" && id == taskID:
+			msg := fmt.Sprintf("depends_on: task %s cannot depend on itself", taskID)
+			if !hint {
+				return nil, errors.Invalid(msg)
+			}
+			warns = append(warns, msg)
+		case snap.Get(id) == nil:
+			if !hint {
+				return nil, errors.Invalid(fmt.Sprintf("depends_on: task %q not found", id))
+			}
+			warns = append(warns, fmt.Sprintf(
+				"depends_on: task %q does not exist (yet) — this will bind to whatever gets that id", id))
 		}
 	}
-	return nil
+	if taskID != "" {
+		graph := map[string][]string{}
+		for _, t := range snap.Tasks {
+			graph[t.ID] = t.DependsOn
+		}
+		graph[taskID] = deps
+		if cycle := findCycle(graph); len(cycle) > 0 {
+			msg := fmt.Sprintf("depends_on: dependency cycle: %s", strings.Join(cycle, " → "))
+			if !hint {
+				return nil, errors.Invalid(msg)
+			}
+			warns = append(warns, msg)
+		}
+	}
+	return warns, nil
+}
+
+// checkStatusDeps vets a status move against the task's unmet dependencies:
+// finishing (done) or starting (in_progress) a task whose dependencies are
+// unresolved warns at hint/validated and is refused at strict.
+func checkStatusDeps(snap *Snapshot, level board.DepsEnforcement, task *models.Task, target models.TaskStatus) ([]string, error) {
+	if target != models.Done && target != models.InProgress {
+		return nil, nil
+	}
+	unmet := snap.UnmetDeps(task)
+	if len(unmet) == 0 {
+		return nil, nil
+	}
+	msg := fmt.Sprintf("task %s has unmet dependencies: %s", task.ID, strings.Join(unmet, ", "))
+	if level == board.DepsStrict {
+		return nil, errors.Conflict(msg + " — complete them, or edit --depends-on")
+	}
+	return []string{msg}, nil
 }
 
 // Dependents returns every task whose DependsOn slice contains taskID (exact
@@ -230,26 +304,33 @@ func TemplateBody(boardDir string) string {
 	return strings.Trim(normalizeNewlines(string(data)), "\n")
 }
 
-// Create makes a task in drafts/ with status ready.
-func Create(boardDir, title, assignee string, labels, dependsOn []string, body string) (*models.Task, error) {
+// Create makes a task in drafts/ with status ready. The returned warnings
+// are advisory dependency notes (hint level only — the op still succeeded).
+func Create(boardDir, title, assignee string, labels, dependsOn []string, body string) (*models.Task, []string, error) {
 	if strings.TrimSpace(title) == "" {
-		return nil, errors.Invalid("task title must not be empty")
+		return nil, nil, errors.Invalid("task title must not be empty")
+	}
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer unlock()
 	snap, err := Load(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := validateDeps(snap, dependsOn); err != nil {
-		return nil, err
+	dependsOn = dedupIDs(dependsOn)
+	warns, err := checkDeps(snap, level, "", dependsOn)
+	if err != nil {
+		return nil, nil, err
 	}
 	id, err := board.NextID(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	n := now()
 	task := &models.Task{
@@ -264,7 +345,11 @@ func Create(boardDir, title, assignee string, labels, dependsOn []string, body s
 		UpdatedAt: &n,
 		Body:      body,
 	}
-	return save(boardDir, task, "", fmt.Sprintf("north: create %s", task.ID))
+	saved, err := save(boardDir, task, "", fmt.Sprintf("north: create %s", task.ID))
+	if err != nil {
+		return nil, nil, err
+	}
+	return saved, warns, nil
 }
 
 // Get returns one task by id (searches all state folders).
@@ -282,25 +367,30 @@ type EditOpts struct {
 	AppendBody *string // appended to the body with a blank-line separator
 }
 
-// Edit changes a task's fields/body. UpdatedAt is bumped.
-func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
+// Edit changes a task's fields/body. UpdatedAt is bumped. The returned
+// warnings are advisory dependency notes (hint level only).
+func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, []string, error) {
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer unlock()
 	snap, err := Load(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	task := snap.Get(taskID)
 	if task == nil {
-		return nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
+		return nil, nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
 	}
 	oldPath := task.Path
 	if opts.Title != nil {
 		if strings.TrimSpace(*opts.Title) == "" {
-			return nil, errors.Invalid("task title must not be empty")
+			return nil, nil, errors.Invalid("task title must not be empty")
 		}
 		task.Title = strings.TrimSpace(*opts.Title)
 	}
@@ -310,11 +400,14 @@ func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
 	if opts.Labels != nil {
 		task.Labels = *opts.Labels
 	}
+	var warns []string
 	if opts.DependsOn != nil {
-		if err := validateDeps(snap, *opts.DependsOn); err != nil {
-			return nil, err
+		deps := dedupIDs(*opts.DependsOn)
+		warns, err = checkDeps(snap, level, taskID, deps)
+		if err != nil {
+			return nil, nil, err
 		}
-		task.DependsOn = *opts.DependsOn
+		task.DependsOn = deps
 	}
 	if opts.Body != nil {
 		task.Body = *opts.Body
@@ -328,34 +421,55 @@ func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, error) {
 	}
 	n := now()
 	task.UpdatedAt = &n
-	return save(boardDir, task, oldPath, fmt.Sprintf("north: edit %s", task.ID))
+	saved, err := save(boardDir, task, oldPath, fmt.Sprintf("north: edit %s", task.ID))
+	if err != nil {
+		return nil, nil, err
+	}
+	return saved, warns, nil
 }
 
 // SetStatus changes a task's workflow status (frontmatter only; the file
-// stays in its state folder). Freeform on both axes: any valid status is
-// reachable from any other, in any state — though status is only visible on
-// the board while the task is active.
-func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, error) {
+// stays in its state folder). Movement is free within the status set —
+// though status is only visible on the board while the task is active, and
+// finishing/starting with unmet dependencies warns (hint/validated) or is
+// refused (strict). The returned warnings are advisory (op succeeded).
+func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []string, error) {
 	target, err := ParseStatus(newStatus)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer unlock()
-	task, err := find(boardDir, taskID)
+	snap, err := Load(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	task := snap.Get(taskID)
+	if task == nil {
+		return nil, nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
 	}
 	if target == task.Status {
-		return task, nil
+		return task, nil, nil
+	}
+	warns, err := checkStatusDeps(snap, level, task, target)
+	if err != nil {
+		return nil, nil, err
 	}
 	task.Status = target
 	n := now()
 	task.UpdatedAt = &n
-	return save(boardDir, task, task.Path, fmt.Sprintf("north: %s → %s", task.ID, target))
+	saved, err := save(boardDir, task, task.Path, fmt.Sprintf("north: %s → %s", task.ID, target))
+	if err != nil {
+		return nil, nil, err
+	}
+	return saved, warns, nil
 }
 
 // SetState moves a task's file between state folders (draft/active/archive),
@@ -411,21 +525,63 @@ func Cleanup(boardDir string, olderThanDays int) ([]*models.Task, error) {
 	return archived, nil
 }
 
-// Delete removes a task file.
-func Delete(boardDir, taskID string) error {
+// Delete removes a task file. At validated/strict the dependents are healed
+// (the deleted id is dropped from their depends_on, under the same lock
+// hold); at hint the dangling references stay, warned. Returned warnings
+// describe either outcome.
+func Delete(boardDir, taskID string) ([]string, error) {
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, err
+	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer unlock()
-	task, err := find(boardDir, taskID)
+	snap, err := Load(boardDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	task := snap.Get(taskID)
+	if task == nil {
+		return nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
+	}
+	dependents := snap.Dependents(taskID)
 	if err := os.Remove(task.Path); err != nil {
-		return err
+		return nil, err
 	}
-	return commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID))
+	if err := commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID)); err != nil {
+		return nil, err
+	}
+	if len(dependents) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(dependents))
+	for i, d := range dependents {
+		ids[i] = d.ID
+	}
+	if level == board.DepsHint {
+		return []string{fmt.Sprintf(
+			"%s depended on %s — their depends_on now dangles", strings.Join(ids, ", "), taskID)}, nil
+	}
+	// Heal: rewrite each dependent without the deleted id (save directly —
+	// we already hold the lock, so Edit would deadlock).
+	for _, d := range dependents {
+		kept := d.DependsOn[:0]
+		for _, id := range d.DependsOn {
+			if id != taskID {
+				kept = append(kept, id)
+			}
+		}
+		d.DependsOn = kept
+		n := now()
+		d.UpdatedAt = &n
+		if _, err := save(boardDir, d, d.Path, fmt.Sprintf("north: heal deps of %s after delete %s", d.ID, taskID)); err != nil {
+			return nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
+		}
+	}
+	return []string{fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", "))}, nil
 }
 
 // StatusCount is one row of the board summary.

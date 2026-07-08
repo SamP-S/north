@@ -15,13 +15,13 @@ func TestOpsOnMissingTaskAreNotFound(t *testing.T) {
 	if _, err := tasks.SetState(boardDir, "99", "active"); !isBoardErr(err, "not_found") {
 		t.Errorf("SetState: expected not_found, got %v", err)
 	}
-	if _, err := tasks.SetStatus(boardDir, "99", "ready"); !isBoardErr(err, "not_found") {
+	if _, _, err := tasks.SetStatus(boardDir, "99", "ready"); !isBoardErr(err, "not_found") {
 		t.Errorf("SetStatus: expected not_found, got %v", err)
 	}
-	if _, err := tasks.Edit(boardDir, "99", tasks.EditOpts{}); !isBoardErr(err, "not_found") {
+	if _, _, err := tasks.Edit(boardDir, "99", tasks.EditOpts{}); !isBoardErr(err, "not_found") {
 		t.Errorf("Edit: expected not_found, got %v", err)
 	}
-	if err := tasks.Delete(boardDir, "99"); !isBoardErr(err, "not_found") {
+	if _, err := tasks.Delete(boardDir, "99"); !isBoardErr(err, "not_found") {
 		t.Errorf("Delete: expected not_found, got %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestNextIDCountsArchiveAndReusesTop(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Archived 2 still reserves its id even after 1 is deleted.
-	if err := tasks.Delete(boardDir, "1"); err != nil {
+	if _, err := tasks.Delete(boardDir, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if id, _ := board.NextID(boardDir); id != "3" {
@@ -64,7 +64,7 @@ func TestNextIDCountsArchiveAndReusesTop(t *testing.T) {
 	// Deleting the highest id frees it for reuse (derived, no stored counter).
 	boardDir2 := newBoard(t)
 	mustCreate(t, boardDir2, "a") // 1
-	if err := tasks.Delete(boardDir2, "1"); err != nil {
+	if _, err := tasks.Delete(boardDir2, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if id, _ := board.NextID(boardDir2); id != "1" {

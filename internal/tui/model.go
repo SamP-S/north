@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
@@ -210,11 +211,22 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Modal layer.
+	// Modal layer. The deps picker owns every key (its filter input needs
+	// them); other modals keep the meta keys inert.
 	if m.modal.open() {
-		switch msg.String() {
-		case "q", "?", "tab", "r", "/":
-			return m, nil // meta keys are inert while a modal is open
+		if m.modal.mode != modalDepsPicker {
+			switch msg.String() {
+			case "q", "?", "tab", "r", "/":
+				return m, nil // meta keys are inert while a modal is open
+			case "y":
+				// Yank works from the task popup too; feedback renders inside
+				// the popup (the status bar is hidden behind it).
+				if m.modal.mode == modalTaskView {
+					yankToClipboard(m.modal.taskID)
+					m.modal.note = "yanked " + m.modal.taskID
+					return m, nil
+				}
+			}
 		}
 		var cmd tea.Cmd
 		m.modal, cmd = m.modal.update(msg, m.boardDir)
@@ -323,6 +335,24 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.modal = newDoctorModal(issues, m.width, m.height)
 		return m, nil
+
+	case key.Matches(msg, keys.Yank):
+		if t := m.selectedTask(); t != nil {
+			yankToClipboard(t.ID)
+			m.notice = notice{noticeSuccess, "yanked " + t.ID}
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.Link):
+		if t := m.selectedTask(); t != nil {
+			md, err := newDepsModal(m.boardDir, t, m.sortKey, m.sortDesc, m.height)
+			if err != nil {
+				m.notice = notice{noticeError, err.Error()}
+				return m, nil
+			}
+			m.modal = md
+		}
+		return m, nil
 	}
 
 	return m.delegate(msg)
@@ -364,11 +394,11 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) (tea.Cmd, error) {
 
 	switch msg.mode {
 	case modeCreate:
-		t, err := tasks.Create(m.boardDir, doc.Title, doc.Assignee, doc.Labels, doc.DependsOn, doc.Body)
+		t, warns, err := tasks.Create(m.boardDir, doc.Title, doc.Assignee, doc.Labels, doc.DependsOn, doc.Body)
 		if err != nil {
 			return nil, err
 		}
-		m.notice = notice{noticeSuccess, fmt.Sprintf("created %s: %s", t.ID, t.Title)}
+		m.notice = opNotice(fmt.Sprintf("created %s: %s", t.ID, t.Title), warns)
 	case modeEdit:
 		labels := doc.Labels
 		if labels == nil {
@@ -378,16 +408,31 @@ func (m *Model) handleEditorDone(msg editorDoneMsg) (tea.Cmd, error) {
 		if deps == nil {
 			deps = []string{}
 		}
-		if _, err := tasks.Edit(m.boardDir, msg.taskID, tasks.EditOpts{
+		_, warns, err := tasks.Edit(m.boardDir, msg.taskID, tasks.EditOpts{
 			Title: &doc.Title, Assignee: &doc.Assignee,
 			Labels: &labels, DependsOn: &deps, Body: &doc.Body,
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
-		m.notice = notice{noticeSuccess, fmt.Sprintf("edited %s", msg.taskID)}
+		m.notice = opNotice(fmt.Sprintf("edited %s", msg.taskID), warns)
 	}
 
 	return func() tea.Msg { return reloadMsg{} }, nil
+}
+
+// yankToClipboard copies text to the system clipboard via OSC 52 — the
+// terminal handles the write, so it needs no external tools, works over
+// SSH, and is silently ignored by terminals without support.
+var yankToClipboard = func(text string) { termenv.Copy(text) }
+
+// opNotice grades a success notice: green when clean, yellow with the
+// advisory warnings appended when the op raised any.
+func opNotice(text string, warns []string) notice {
+	if len(warns) > 0 {
+		return notice{noticeWarn, text + " — " + strings.Join(warns, "; ")}
+	}
+	return notice{noticeSuccess, text}
 }
 
 // statusLine renders the root-owned line above the footer: the search input
@@ -472,6 +517,8 @@ func (m Model) helpView() string {
 		{"s", "set state (draft/active/archive)"},
 		{"d", "delete task"},
 		{"D", "doctor — board integrity report (f applies --fix)"},
+		{"y", "yank task id to the clipboard (OSC 52)"},
+		{"L", "link dependencies — edit depends_on in a picker"},
 		{"r", "reload from disk"},
 		{"/", "filter tasks (board & list)"},
 		{"esc", "cancel / clear filter"},

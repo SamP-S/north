@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -28,6 +29,7 @@ const (
 	modalTaskView                // read-only task popup (enter, board view)
 	modalSortPicker              // choose the task ordering (o)
 	modalDoctor                  // board integrity report (D; f applies --fix)
+	modalDepsPicker              // edit a task's depends_on (L)
 )
 
 // sortMsg carries a chosen ordering from the sort picker to the root model.
@@ -72,6 +74,14 @@ type modal struct {
 	taskState models.TaskState
 	confirm   string         // prompt text for the delete confirm
 	vp        viewport.Model // scrollable content for the task popup
+	note      string         // transient in-modal feedback, cleared on the next key
+
+	// L deps-picker state.
+	entries     []depEntry
+	checked     map[string]bool
+	filterInput textinput.Model
+	filterOn    bool // the filter input has focus (keys type, not toggle)
+	rows        int  // list-window row budget
 }
 
 func (m modal) open() bool { return m.mode != modalNone }
@@ -105,7 +115,10 @@ func (m modal) pickerItems() []string {
 // update handles a key while a modal is open. It returns the new modal state
 // and a command to run when the modal resolved into an action.
 func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
+	m.note = ""
 	switch m.mode {
+	case modalDepsPicker:
+		return m.updateDeps(km, boardDir)
 	case modalSortPicker:
 		items := m.pickerItems()
 		switch {
@@ -151,14 +164,13 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 				}
 			}
 			m.mode = modalNone
-			return m, runTaskOp(func() error {
-				var err error
+			return m, runTaskOp(func() ([]string, error) {
 				if mode == modalStatusPicker {
-					_, err = tasks.SetStatus(boardDir, taskID, choice)
-				} else {
-					_, err = tasks.SetState(boardDir, taskID, choice)
+					_, warns, err := tasks.SetStatus(boardDir, taskID, choice)
+					return warns, err
 				}
-				return err
+				_, err := tasks.SetState(boardDir, taskID, choice)
+				return nil, err
 			}, ok)
 		case key.Matches(km, keys.Esc):
 			m.mode = modalNone
@@ -224,7 +236,7 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 			taskID := m.taskID
 			m.mode = modalNone
 			return m, runTaskOp(
-				func() error { return tasks.Delete(boardDir, taskID) },
+				func() ([]string, error) { return tasks.Delete(boardDir, taskID) },
 				notice{noticeSuccess, "deleted " + taskID})
 		case "n", "esc":
 			m.mode = modalNone
@@ -258,11 +270,16 @@ func (m modal) view() string {
 	case modalConfirmDelete:
 		return styleModal.Render(m.confirm)
 	case modalTaskView:
-		footer := styleFooter.Render("j/k scroll  g/G top/bottom  e edit  esc close")
+		footer := styleFooter.Render("j/k scroll  g/G top/bottom  e edit  y yank  esc close")
+		if m.note != "" {
+			footer = noticeStyle(noticeSuccess).Render(m.note) + "\n" + footer
+		}
 		return styleModal.Render(m.vp.View() + "\n" + footer)
 	case modalDoctor:
 		footer := styleFooter.Render("j/k scroll  f fix  esc close")
 		return styleModal.Render(styleHeader.Render("doctor") + "\n\n" + m.vp.View() + "\n" + footer)
+	case modalDepsPicker:
+		return m.depsView()
 	}
 	return ""
 }

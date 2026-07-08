@@ -465,8 +465,9 @@ func TestCLIDeleteWarnsJSON(t *testing.T) {
 	if !strings.Contains(out, `"warnings"`) {
 		t.Errorf("expected warnings key in JSON: %q", out)
 	}
-	if !strings.Contains(out, `"2"`) {
-		t.Errorf("expected 2 in warnings: %q", out)
+	// Default level (validated) heals the dependent and says so.
+	if !strings.Contains(out, "removed 1 from depends_on of 2") {
+		t.Errorf("expected healing note in warnings: %q", out)
 	}
 }
 
@@ -800,5 +801,68 @@ func TestCLIListSort(t *testing.T) {
 	}
 	if _, err := run(t, dir, "task", "list", "--sort", "priority"); err == nil {
 		t.Error("unknown sort key should be rejected")
+	}
+}
+
+func TestCLIDepsFilter(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "dep")                          // 1
+	run(t, dir, "task", "create", "waiting", "--depends-on", "1") // 2
+	run(t, dir, "task", "create", "free")                         // 3
+
+	out, err := run(t, dir, "task", "list", "--state", "draft", "--deps", "unmet", "--plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "waiting") || strings.Contains(out, "free") {
+		t.Errorf("--deps unmet: %q", out)
+	}
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--deps", "met", "--plain")
+	if strings.Contains(out, "waiting") || !strings.Contains(out, "free") {
+		t.Errorf("--deps met: %q", out)
+	}
+	// Resolving the dep moves 2 across.
+	run(t, dir, "task", "move", "1", "done")
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--deps", "unmet", "--plain")
+	if strings.Contains(out, "waiting") {
+		t.Errorf("resolved dep should clear unmet: %q", out)
+	}
+	if _, err := run(t, dir, "task", "list", "--deps", "banana"); err == nil {
+		t.Error("bad --deps value should be rejected")
+	}
+}
+
+func TestCLIDepsEnforcementConfig(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	if out, err := run(t, dir, "config", "get", "deps_enforcement"); err != nil || strings.TrimSpace(out) != "validated" {
+		t.Errorf("default level: %q %v", out, err)
+	}
+	if _, err := run(t, dir, "config", "set", "deps_enforcement", "strict"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := run(t, dir, "config", "get", "deps_enforcement"); strings.TrimSpace(out) != "strict" {
+		t.Errorf("after set: %q", out)
+	}
+	if _, err := run(t, dir, "config", "set", "deps_enforcement", "lenient"); err == nil {
+		t.Error("unknown level should be rejected")
+	}
+
+	// Strict refuses finishing with unmet deps, exit 4.
+	run(t, dir, "task", "create", "dep")                       // 1
+	run(t, dir, "task", "create", "work", "--depends-on", "1") // 2
+	_, err := run(t, dir, "task", "move", "2", "done")
+	if got := nerrors.ExitCode(err); got != 4 {
+		t.Errorf("strict refusal exit = %d, want 4 (%v)", got, err)
+	}
+	// Warnings reach the JSON payload at validated.
+	run(t, dir, "config", "set", "deps_enforcement", "validated")
+	out, err := run(t, dir, "task", "move", "2", "done", "--json")
+	if err != nil {
+		t.Fatalf("validated move: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, `"warnings"`) || !strings.Contains(out, "unmet") {
+		t.Errorf("expected unmet warning in JSON: %q", out)
 	}
 }

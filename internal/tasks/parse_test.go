@@ -90,12 +90,12 @@ func TestUnknownFrontmatterKeysSurviveRewrite(t *testing.T) {
 	writeRaw(t, boardDir, "tasks", "8-custom.md",
 		"---\nid: \"8\"\ntitle: custom fields\nstatus: ready\npriority: high\nowner: sam\n---\nbody\n")
 	// A status change rewrites the file in place…
-	if _, err := tasks.SetStatus(boardDir, "8", "in_progress"); err != nil {
+	if _, _, err := tasks.SetStatus(boardDir, "8", "in_progress"); err != nil {
 		t.Fatal(err)
 	}
 	// …and an edit renames it; unknown keys must survive both.
 	title := "renamed"
-	if _, err := tasks.Edit(boardDir, "8", tasks.EditOpts{Title: &title}); err != nil {
+	if _, _, err := tasks.Edit(boardDir, "8", tasks.EditOpts{Title: &title}); err != nil {
 		t.Fatal(err)
 	}
 	task, err := tasks.Get(boardDir, "8")
@@ -136,7 +136,7 @@ func TestRoundTripFidelity(t *testing.T) {
 	// Unicode title and a body containing a literal "---" line.
 	title := "Café — déjà vu"
 	body := "first line\n\n---\na horizontal rule inside the body\n---\n\nlast line"
-	created, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"1"}, body)
+	created, _, err := tasks.Create(boardDir, title, "ollama:llama3", []string{"x", "y"}, []string{"1"}, body)
 	if err != nil {
 		t.Fatal(err)
 	}

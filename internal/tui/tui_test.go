@@ -24,7 +24,7 @@ func newTestBoard(t *testing.T) string {
 
 func mustActive(t *testing.T, dir, title string) *models.Task {
 	t.Helper()
-	task, err := tasks.Create(dir, title, "", nil, nil, "")
+	task, _, err := tasks.Create(dir, title, "", nil, nil, "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestEditTemplateRoundTrip(t *testing.T) {
 func TestDeleteConfirmNamesDependents(t *testing.T) {
 	dir := newTestBoard(t)
 	t1 := mustActive(t, dir, "First task")
-	if _, err := tasks.Create(dir, "Second task", "", nil, []string{t1.ID}, ""); err != nil {
+	if _, _, err := tasks.Create(dir, "Second task", "", nil, []string{t1.ID}, ""); err != nil {
 		t.Fatalf("create dependent: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestStatusPickerOpensInBothViews(t *testing.T) {
 // notice rather than a plain success.
 func TestStatusPickerOnDraftWarns(t *testing.T) {
 	dir := newTestBoard(t)
-	draft, err := tasks.Create(dir, "Draft task", "", nil, nil, "")
+	draft, _, err := tasks.Create(dir, "Draft task", "", nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ func TestTopBottomKeys(t *testing.T) {
 // columns with the right ordering and sorting.
 func TestLoadDataSevenColumns(t *testing.T) {
 	dir := newTestBoard(t)
-	if _, err := tasks.Create(dir, "a draft", "", nil, nil, ""); err != nil { // 1
+	if _, _, err := tasks.Create(dir, "a draft", "", nil, nil, ""); err != nil { // 1
 		t.Fatal(err)
 	}
 	mustActive(t, dir, "an active") // 2
@@ -587,13 +587,13 @@ func TestTaskPopupEditKey(t *testing.T) {
 // TestCardTags verifies the @/!/& card tag computation.
 func TestCardTags(t *testing.T) {
 	dir := newTestBoard(t)
-	if _, err := tasks.Create(dir, "base", "opus", nil, nil, ""); err != nil { // 1: @, & (2 and 3 depend on it)
+	if _, _, err := tasks.Create(dir, "base", "opus", nil, nil, ""); err != nil { // 1: @, & (2 and 3 depend on it)
 		t.Fatal(err)
 	}
-	if _, err := tasks.Create(dir, "waiting", "", nil, []string{"1"}, ""); err != nil { // 2: ! (1 not done)
+	if _, _, err := tasks.Create(dir, "waiting", "", nil, []string{"1"}, ""); err != nil { // 2: ! (1 not done)
 		t.Fatal(err)
 	}
-	if _, err := tasks.Create(dir, "met", "", nil, []string{"1"}, ""); err != nil { // 3: ! until 1 done
+	if _, _, err := tasks.Create(dir, "met", "", nil, []string{"1"}, ""); err != nil { // 3: ! until 1 done
 		t.Fatal(err)
 	}
 	snap, err := tasks.Load(dir)
@@ -609,7 +609,7 @@ func TestCardTags(t *testing.T) {
 	}
 
 	// Once the dependency is done, ! clears.
-	if _, err := tasks.SetStatus(dir, "1", "done"); err != nil {
+	if _, _, err := tasks.SetStatus(dir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
 	snap, err = tasks.Load(dir)
@@ -622,7 +622,7 @@ func TestCardTags(t *testing.T) {
 	}
 
 	// An archived dependency also counts as resolved, whatever its status.
-	if _, err := tasks.SetStatus(dir, "1", "failed"); err != nil {
+	if _, _, err := tasks.SetStatus(dir, "1", "failed"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tasks.SetState(dir, "1", "archive"); err != nil {
@@ -700,5 +700,191 @@ func TestDoctorModalFix(t *testing.T) {
 	}
 	if strings.Contains(string(data), "\r") {
 		t.Error("CRLF file not rewritten by the TUI fix")
+	}
+}
+
+// TestYankCopiesID verifies y yanks the selected task's bare id and confirms
+// in the status bar.
+func TestYankCopiesID(t *testing.T) {
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
+
+	var got string
+	orig := yankToClipboard
+	yankToClipboard = func(text string) { got = text }
+	defer func() { yankToClipboard = orig }()
+
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('y'))
+	um := updated.(Model)
+	if got != active.ID {
+		t.Errorf("yanked %q, want bare id %q", got, active.ID)
+	}
+	if um.notice.text != "yanked "+active.ID {
+		t.Errorf("notice: %q", um.notice.text)
+	}
+}
+
+// TestDepsModalBuild verifies the L picker's entry set: all states listed,
+// archive last, self and cycle-creators greyed, resolved deps marked.
+func TestDepsModalBuild(t *testing.T) {
+	dir := newTestBoard(t)
+	base := mustActive(t, dir, "Base")                                                   // 1
+	if _, _, err := tasks.Create(dir, "Child", "", nil, []string{"1"}, ""); err != nil { // 2 depends on 1
+		t.Fatal(err)
+	}
+	if _, _, err := tasks.Create(dir, "Old", "", nil, nil, ""); err != nil { // 3
+		t.Fatal(err)
+	}
+	if _, err := tasks.SetState(dir, "3", "archive"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := rootWithTask(t, dir, base)
+	updated, _ := m.Update(keyRune('L'))
+	um := updated.(Model)
+	if um.modal.mode != modalDepsPicker {
+		t.Fatalf("expected deps picker, got %v", um.modal.mode)
+	}
+	byID := map[string]depEntry{}
+	for _, e := range um.modal.entries {
+		byID[e.id] = e
+	}
+	if e := byID["1"]; e.invalid != "self" {
+		t.Errorf("task 1 should be greyed as self: %+v", e)
+	}
+	if e := byID["2"]; e.invalid != "cycle" {
+		t.Errorf("task 2 (dependent) should be greyed as cycle: %+v", e)
+	}
+	if e := byID["3"]; e.invalid != "" || !e.resolved {
+		t.Errorf("archived task 3 should be a selectable resolved candidate: %+v", e)
+	}
+	// Archive sorts last.
+	last := um.modal.entries[len(um.modal.entries)-1]
+	if last.id != "3" {
+		t.Errorf("archive should sort last, got %q", last.id)
+	}
+}
+
+// TestDepsModalToggleAndApply verifies space toggles a valid entry, space on
+// an invalid one explains itself, and enter applies the checked set.
+func TestDepsModalToggleAndApply(t *testing.T) {
+	dir := newTestBoard(t)
+	if _, _, err := tasks.Create(dir, "Dep", "", nil, nil, ""); err != nil { // 1
+		t.Fatal(err)
+	}
+	work := mustActive(t, dir, "Work") // 2
+
+	m := rootWithTask(t, dir, work)
+	updated, _ := m.Update(keyRune('L'))
+	um := updated.(Model)
+
+	// Find task 1 among the visible rows and move the cursor onto it.
+	vis := um.modal.visibleEntries()
+	target := -1
+	for vi, idx := range vis {
+		if idx >= 0 && um.modal.entries[idx].id == "1" {
+			target = vi
+		}
+	}
+	if target < 0 {
+		t.Fatal("task 1 not in the picker")
+	}
+	for um.modal.cursor < target {
+		updated, _ = um.Update(keyRune('j'))
+		um = updated.(Model)
+	}
+	updated, _ = um.Update(keyRune(' '))
+	um = updated.(Model)
+	if !um.modal.checked["1"] {
+		t.Fatal("space should toggle the entry on")
+	}
+
+	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.modal.mode != modalNone {
+		t.Fatal("enter should close the picker")
+	}
+	if cmd == nil {
+		t.Fatal("enter should produce an apply command")
+	}
+	if msg, ok := cmd().(actionDoneMsg); !ok || msg.notice.level != noticeSuccess {
+		t.Fatalf("apply should succeed: %+v", msg)
+	}
+	got, err := tasks.Get(dir, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.DependsOn) != 1 || got.DependsOn[0] != "1" {
+		t.Errorf("depends_on not applied: %v", got.DependsOn)
+	}
+}
+
+// TestDepsModalInvalidToggleExplains verifies space on a greyed entry is a
+// no-op with an in-modal explanation.
+func TestDepsModalInvalidToggleExplains(t *testing.T) {
+	dir := newTestBoard(t)
+	base := mustActive(t, dir, "Base") // 1
+
+	m := rootWithTask(t, dir, base)
+	updated, _ := m.Update(keyRune('L'))
+	um := updated.(Model)
+	// Move to the first real entry (task 1 itself — greyed as self).
+	updated, _ = um.Update(keyRune('j'))
+	um = updated.(Model)
+	updated, _ = um.Update(keyRune(' '))
+	um = updated.(Model)
+	if um.modal.checked["1"] {
+		t.Error("space must not toggle an invalid entry")
+	}
+	if um.modal.note == "" {
+		t.Error("expected an in-modal explanation")
+	}
+}
+
+// TestDepsModalFilterAndClear verifies the in-modal / filter narrows entries
+// and the clear-all row empties the checked set.
+func TestDepsModalFilterAndClear(t *testing.T) {
+	dir := newTestBoard(t)
+	if _, _, err := tasks.Create(dir, "alpha", "", nil, nil, ""); err != nil { // 1
+		t.Fatal(err)
+	}
+	if _, _, err := tasks.Create(dir, "beta", "", nil, nil, ""); err != nil { // 2
+		t.Fatal(err)
+	}
+	work := mustActive(t, dir, "Work") // 3
+
+	m := rootWithTask(t, dir, work)
+	updated, _ := m.Update(keyRune('L'))
+	um := updated.(Model)
+
+	// Filter to "alpha": only the pinned clear-all row plus task 1 remain.
+	updated, _ = um.Update(keyRune('/'))
+	um = updated.(Model)
+	for _, r := range "alpha" {
+		updated, _ = um.Update(keyRune(r))
+		um = updated.(Model)
+	}
+	updated, _ = um.Update(tea.KeyMsg{Type: tea.KeyEnter}) // leave the input, keep the filter
+	um = updated.(Model)
+	vis := um.modal.visibleEntries()
+	if len(vis) != 2 || um.modal.entries[vis[1]].id != "1" {
+		t.Fatalf("filter should narrow to task 1: %v", vis)
+	}
+
+	// Clear-all: check task 1 first, then clear from the pinned row.
+	updated, _ = um.Update(keyRune('j'))
+	um = updated.(Model)
+	updated, _ = um.Update(keyRune(' '))
+	um = updated.(Model)
+	if !um.modal.checked["1"] {
+		t.Fatal("toggle under filter failed")
+	}
+	updated, _ = um.Update(keyRune('g')) // jump to the clear-all row
+	um = updated.(Model)
+	updated, _ = um.Update(keyRune(' '))
+	um = updated.(Model)
+	if len(um.modal.checked) != 0 {
+		t.Errorf("clear all should empty the set: %v", um.modal.checked)
 	}
 }

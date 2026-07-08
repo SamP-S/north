@@ -23,7 +23,7 @@ func newBoard(t *testing.T) string {
 
 func mustCreate(t *testing.T, boardDir, title string) *models.Task {
 	t.Helper()
-	task, err := tasks.Create(boardDir, title, "", nil, nil, "")
+	task, _, err := tasks.Create(boardDir, title, "", nil, nil, "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestNextIDIncrements(t *testing.T) {
 
 func TestCreateLandsInDrafts(t *testing.T) {
 	boardDir := newBoard(t)
-	task, err := tasks.Create(boardDir, "Add login form", "opus4.8", []string{"auth"}, nil, "")
+	task, _, err := tasks.Create(boardDir, "Add login form", "opus4.8", []string{"auth"}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestCreateLandsInDrafts(t *testing.T) {
 
 func TestEmptyTitleRejected(t *testing.T) {
 	boardDir := newBoard(t)
-	_, err := tasks.Create(boardDir, "   ", "", nil, nil, "")
+	_, _, err := tasks.Create(boardDir, "   ", "", nil, nil, "")
 	if !isBoardErr(err, "invalid") {
 		t.Fatalf("expected invalid, got %v", err)
 	}
@@ -99,7 +99,7 @@ func TestEmptyTitleRejected(t *testing.T) {
 func TestStatusChangeAnyState(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "x") // draft
-	task, err := tasks.SetStatus(boardDir, "1", "in_progress")
+	task, _, err := tasks.SetStatus(boardDir, "1", "in_progress")
 	if err != nil {
 		t.Fatalf("status change on draft: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestStatusFreeform(t *testing.T) {
 	mustActive(t, boardDir, "x")
 	// Any status → any status in one step, no required path.
 	for _, s := range []string{"done", "ready", "failed", "blocked", "in_progress", "ready"} {
-		if _, err := tasks.SetStatus(boardDir, "1", s); err != nil {
+		if _, _, err := tasks.SetStatus(boardDir, "1", s); err != nil {
 			t.Fatalf("status %s: %v", s, err)
 		}
 	}
@@ -134,7 +134,7 @@ func TestStatusFreeform(t *testing.T) {
 func TestStatusChangeStaysInPlace(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	moved, err := tasks.SetStatus(boardDir, "1", "in_progress")
+	moved, _, err := tasks.SetStatus(boardDir, "1", "in_progress")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestStatusChangeStaysInPlace(t *testing.T) {
 func TestStatusUnknownRejected(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	_, err := tasks.SetStatus(boardDir, "1", "nope")
+	_, _, err := tasks.SetStatus(boardDir, "1", "nope")
 	if !isBoardErr(err, "invalid") {
 		t.Fatalf("expected invalid, got %v", err)
 	}
@@ -158,7 +158,7 @@ func TestEditRenamesFile(t *testing.T) {
 	mustCreate(t, boardDir, "old title")
 	title := "new title"
 	labels := []string{"a", "b"}
-	edited, err := tasks.Edit(boardDir, "1", tasks.EditOpts{Title: &title, Labels: &labels})
+	edited, _, err := tasks.Edit(boardDir, "1", tasks.EditOpts{Title: &title, Labels: &labels})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,12 +175,12 @@ func TestEditRenamesFile(t *testing.T) {
 
 func TestEditAppendBody(t *testing.T) {
 	boardDir := newBoard(t)
-	task, err := tasks.Create(boardDir, "x", "", nil, nil, "first line")
+	task, _, err := tasks.Create(boardDir, "x", "", nil, nil, "first line")
 	if err != nil {
 		t.Fatal(err)
 	}
 	note := "appended note"
-	edited, err := tasks.Edit(boardDir, task.ID, tasks.EditOpts{AppendBody: &note})
+	edited, _, err := tasks.Edit(boardDir, task.ID, tasks.EditOpts{AppendBody: &note})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestEditAppendBody(t *testing.T) {
 	}
 	// Appending to an empty body just sets it.
 	task2 := mustCreate(t, boardDir, "y")
-	edited2, err := tasks.Edit(boardDir, task2.ID, tasks.EditOpts{AppendBody: &note})
+	edited2, _, err := tasks.Edit(boardDir, task2.ID, tasks.EditOpts{AppendBody: &note})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestDependsOnRoundtrip(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "dep-a") // 1
 	mustCreate(t, boardDir, "dep-b") // 2
-	if _, err := tasks.Create(boardDir, "x", "", nil, []string{"1", "2"}, ""); err != nil {
+	if _, _, err := tasks.Create(boardDir, "x", "", nil, []string{"1", "2"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	task, _ := tasks.Get(boardDir, "3")
@@ -231,7 +231,7 @@ func TestListFiltersByState(t *testing.T) {
 func TestDeleteRemovesFile(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "x")
-	if err := tasks.Delete(boardDir, "1"); err != nil {
+	if _, err := tasks.Delete(boardDir, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tasks.Get(boardDir, "1"); !isBoardErr(err, "not_found") {

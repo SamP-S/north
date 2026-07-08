@@ -159,11 +159,7 @@ func loadData(boardDir string) (boardDataMsg, error) {
 //	&  other tasks depend on this one
 func cardTags(snap *tasks.Snapshot) map[string]string {
 	all := snap.Filter(nil, "")
-	byID := make(map[string]*models.Task, len(all))
 	hasDependents := make(map[string]bool)
-	for _, t := range all {
-		byID[t.ID] = t
-	}
 	for _, t := range all {
 		for _, d := range t.DependsOn {
 			hasDependents[d] = true
@@ -176,12 +172,8 @@ func cardTags(snap *tasks.Snapshot) map[string]string {
 		if t.Assignee != "" {
 			b.WriteByte('@')
 		}
-		for _, d := range t.DependsOn {
-			dt, ok := byID[d]
-			if !ok || (dt.Status != models.Done && dt.State != models.StateArchive) {
-				b.WriteByte('!')
-				break
-			}
+		if len(snap.UnmetDeps(t)) > 0 {
+			b.WriteByte('!')
 		}
 		if hasDependents[t.ID] {
 			b.WriteByte('&')

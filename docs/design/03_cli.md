@@ -16,11 +16,17 @@ Mutating commands take a brief advisory file lock (`north/.lock`) so
 concurrent `north` processes serialise; a stale lock (crashed holder) is
 stolen, and a still-held one is a `conflict` after a short retry budget.
 
+Mutations can succeed **with warnings** (dependency advisories graded by the
+board's `deps_enforcement` level — see
+[02_board-data-model.md](02_board-data-model.md)): human/plain modes print
+`warning: …` to stderr; `--json` mutation payloads carry a `"warnings"`
+array (batch payloads too).
+
 | Command | Description |
 |---|---|
 | `north init` | Scaffold `north/` (config with `version: 1`, `task-template.md`, `.gitattributes`, the `drafts/ tasks/ archive/` folders). Refuses (`conflict`) when a board already exists at or above the cwd. Human output ends with an "Optional next steps" epilogue (skill install, auto_commit) — suppressed under `--plain`/`--json` |
 | `north task create <title> [--assignee A] [--labels ...] [--depends-on ...] [--body \| --body-file] [--plain \| --json]` | Create a task (lands in `drafts/`, status `ready`). Bodyless creates fill from `north/task-template.md` (missing/empty template ⇒ blank body) |
-| `north task list [--state draft\|active\|archive\|all] [--status S] [--assignee A] [--search TEXT] [--label L] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/assignee/labels/body (case-insensitive); `--label` and `--assignee` are exact (`--label` repeatable, `--assignee ""` matches unassigned); `--sort id\|updated\|title\|assignee` + `--reverse` (default: id, newest first) |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/assignee/labels/body (case-insensitive); `--label` and `--assignee` are exact (`--label` repeatable, `--assignee ""` matches unassigned); `--deps met|unmet` filters on dependency resolution (resolved = done or archived); `--sort id\|updated\|title\|assignee` + `--reverse` (default: id, newest first) |
 | `north task view <id> [--plain \| --json]` | Show one task (state, status, fields + body) |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
 | `north task move <id[,id…]> <status> [--plain \| --json]` | Set status, in place (any → any, in any state) |
@@ -29,7 +35,7 @@ stolen, and a still-held one is a `conflict` after a short retry budget.
 | `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--plain \| --json]` | Archive active `done` tasks |
 | `north doctor [--fix] [--plain \| --json]` | Board integrity check; exits non-zero (`conflict`) when unfixed issues remain |
-| `north config list \| get <key> \| set <key> <value>` | Read/write `north/config.yml` settings (`auto_commit`; `version` is read-only — `set` refuses it) |
+| `north config list \| get <key> \| set <key> <value>` | Read/write `north/config.yml` settings (`auto_commit`, `deps_enforcement`; `version` is read-only — `set` refuses it) |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
 | `north skill show` | Print the embedded skill |
 | `north skill check [--global]` | Compare installed skill version stamps against the binary |
