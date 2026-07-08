@@ -24,7 +24,7 @@ branches that each created the same id. They are detected on every load
 Settled 2026-07-08 (plan 047): `deps_enforcement: hint | validated | strict`
 (default validated) grades write-side enforcement — see
 `docs/design/02_board-data-model.md` for the event matrix. The read side is
-`task list --deps met|unmet` plus the TUI's `!` tag and `L` link picker, all
+`task list --deps met|unmet` plus the TUI's `!` tag and `w` link picker, all
 sharing one resolution rule (done or archived = resolved). A full layered
 `north sequence` view stays deferred with the multi-agent story.
 
@@ -88,7 +88,7 @@ config (hint/validated/strict, default validated; cycles/self-refs/dangling
 refused at validated+, strict refuses done/in_progress with unmet deps,
 delete heals dependents at validated+), `task list --deps met|unmet`,
 mutation `--json` warnings arrays, doctor `--fix` removes dangling refs,
-and the TUI `L` dependency picker (all states, resolved ✓, invalid greyed
+and the TUI `w` dependency picker (all states, resolved ✓, invalid greyed
 with reasons, in-modal filter).
 
 Accepted for v1.0 and implemented (2026-07-07, plan 046): advisory file lock

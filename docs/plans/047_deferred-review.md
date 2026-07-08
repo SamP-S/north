@@ -47,7 +47,7 @@ roadmap as each decision is recorded.
   - Doctor: flags dangling + cycles at all levels; `--fix` gains a
     remove-dangling-refs repair. Healing bumps dependents' `updated_at`
     (document).
-  - **TUI `L` link modal**: multi-select picker over **all tasks, all
+  - **TUI `w` link modal (key rebound from `L`, 2026-07-08)**: multi-select picker over **all tasks, all
     states** (revised 2026-07-08: archived allowed as candidates — deps are
     provenance as well as gates, the CLI already allows archived deps at
     validated, and in-modal search absorbs the archive-noise concern).
@@ -90,7 +90,7 @@ roadmap as each decision is recorded.
   doctor dangling-ref fix.
 - `internal/cli/` — `--deps met|unmet` on task list, config key, JSON
   warnings on mutations.
-- `internal/tui/` — `y` yank (OSC 52), `L` link modal, `!` tag reuses the
+- `internal/tui/` — `y` yank (OSC 52), `w` link modal, `!` tag reuses the
   shared resolver; keys/help/footer.
 - Tests in each package; `README.md`, `docs/design/02/03/05/06`, SKILL.md.
 
@@ -107,7 +107,7 @@ roadmap as each decision is recorded.
    JSON warnings channel; tests per level.
 4. [x] **deps: read side** — `task list --deps met|unmet`; doctor
    remove-dangling-refs fix; TUI `!` tag on the shared resolver.
-5. [x] **TUI `L` link modal** — picker as specified (all states; ✓
+5. [x] **TUI `w` link modal** — picker as specified (all states; ✓
    resolved / dim archived / greyed invalid tiers; in-modal `/` search with
    the shared matcher; static grey-out — see implementation note above;
    cycle-safe apply); behavioural tests incl. archived-dep round-trip and
@@ -144,3 +144,8 @@ roadmap as each decision is recorded.
   modal per spec (grey-out proved static — cycle iff transitive dependent).
   Tests: 10 new tasks-level, 2 CLI, 5 TUI. Docs: README, 02/03/05/06,
   SKILL.md, roadmap pruned. Gate green + live smoke of all three levels.
+- [2026-07-08] Keys rebound after review: doctor `D`→`x`, link `L`→`w`
+  (shift-pairs whose overlay action is unrelated to the base key — `d`
+  delete, `l` right — read as conflicts; `g`/`G` stays, same action). Footer
+  hints now list `w link`, `y yank`, `x doctor` (they were help-overlay
+  only, which made the features look absent).

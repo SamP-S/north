@@ -1,4 +1,4 @@
-// deps.go — the L link modal: a multi-select picker over the board's tasks
+// deps.go — the w link modal: a multi-select picker over the board's tasks
 // that edits the selected task's depends_on.
 //
 // The list shows every draft and active task plus the task's existing
@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
@@ -32,10 +33,10 @@ type depEntry struct {
 	resolved bool   // done or archived — the link would be born satisfied
 }
 
-// newDepsModal builds the L modal for task t. Entries follow the root sort
+// newDepsModal builds the w modal for task t. Entries follow the root sort
 // within two groups: draft+active first, archive last; dangling existing
 // deps lead the list so they are impossible to miss.
-func newDepsModal(boardDir string, t *models.Task, key tasks.SortKey, desc bool, height int) (modal, error) {
+func newDepsModal(boardDir string, t *models.Task, key tasks.SortKey, desc bool, width, height int) (modal, error) {
 	snap, err := tasks.Load(boardDir)
 	if err != nil {
 		return modal{}, err
@@ -83,10 +84,12 @@ func newDepsModal(boardDir string, t *models.Task, key tasks.SortKey, desc bool,
 	return modal{
 		mode:        modalDepsPicker,
 		taskID:      t.ID,
+		heading:     fmt.Sprintf("%s %s (%s:%s)", t.ID, t.Title, t.Status, t.State),
 		entries:     entries,
 		checked:     checked,
 		filterInput: fi,
 		rows:        max(4, height-12),
+		width:       min(96, max(44, width*3/4)),
 	}, nil
 }
 
@@ -120,7 +123,7 @@ func (m modal) visibleEntries() []int {
 	return out
 }
 
-// updateDeps handles a key while the L modal is open.
+// updateDeps handles a key while the w modal is open.
 func (m modal) updateDeps(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 	// The filter input captures every key except esc/enter.
 	if m.filterOn {
@@ -200,10 +203,12 @@ func (m modal) updateDeps(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 	return m, nil
 }
 
-// depsView renders the L modal.
+// depsView renders the w modal, sized to the stored width (¾ of the
+// terminal, clamped) with over-long lines truncated rather than wrapped.
 func (m modal) depsView() string {
+	textW := m.width - 2 // border padding
 	var sb strings.Builder
-	sb.WriteString(styleHeader.Render("depends on — task "+m.taskID) + "\n")
+	sb.WriteString(styleHeader.Render(ansi.Truncate("depends on — "+m.heading, textW, "…")) + "\n")
 	if m.filterOn || m.filterInput.Value() != "" {
 		sb.WriteString(m.filterInput.View() + "\n")
 	}
@@ -236,7 +241,7 @@ func (m modal) depsView() string {
 		if m.checked[e.id] {
 			box = "[x]"
 		}
-		line := fmt.Sprintf("%s%s %s", prefix, box, depsLabel(e))
+		line := ansi.Truncate(fmt.Sprintf("%s%s %s", prefix, box, depsLabel(e)), textW, "…")
 		switch {
 		case e.invalid != "":
 			line = styleFooter.Render(line)
@@ -253,7 +258,7 @@ func (m modal) depsView() string {
 		sb.WriteString(noticeStyle(noticeWarn).Render(m.note) + "\n")
 	}
 	sb.WriteString(styleFooter.Render("space toggle  / filter  enter apply  esc close"))
-	return styleModal.Render(sb.String())
+	return styleModal.Width(m.width).Render(sb.String())
 }
 
 // depsLabel renders one entry: `✓ 12 Add login (done:active)`, with a

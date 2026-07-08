@@ -645,7 +645,7 @@ func TestDoctorModalHealthy(t *testing.T) {
 	active := mustActive(t, dir, "Active task")
 
 	m := rootWithTask(t, dir, active)
-	updated, _ := m.Update(keyRune('D'))
+	updated, _ := m.Update(keyRune('x'))
 	um := updated.(Model)
 	if um.modal.mode != modalDoctor {
 		t.Fatalf("expected doctor modal, got %v", um.modal.mode)
@@ -673,7 +673,7 @@ func TestDoctorModalFix(t *testing.T) {
 	}
 
 	m := rootWithTask(t, dir, active)
-	updated, _ := m.Update(keyRune('D'))
+	updated, _ := m.Update(keyRune('x'))
 	um := updated.(Model)
 	if !strings.Contains(um.modal.view(), "crlf") {
 		t.Fatalf("issue missing from report: %q", um.modal.view())
@@ -725,7 +725,7 @@ func TestYankCopiesID(t *testing.T) {
 	}
 }
 
-// TestDepsModalBuild verifies the L picker's entry set: all states listed,
+// TestDepsModalBuild verifies the w picker's entry set: all states listed,
 // archive last, self and cycle-creators greyed, resolved deps marked.
 func TestDepsModalBuild(t *testing.T) {
 	dir := newTestBoard(t)
@@ -741,7 +741,7 @@ func TestDepsModalBuild(t *testing.T) {
 	}
 
 	m := rootWithTask(t, dir, base)
-	updated, _ := m.Update(keyRune('L'))
+	updated, _ := m.Update(keyRune('w'))
 	um := updated.(Model)
 	if um.modal.mode != modalDepsPicker {
 		t.Fatalf("expected deps picker, got %v", um.modal.mode)
@@ -776,7 +776,7 @@ func TestDepsModalToggleAndApply(t *testing.T) {
 	work := mustActive(t, dir, "Work") // 2
 
 	m := rootWithTask(t, dir, work)
-	updated, _ := m.Update(keyRune('L'))
+	updated, _ := m.Update(keyRune('w'))
 	um := updated.(Model)
 
 	// Find task 1 among the visible rows and move the cursor onto it.
@@ -827,7 +827,7 @@ func TestDepsModalInvalidToggleExplains(t *testing.T) {
 	base := mustActive(t, dir, "Base") // 1
 
 	m := rootWithTask(t, dir, base)
-	updated, _ := m.Update(keyRune('L'))
+	updated, _ := m.Update(keyRune('w'))
 	um := updated.(Model)
 	// Move to the first real entry (task 1 itself — greyed as self).
 	updated, _ = um.Update(keyRune('j'))
@@ -855,7 +855,7 @@ func TestDepsModalFilterAndClear(t *testing.T) {
 	work := mustActive(t, dir, "Work") // 3
 
 	m := rootWithTask(t, dir, work)
-	updated, _ := m.Update(keyRune('L'))
+	updated, _ := m.Update(keyRune('w'))
 	um := updated.(Model)
 
 	// Filter to "alpha": only the pinned clear-all row plus task 1 remain.

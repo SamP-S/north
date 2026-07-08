@@ -86,16 +86,16 @@ var keys = keyMap{
 		key.WithHelp("d", "delete"),
 	),
 	Doctor: key.NewBinding(
-		key.WithKeys("D"),
-		key.WithHelp("D", "doctor"),
+		key.WithKeys("x"),
+		key.WithHelp("x", "doctor"),
 	),
 	Yank: key.NewBinding(
 		key.WithKeys("y"),
 		key.WithHelp("y", "yank id"),
 	),
 	Link: key.NewBinding(
-		key.WithKeys("L"),
-		key.WithHelp("L", "link dependencies"),
+		key.WithKeys("w"),
+		key.WithHelp("w", "link dependencies"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),

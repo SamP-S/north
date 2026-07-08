@@ -345,7 +345,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Link):
 		if t := m.selectedTask(); t != nil {
-			md, err := newDepsModal(m.boardDir, t, m.sortKey, m.sortDesc, m.height)
+			md, err := newDepsModal(m.boardDir, t, m.sortKey, m.sortDesc, m.width, m.height)
 			if err != nil {
 				m.notice = notice{noticeError, err.Error()}
 				return m, nil
@@ -473,8 +473,8 @@ func (m Model) View() string {
 
 // Footer hint lines for each view.
 const (
-	boardHints = "↵ view  c create  e edit  m status  s state  o sort  d delete  r reload  / filter  tab→list  ? help  q quit"
-	listHints  = "j/k navigate  ←/→ panes  c create  e edit  m status  s state  o sort  d delete  r reload  / filter  tab→board  ? help  q quit"
+	boardHints = "↵ view  c create  e edit  m status  s state  w link  o sort  d delete  y yank  x doctor  r reload  / filter  tab→list  ? help  q quit"
+	listHints  = "j/k navigate  ←/→ panes  c create  e edit  m status  s state  w link  o sort  d delete  y yank  x doctor  r reload  / filter  tab→board  ? help  q quit"
 )
 
 // footer renders the active view's key-hint bar, wrapped to the terminal
@@ -487,7 +487,7 @@ func (m Model) footer() string {
 		warnings = m.list.warnings
 	}
 	if warnings > 0 {
-		hints = fmt.Sprintf("⚠ %d file warning(s) — D doctor  ", warnings) + hints
+		hints = fmt.Sprintf("⚠ %d file warning(s) — x doctor  ", warnings) + hints
 	}
 	return styleFooter.Width(m.width).Render("  " + hints)
 }
@@ -516,9 +516,9 @@ func (m Model) helpView() string {
 		{"o", "sort order (id/updated/title/assignee)"},
 		{"s", "set state (draft/active/archive)"},
 		{"d", "delete task"},
-		{"D", "doctor — board integrity report (f applies --fix)"},
+		{"x", "doctor — board integrity report (f applies --fix)"},
 		{"y", "yank task id to the clipboard (OSC 52)"},
-		{"L", "link dependencies — edit depends_on in a picker"},
+		{"w", "link dependencies — edit depends_on in a picker"},
 		{"r", "reload from disk"},
 		{"/", "filter tasks (board & list)"},
 		{"esc", "cancel / clear filter"},

@@ -76,12 +76,14 @@ type modal struct {
 	vp        viewport.Model // scrollable content for the task popup
 	note      string         // transient in-modal feedback, cleared on the next key
 
-	// L deps-picker state.
+	// w deps-picker state.
+	heading     string // edited task's "id title (status:state)" line
 	entries     []depEntry
 	checked     map[string]bool
 	filterInput textinput.Model
 	filterOn    bool // the filter input has focus (keys type, not toggle)
 	rows        int  // list-window row budget
+	width       int  // modal block width
 }
 
 func (m modal) open() bool { return m.mode != modalNone }

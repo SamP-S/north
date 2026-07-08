@@ -327,8 +327,8 @@ func (m listModel) renderDetail(t *models.Task) string {
 	return sb.String()
 }
 
-// renderDeps renders a task's depends_on ids with each dependency's current
-// status, e.g. "4 (done), 7 (ready)".
+// renderDeps renders a task's depends_on entries as "id title (status:state)"
+// — the deps picker's format — one per line, aligned under the field label.
 func (m listModel) renderDeps(t *models.Task) string {
 	if len(t.DependsOn) == 0 {
 		return ""
@@ -340,12 +340,12 @@ func (m listModel) renderDeps(t *models.Task) string {
 	parts := make([]string, len(t.DependsOn))
 	for i, dep := range t.DependsOn {
 		if d, ok := byID[dep]; ok {
-			parts[i] = fmt.Sprintf("%s (%s)", dep, d.Status)
+			parts[i] = fmt.Sprintf("%s %s (%s:%s)", dep, d.Title, d.Status, d.State)
 		} else {
 			parts[i] = fmt.Sprintf("%s (missing)", dep)
 		}
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, "\n             ") // align under "depends_on:  "
 }
 
 // applyFilter returns the subset of allTasks whose id, title, or labels
