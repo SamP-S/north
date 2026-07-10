@@ -218,3 +218,11 @@ dir) silently uses default theme — never blocks the TUI.
   docs that glamour styles the detail pane's task bodies independently of
   the theme (deliberate). Saturated's `#6b7280` rounds to `107;113;128` in
   termenv — cosmetic, ignored.
+- [2026-07-10] Review feedback round 2: the adaptive white/black active
+  border sat too close to high-contrast's default-foreground inactive
+  borders. A double-border variant was rejected (themes change colors
+  ONLY — chrome characters are identical across presets; recorded as a
+  constraint). Chosen instead (user decision): active border bright
+  magenta 13 — keeps the magenta border identity of the other presets;
+  collides with the blocked status color, accepted since borders and card
+  text read differently.

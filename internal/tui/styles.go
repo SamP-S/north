@@ -105,9 +105,10 @@ func highContrastPalette() palette {
 		blocked:    lipgloss.Color("13"), // bright magenta
 		draft:      lipgloss.Color("14"), // bright cyan
 		dim:        lipgloss.NoColor{},   // default foreground, never dimmed
-		// bright white flips invisible on light backgrounds, so the active
-		// border (and the help keys derived from it) adapts: black on light.
-		activeBorder:   lipgloss.AdaptiveColor{Light: "0", Dark: "15"},
+		// bright magenta: inactive borders sit at the default foreground
+		// (no dim allowed), so focus needs a real color, not white/black —
+		// magenta keeps the border identity of the other presets.
+		activeBorder:   lipgloss.Color("13"),
 		inactiveBorder: lipgloss.NoColor{}, // default foreground
 	}
 }

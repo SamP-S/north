@@ -66,8 +66,8 @@ committed — distinct from the board's `north/config.yml`), key `tui.theme`,
 one of three strict lowercase presets: `default` (inherits the terminal's
 own ANSI 0–15 palette — the terminal theme is the theme), `saturated` (a
 fixed vivid truecolor palette, terminal-independent), `high-contrast` (ANSI
-brights only, no dim greys; its active border adapts black/white to the
-detected terminal background). The theme colors the chrome only: task bodies
+brights only, no dim greys; the focused column/pane border is bright
+magenta, since inactive borders sit at the default foreground). The theme colors the chrome only: task bodies
 in the list view's detail pane are rendered by glamour, which applies its
 own light/dark-adaptive document styles independent of `tui.theme` — by
 design, not an oversight.
