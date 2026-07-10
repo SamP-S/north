@@ -42,6 +42,39 @@ States, statuses, and the id scheme are hardcoded for now (making them
 configurable here is future work). The task body template is deliberately a
 file (`north/task-template.md`), not a config setting.
 
+## User-level config: `~/.north/config.yml`
+Board config (above) is policy, committed and shared. Some preferences —
+today, the TUI's color theme — are personal and belong to the user, not the
+repo, so they live separately in **`~/.north/config.yml`**. North never
+rewrites or re-adds keys to a file the user owns; this file is edited by
+hand, not through `north config` (see below).
+
+```yaml
+# north user settings (per-user, not per-board)
+tui:
+  # theme: default | saturated | high-contrast
+  theme: default
+```
+
+- `tui.theme` — one of three strict lowercase presets (no aliases):
+  `default` (inherit the terminal's own ANSI 0–15 palette — the terminal
+  theme is the theme), `saturated` (a fixed vivid truecolor palette,
+  terminal-independent), `high-contrast` (ANSI brights only, no dim greys).
+- On `north tui` startup, the file is scaffolded with the commented template
+  above if it doesn't exist yet (this is the discoverability story — users
+  find the valid values in the file itself), and is never touched again once
+  present, even if it's missing the `tui:` block or the `theme` key (reads
+  as default silently).
+- **Never blocks the TUI**: a missing/unwritable scaffold, an unreadable or
+  malformed file, or an unknown theme name all fall back to the `default`
+  theme with a yellow status-bar warning instead of failing to start.
+- Non-goals: no per-slot color configuration (only the three built-in
+  presets), no `NORTH_THEME` environment variable override (one config
+  source only), and `north config get/set/list` stays board-scoped to
+  `north/config.yml` — it does not read or write this file.
+
 ## State
-North keeps no global state — there is no `~/.north`, no daemon, and no
-environment configuration. Everything lives in the repo under `north/`.
+North keeps no global board state — there is no daemon and no environment
+configuration. Board data lives entirely in the repo under `north/`; the
+one exception is the user-level TUI preference file above, which is
+per-machine and deliberately outside the repo.

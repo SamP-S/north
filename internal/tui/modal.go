@@ -260,7 +260,7 @@ func (m modal) view() string {
 			title = "sort by"
 		}
 		var sb strings.Builder
-		sb.WriteString(styleHeader.Render(title) + "\n\n")
+		sb.WriteString(th.Header.Render(title) + "\n\n")
 		for i, item := range m.pickerItems() {
 			prefix := "  "
 			if i == m.cursor {
@@ -268,18 +268,18 @@ func (m modal) view() string {
 			}
 			sb.WriteString(prefix + statusStyle(item).Render(item) + "\n")
 		}
-		return styleModal.Render(strings.TrimRight(sb.String(), "\n"))
+		return th.Modal.Render(strings.TrimRight(sb.String(), "\n"))
 	case modalConfirmDelete:
-		return styleModal.Render(m.confirm)
+		return th.Modal.Render(m.confirm)
 	case modalTaskView:
-		footer := styleFooter.Render("j/k scroll  g/G top/bottom  e edit  y yank  esc close")
+		footer := th.Footer.Render("j/k scroll  g/G top/bottom  e edit  y yank  esc close")
 		if m.note != "" {
 			footer = noticeStyle(noticeSuccess).Render(m.note) + "\n" + footer
 		}
-		return styleModal.Render(m.vp.View() + "\n" + footer)
+		return th.Modal.Render(m.vp.View() + "\n" + footer)
 	case modalDoctor:
-		footer := styleFooter.Render("j/k scroll  f fix  esc close")
-		return styleModal.Render(styleHeader.Render("doctor") + "\n\n" + m.vp.View() + "\n" + footer)
+		footer := th.Footer.Render("j/k scroll  f fix  esc close")
+		return th.Modal.Render(th.Header.Render("doctor") + "\n\n" + m.vp.View() + "\n" + footer)
 	case modalDepsPicker:
 		return m.depsView()
 	}

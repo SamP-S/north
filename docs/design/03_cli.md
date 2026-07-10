@@ -58,6 +58,29 @@ active). `state` changes **state** (the lifecycle folder) and preserves
 status. Both are freeform — any value to any other value in one call. See
 [02_board-data-model.md](02_board-data-model.md).
 
+## TUI
+`north tui` is documented in full in the [README](../../README.md#tui); this
+covers only its config resolution. The color theme comes from a
+**user-level** config file at `~/.north/config.yml` (per-user, never
+committed — distinct from the board's `north/config.yml`), key `tui.theme`,
+one of three strict lowercase presets: `default` (inherits the terminal's
+own ANSI 0–15 palette — the terminal theme is the theme), `saturated` (a
+fixed vivid truecolor palette, terminal-independent), `high-contrast` (ANSI
+brights only, no dim greys; its active border adapts black/white to the
+detected terminal background). The theme colors the chrome only: task bodies
+in the list view's detail pane are rendered by glamour, which applies its
+own light/dark-adaptive document styles independent of `tui.theme` — by
+design, not an oversight.
+
+At startup: a missing file is scaffolded with a commented template
+(`theme: default`) and never rewritten again; an existing file is read
+as-is. Any failure — unwritable scaffold, unreadable file, malformed YAML,
+or an unknown theme name — never blocks the TUI: it falls back to `default`
+and surfaces a yellow status-bar warning (e.g. `unknown theme "foo" in
+~/.north/config.yml, using default`). `north config get/set/list` is
+unaffected — it stays board-scoped to `north/config.yml`; the user file is
+edited by hand.
+
 ## Output modes
 `--plain` (stable, line/tab-oriented text for scripts) and `--json` (the
 `Task` dict, or board/list summaries where applicable) are supported uniformly

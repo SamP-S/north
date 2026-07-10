@@ -208,7 +208,7 @@ func (m modal) updateDeps(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 func (m modal) depsView() string {
 	textW := m.width - 2 // border padding
 	var sb strings.Builder
-	sb.WriteString(styleHeader.Render(ansi.Truncate("depends on — "+m.heading, textW, "…")) + "\n")
+	sb.WriteString(th.Header.Render(ansi.Truncate("depends on — "+m.heading, textW, "…")) + "\n")
 	if m.filterOn || m.filterInput.Value() != "" {
 		sb.WriteString(m.filterInput.View() + "\n")
 	}
@@ -244,21 +244,21 @@ func (m modal) depsView() string {
 		line := ansi.Truncate(fmt.Sprintf("%s%s %s", prefix, box, depsLabel(e)), textW, "…")
 		switch {
 		case e.invalid != "":
-			line = styleFooter.Render(line)
+			line = th.Footer.Render(line)
 		case e.task != nil && e.task.State == models.StateArchive:
-			line = styleFooter.Render(line)
+			line = th.Footer.Render(line)
 		}
 		sb.WriteString(line + "\n")
 	}
 	if len(vis) > end {
-		sb.WriteString(styleFooter.Render(fmt.Sprintf("  … %d more", len(vis)-end)) + "\n")
+		sb.WriteString(th.Footer.Render(fmt.Sprintf("  … %d more", len(vis)-end)) + "\n")
 	}
 
 	if m.note != "" {
 		sb.WriteString(noticeStyle(noticeWarn).Render(m.note) + "\n")
 	}
-	sb.WriteString(styleFooter.Render("space toggle  / filter  enter apply  esc close"))
-	return styleModal.Width(m.width).Render(sb.String())
+	sb.WriteString(th.Footer.Render("space toggle  / filter  enter apply  esc close"))
+	return th.Modal.Width(m.width).Render(sb.String())
 }
 
 // depsLabel renders one entry: `✓ 12 Add login (done:active)`, with a

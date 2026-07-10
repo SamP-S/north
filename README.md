@@ -149,6 +149,19 @@ contract in every mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
 
 The TUI is keyboard-only by design (no mouse) and for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
 
+### Themes
+
+`north tui` picks its color theme from a **user-level** config file at
+`~/.north/config.yml` (separate from the board's committed `north/config.yml`
+— this one is personal preference, never shared). Three presets, set via
+`tui.theme`: `default` (inherits the terminal's own ANSI palette — the
+terminal theme is the theme), `saturated` (a fixed vivid truecolor palette,
+terminal-independent), and `high-contrast` (ANSI brights only, no dim greys).
+The file is scaffolded with a commented template on first `north tui` run and
+never rewritten afterwards. A missing/unknown theme or an unreadable file
+never blocks the TUI — it falls back to `default` with a yellow status-bar
+warning.
+
 ---
 
 ## Dependencies

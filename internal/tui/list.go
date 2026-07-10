@@ -202,9 +202,9 @@ func (m listModel) View() string {
 	innerH := paneH - 2
 
 	// Left pane.
-	leftBorder := stylePaneInactive
+	leftBorder := th.PaneInactive
 	if m.activePane == paneList {
-		leftBorder = stylePaneActive
+		leftBorder = th.PaneActive
 	}
 	leftPane := leftBorder.
 		Width(innerLeftW).
@@ -212,9 +212,9 @@ func (m listModel) View() string {
 		Render(m.renderList(innerLeftW, innerH))
 
 	// Right pane.
-	rightBorder := stylePaneInactive
+	rightBorder := th.PaneInactive
 	if m.activePane == paneDetail {
-		rightBorder = stylePaneActive
+		rightBorder = th.PaneActive
 	}
 	rightPane := rightBorder.
 		Width(innerRightW).
@@ -250,7 +250,7 @@ func (m listModel) renderList(innerW, innerH int) string {
 		// an ANSI reset that would cancel one outer row-wide bold.
 		stateStr := stateStyle(t.State).Bold(selected).Render(fmt.Sprintf("%-7s", stateLabel(t.State)))
 		statusStr := statusStyle(string(t.Status)).Bold(selected).Render(fmt.Sprintf("%-11s", string(t.Status)))
-		idStr := styleID.Bold(selected).Render(fmt.Sprintf("%-4s", t.ID))
+		idStr := th.ID.Bold(selected).Render(fmt.Sprintf("%-4s", t.ID))
 		meta := fmt.Sprintf("%s%s %s %s ", prefix, idStr, stateStr, statusStr)
 		metaW := lipgloss.Width(meta)
 		titleW := innerW - metaW
@@ -261,8 +261,8 @@ func (m listModel) renderList(innerW, innerH int) string {
 		title := ansi.Truncate(t.Title, titleW, "…")
 		row := meta + title
 		if selected {
-			row = styleCardSelected.Render(prefix) + idStr + " " + stateStr +
-				" " + statusStr + styleCardSelected.Render(" "+title)
+			row = th.CardSelected.Render(prefix) + idStr + " " + stateStr +
+				" " + statusStr + th.CardSelected.Render(" "+title)
 		}
 
 		lines = append(lines, row)
@@ -274,7 +274,7 @@ func (m listModel) renderList(innerW, innerH int) string {
 		if m.filter != "" {
 			hint = "no tasks match the filter — esc clears it"
 		}
-		lines = append(lines, styleID.Render(hint))
+		lines = append(lines, th.ID.Render(hint))
 		count++
 	}
 
@@ -295,7 +295,7 @@ func (m listModel) renderDetail(t *models.Task) string {
 
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "id:          %s\n", styleID.Render(t.ID))
+	fmt.Fprintf(&sb, "id:          %s\n", th.ID.Render(t.ID))
 	fmt.Fprintf(&sb, "title:       %s\n", t.Title)
 	fmt.Fprintf(&sb, "state:       %s\n", stateStyle(t.State).Render(string(t.State)))
 	fmt.Fprintf(&sb, "status:      %s\n",

@@ -323,7 +323,7 @@ func (m boardModel) renderBoard() string {
 			hint = "no tasks match the filter — esc clears it"
 		}
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			styleFooter.Render(hint))
+			th.Footer.Render(hint))
 	}
 
 	n := len(m.columns)
@@ -369,7 +369,7 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 	} else {
 		label = statusStyle(col.status).Render(col.title)
 	}
-	header := label + styleID.Render(fmt.Sprintf(" (%d)", len(col.tasks)))
+	header := label + th.ID.Render(fmt.Sprintf(" (%d)", len(col.tasks)))
 
 	lines := []string{header, ""}
 
@@ -380,7 +380,7 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 	}
 
 	if len(col.tasks) == 0 {
-		lines = append(lines, styleID.Render("(empty)"))
+		lines = append(lines, th.ID.Render("(empty)"))
 	} else {
 		offset := 0
 		if col.cursor >= visH {
@@ -403,7 +403,7 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 			tagSeg := ""
 			tagW := 0
 			if tags := m.tags[t.ID]; tags != "" {
-				tagSeg = styleID.Bold(selected).Render(tags) + " "
+				tagSeg = th.ID.Bold(selected).Render(tags) + " "
 				tagW = len(tags) + 1
 			}
 
@@ -420,25 +420,25 @@ func (m boardModel) renderColumn(idx int, col boardColumn, innerW, innerH int) s
 			if selected {
 				// Each segment is bolded on its own: a styled segment ends
 				// with an ANSI reset that would cancel one outer bold.
-				line = styleCardSelected.Render("► ") + dot +
-					styleID.Bold(true).Render(t.ID) + " " + tagSeg +
-					styleCardSelected.Render(title)
+				line = th.CardSelected.Render("► ") + dot +
+					th.ID.Bold(true).Render(t.ID) + " " + tagSeg +
+					th.CardSelected.Render(title)
 			} else {
-				line = "  " + dot + styleID.Render(t.ID) + " " + tagSeg + title
+				line = "  " + dot + th.ID.Render(t.ID) + " " + tagSeg + title
 			}
-			lines = append(lines, styleCardNormal.Width(innerW).Render(line))
+			lines = append(lines, th.CardNormal.Width(innerW).Render(line))
 		}
 		if offset > 0 {
 			// The spacer line doubles as a scrolled-up indicator.
-			lines[1] = styleID.Render(fmt.Sprintf("↑ %d more", offset))
+			lines[1] = th.ID.Render(fmt.Sprintf("↑ %d more", offset))
 		}
 	}
 
 	content := strings.Join(lines, "\n")
 
-	colStyle := styleColumnInactive
+	colStyle := th.ColumnInactive
 	if isActive {
-		colStyle = styleColumnActive
+		colStyle = th.ColumnActive
 	}
 	return colStyle.Width(innerW).Height(innerH).Render(content)
 }

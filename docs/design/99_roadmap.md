@@ -50,13 +50,6 @@ sharing one resolution rule (done or archived = resolved). A full layered
   the #1 "make it mine" request to expect. Blocked on the migration story: a
   user-defined set must answer what happens to tasks (incl. archived) whose
   status leaves the set — first real customer of the `version:` key.
-- **Named task templates** (`create --template bugfix`) — extends the
-  accepted `north/task-template.md`; wait for real usage data on how agents
-  behave with different bodies before designing.
-- **TUI:** yank task id to clipboard (`y` — clipboard portability is real
-  surface), multi-select (TUI twin of CLI batching — let batching prove out
-  first), themes/config (`tui:` block; interacts with custom statuses).
-  The TUI remains keyboard-only by design — mouse support is a non-goal.
 
 ## Deferred — v2.0-era
 
@@ -70,6 +63,12 @@ path for v1.0 — distribution machinery isn't necessary yet.
   rejected as redundant. Parked until that tension has a better answer;
   meanwhile git is the undo (uncommitted → `git restore`, auto_commit →
   `git revert`).
+- **Named task templates** (`create --template bugfix`) (moved from
+  post-v1.0, 2026-07-09) — extends the accepted `north/task-template.md`;
+  wait for real usage data on how agents behave with different bodies
+  before designing.
+- **TUI multi-select** (moved from post-v1.0, 2026-07-09) — TUI twin of CLI
+  batching; let batching prove out first.
 
 - goreleaser release binaries, Homebrew tap, Scoop, AUR, Nix flake; man pages
   ride along with whatever packaging lands first.
@@ -90,6 +89,14 @@ delete heals dependents at validated+), `task list --deps met|unmet`,
 mutation `--json` warnings arrays, doctor `--fix` removes dangling refs,
 and the TUI `w` dependency picker (all states, resolved ✓, invalid greyed
 with reasons, in-modal filter).
+
+TUI themes implemented (2026-07-09, plan 048): three built-in presets
+(`default`, `saturated`, `high-contrast`) selected via `tui.theme` in a new
+user-level `~/.north/config.yml`, scaffolded on first `north tui` run and
+never rewritten afterwards; unknown theme/unreadable file falls back to
+`default` with a status-bar warning instead of blocking. Per-slot color
+config and theme downloads were considered and rejected — three built-in
+presets only.
 
 Accepted for v1.0 and implemented (2026-07-07, plan 046): advisory file lock
 (`north/.lock`), `version: 1` format stamp (read-only config key, newer boards
@@ -156,6 +163,7 @@ mechanism):
   throttle)
 
 **TUI**:
+- Mouse support (the TUI is keyboard-only by design)
 - Filter popups (the `/` live filter covers it)
 - Per-column WIP display (WIP limits rejected)
 - Hide-empty-columns (overkill)

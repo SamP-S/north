@@ -41,7 +41,7 @@ func keyRune(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: [
 // rootWithTask returns a root model showing one active task on the board.
 func rootWithTask(t *testing.T, dir string, task *models.Task) Model {
 	t.Helper()
-	m := NewModel(dir)
+	m := NewModel(dir, Options{})
 	m.width, m.height = 80, 24
 	m.board.columns = []boardColumn{
 		{status: string(task.Status), tasks: []*models.Task{task}, cursor: 0},
@@ -64,7 +64,7 @@ func TestDefaultSortNewestFirst(t *testing.T) {
 // TestSortPickerApplies verifies 'o' opens the sort picker and a selection
 // re-orders both views.
 func TestSortPickerApplies(t *testing.T) {
-	m := NewModel(t.TempDir())
+	m := NewModel(t.TempDir(), Options{})
 	m.width, m.height = 80, 24
 	a := &models.Task{ID: "1", Title: "zzz", Status: models.Ready, State: models.StateActive}
 	b := &models.Task{ID: "2", Title: "aaa", Status: models.Ready, State: models.StateActive}
@@ -301,7 +301,7 @@ func TestQuitIsNoOpOnOpenModal(t *testing.T) {
 // TestQuitInertInHelp verifies q does nothing while the help overlay is open
 // (esc closes it), and quits from the main view.
 func TestQuitInertInHelp(t *testing.T) {
-	m := NewModel(t.TempDir())
+	m := NewModel(t.TempDir(), Options{})
 	m.width, m.height = 80, 24
 
 	updated, _ := m.Update(keyRune('?'))
@@ -330,7 +330,7 @@ func TestQuitInertInHelp(t *testing.T) {
 
 // TestRefreshKeyReloads verifies 'r' emits a reload.
 func TestRefreshKeyReloads(t *testing.T) {
-	m := NewModel(t.TempDir())
+	m := NewModel(t.TempDir(), Options{})
 	m.width, m.height = 80, 24
 	_, cmd := m.Update(keyRune('r'))
 	if cmd == nil {
@@ -369,7 +369,7 @@ func TestTruncateMultibyte(t *testing.T) {
 // TestSelectByIDClearsFilter verifies Enter-from-board still selects a task
 // that the active filter would hide (the root clears the filter and retries).
 func TestSelectByIDClearsFilter(t *testing.T) {
-	m := NewModel(t.TempDir())
+	m := NewModel(t.TempDir(), Options{})
 	m.width, m.height = 80, 24
 	m.list.allTasks = []*models.Task{
 		{ID: "1", Title: "alpha", Status: models.Ready, State: models.StateActive},
@@ -391,7 +391,7 @@ func TestSelectByIDClearsFilter(t *testing.T) {
 // TestGlobalFilterOnBoard verifies typing a query with '/' filters the board
 // columns in place and esc clears it.
 func TestGlobalFilterOnBoard(t *testing.T) {
-	m := NewModel(t.TempDir())
+	m := NewModel(t.TempDir(), Options{})
 	m.width, m.height = 80, 24
 	m.board.all = []boardColumn{{
 		status: "ready",
@@ -886,5 +886,70 @@ func TestDepsModalFilterAndClear(t *testing.T) {
 	um = updated.(Model)
 	if len(um.modal.checked) != 0 {
 		t.Errorf("clear all should empty the set: %v", um.modal.checked)
+	}
+}
+
+// TestSetThemeRoundTrip verifies switching to a preset changes the active
+// theme and switching back restores the default palette.
+func TestSetThemeRoundTrip(t *testing.T) {
+	t.Cleanup(func() { setTheme("") })
+
+	defDim := th.ID.GetForeground()
+	if w := setTheme("high-contrast"); w != "" {
+		t.Fatalf("high-contrast should be a known preset, got warning %q", w)
+	}
+	if got := th.ID.GetForeground(); got == defDim {
+		t.Error("high-contrast should change the dim (ID) colour")
+	}
+	if w := setTheme(""); w != "" {
+		t.Fatalf("empty name should select default, got warning %q", w)
+	}
+	if got := th.ID.GetForeground(); got != defDim {
+		t.Errorf("empty name should restore the default palette, got %v", got)
+	}
+}
+
+// TestSetThemeUnknown verifies an unknown preset name warns and leaves the
+// default palette installed.
+func TestSetThemeUnknown(t *testing.T) {
+	t.Cleanup(func() { setTheme("") })
+
+	defDim := defaultTheme().ID.GetForeground()
+	w := setTheme("nope")
+	if !strings.Contains(w, `unknown theme "nope"`) {
+		t.Errorf("warning should name the unknown theme, got %q", w)
+	}
+	if got := th.ID.GetForeground(); got != defDim {
+		t.Errorf("unknown theme should leave the default palette, got %v", got)
+	}
+}
+
+// TestNewModelThemeWarning verifies an unknown theme in Options surfaces as
+// the initial warn-level status-bar notice.
+func TestNewModelThemeWarning(t *testing.T) {
+	t.Cleanup(func() { setTheme("") })
+
+	m := NewModel(t.TempDir(), Options{Theme: "nope"})
+	if m.notice.level != noticeWarn {
+		t.Fatalf("initial notice should be warn-level, got %v: %q",
+			m.notice.level, m.notice.text)
+	}
+	if !strings.Contains(m.notice.text, `unknown theme "nope"`) {
+		t.Errorf("notice should name the unknown theme, got %q", m.notice.text)
+	}
+	m.width, m.height = 80, 24
+	if !strings.Contains(m.View(), "unknown theme") {
+		t.Error("initial view should render the theme warning")
+	}
+}
+
+// TestNewModelThemeWarningPrecedence verifies a pre-resolved config warning
+// outranks the bad-theme-name warning.
+func TestNewModelThemeWarningPrecedence(t *testing.T) {
+	t.Cleanup(func() { setTheme("") })
+
+	m := NewModel(t.TempDir(), Options{Theme: "nope", ThemeWarning: "config unreadable"})
+	if m.notice.level != noticeWarn || m.notice.text != "config unreadable" {
+		t.Errorf("ThemeWarning should win, got %v: %q", m.notice.level, m.notice.text)
 	}
 }

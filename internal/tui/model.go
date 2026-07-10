@@ -77,13 +77,27 @@ type Model struct {
 	height      int
 }
 
+// Options configures the TUI at startup.
+type Options struct {
+	Theme        string // preset name; empty means default
+	ThemeWarning string // pre-resolved warning to show at startup (e.g. unreadable user config)
+	ConfigPath   string // user config file the theme came from, for warning context
+}
+
 // NewModel constructs a Model for the board at boardDir.
-func NewModel(boardDir string) Model {
+func NewModel(boardDir string, opts Options) Model {
+	warning := setTheme(opts.Theme)
+	if warning != "" && opts.ConfigPath != "" {
+		warning = fmt.Sprintf("unknown theme %q in %s, using default", opts.Theme, opts.ConfigPath)
+	}
+	if opts.ThemeWarning != "" {
+		warning = opts.ThemeWarning // a config-file problem outranks a bad theme name
+	}
 	ti := textinput.New()
 	ti.Placeholder = "filter…"
 	ti.CharLimit = 120
 	ti.Prompt = "/ "
-	return Model{
+	m := Model{
 		boardDir:    boardDir,
 		view:        viewBoard,
 		board:       newBoardModel(boardDir),
@@ -92,6 +106,10 @@ func NewModel(boardDir string) Model {
 		sortKey:     tasks.SortID,
 		sortDesc:    true, // newest first
 	}
+	if warning != "" {
+		m.notice = notice{noticeWarn, warning}
+	}
+	return m
 }
 
 // Init loads initial data for both sub-models.
@@ -444,7 +462,7 @@ func (m Model) statusLine() string {
 	case m.notice.level != noticeNone:
 		return noticeStyle(m.notice.level).Render("  " + m.notice.text)
 	case m.query != "":
-		return styleFooter.Render(fmt.Sprintf("  filter: %q (esc clears, / edits)", m.query))
+		return th.Footer.Render(fmt.Sprintf("  filter: %q (esc clears, / edits)", m.query))
 	}
 	return ""
 }
@@ -489,14 +507,14 @@ func (m Model) footer() string {
 	if warnings > 0 {
 		hints = fmt.Sprintf("⚠ %d file warning(s) — x doctor  ", warnings) + hints
 	}
-	return styleFooter.Width(m.width).Render("  " + hints)
+	return th.Footer.Width(m.width).Render("  " + hints)
 }
 
 // footerHeight returns the line count the footer needs at the current width —
 // the max across both views so the body height is stable when tabbing.
 func (m Model) footerHeight() int {
-	h := lipgloss.Height(styleFooter.Width(m.width).Render("  " + boardHints))
-	if lh := lipgloss.Height(styleFooter.Width(m.width).Render("  " + listHints)); lh > h {
+	h := lipgloss.Height(th.Footer.Width(m.width).Render("  " + boardHints))
+	if lh := lipgloss.Height(th.Footer.Width(m.width).Render("  " + listHints)); lh > h {
 		h = lh
 	}
 	return h
@@ -535,19 +553,19 @@ func (m Model) helpView() string {
 
 	var sb strings.Builder
 	for _, row := range rows {
-		sb.WriteString(styleHelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
-		sb.WriteString(styleHelpDesc.Render(row[1]))
+		sb.WriteString(th.HelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
+		sb.WriteString(th.HelpDesc.Render(row[1]))
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\n" + styleHeader.Render("Card tags") + "\n\n")
+	sb.WriteString("\n" + th.Header.Render("Card tags") + "\n\n")
 	for _, row := range tags {
-		sb.WriteString(styleHelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
-		sb.WriteString(styleHelpDesc.Render(row[1]))
+		sb.WriteString(th.HelpKey.Render(fmt.Sprintf("  %-16s", row[0])))
+		sb.WriteString(th.HelpDesc.Render(row[1]))
 		sb.WriteString("\n")
 	}
 
-	content := styleHelp.Render(
-		styleHeader.Render("North TUI — keyboard shortcuts") + "\n\n" + sb.String(),
+	content := th.Help.Render(
+		th.Header.Render("North TUI — keyboard shortcuts") + "\n\n" + sb.String(),
 	)
 
 	// centre in the terminal

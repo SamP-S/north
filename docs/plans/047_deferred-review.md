@@ -149,3 +149,9 @@ roadmap as each decision is recorded.
   delete, `l` right — read as conflicts; `g`/`G` stays, same action). Footer
   hints now list `w link`, `y yank`, `x doctor` (they were help-overlay
   only, which made the features look absent).
+- [2026-07-09] TUI themes decided and implemented as plan 048: three
+  built-in presets (`default`/`saturated`/`high-contrast`) via a new
+  user-level `~/.north/config.yml`, not `north/config.yml` — no `mono`
+  preset, no `NORTH_THEME` env override. Roadmap's remaining deferred
+  items — named task templates, TUI multi-select — moved to the v2.0-era
+  section.
