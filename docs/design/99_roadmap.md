@@ -37,15 +37,16 @@ sharing one resolution rule (done or archived = resolved). A full layered
 
 ## Deferred — post-v1.0
 
-- **Multi-agent claims cluster** — claims + `pick --claim` + `agent-name` +
-  `require_claim` + `watch --json` stand or fall together. kanban-md's
-  implementation is not a model to copy (frontmatter claims aren't atomic
-  without a lock protocol; timeout expiry can put two agents on one task; the
-  claim/assignee split — possession vs intent — needs first-principles
-  design). Requires a plan doc covering the concurrency model (lock scope,
-  crash recovery, cross-platform atomicity) before any of it is built.
-  Meanwhile: the board is plain files — orchestrators can watch `north/` with
-  any watcher.
+- **Multi-agent claims cluster** — **resolved (plans 049/050):** the
+  first-principles design landed as `north next` + `north take` (atomic
+  select-and-claim under the board lock; `assignee` + `in_progress` *is* the
+  claim) plus the `max_wip` config guard and `NORTH_AGENT` identity default.
+  Deliberately **not** built, per the analysis in
+  `docs/plans/049_multi-agent-usage-review.md`: a `claim` frontmatter field,
+  timeout/lease expiry (can put two agents on one task), `require_claim`,
+  `watch --json` (the board is plain files — orchestrators can watch `north/`
+  with any watcher), and a board-location env override (cross-project
+  footgun).
 - **Custom-status boards** — configurable status list/colors in `config.yml`;
   the #1 "make it mine" request to expect. Blocked on the migration story: a
   user-defined set must answer what happens to tasks (incl. archived) whose

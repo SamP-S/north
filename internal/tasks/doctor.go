@@ -21,7 +21,7 @@ import (
 
 // Issue is one problem found by Doctor.
 type Issue struct {
-	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf | gitattributes
+	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf | gitattributes | gitignore
 	File   string // filename (base) the issue is about ("" for board-wide issues)
 	Detail string
 	Fixed  bool // true when fix mode repaired it
@@ -43,8 +43,8 @@ func (i Issue) String() string {
 // duplicate ids are renumbered to fresh ids (the first holder keeps the id, so
 // existing depends_on references stay valid), drifted filenames are renamed to
 // match their frontmatter id, dangling depends_on references are removed, and
-// a missing north/.gitattributes is restored. Unparseable files and cycles
-// are report-only.
+// a missing north/.gitattributes or north/.gitignore is restored. Unparseable
+// files and cycles are report-only.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	var issues []Issue
 	if fix {
@@ -61,6 +61,16 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 			Detail: "missing (guards board files against CRLF drift on clone)"}
 		if fix {
 			if err := board.WriteGitattributes(boardDir); err == nil {
+				issue.Fixed = true
+			}
+		}
+		issues = append(issues, issue)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, board.GitignoreName)); os.IsNotExist(err) {
+		issue := Issue{Kind: "gitignore", File: board.GitignoreName,
+			Detail: "missing (keeps .lock and *.tmp out of git)"}
+		if fix {
+			if err := board.WriteGitignore(boardDir); err == nil {
 				issue.Fixed = true
 			}
 		}

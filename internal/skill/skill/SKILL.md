@@ -43,13 +43,28 @@ before changing its status.
 ## Typical loop
 
 ```bash
-north task list --status ready --deps met --plain   # what is workable now?
+north take --json                         # atomically claim the next workable task
 north task view 12 --json                 # read the full brief (body included)
-north task move 12 in_progress            # claim it
 # …do the work…
 north task edit 12 --append-body "Results: implemented X, tests pass."
 north task move 12 done                   # or: failed / blocked (say why in the body)
 ```
+
+`north take` selects the next workable task (active, `ready`, unassigned,
+dependencies met, lowest id) and claims it — `in_progress` + assignee — in
+one atomic step under the board lock, so concurrent agents always get
+*different* tasks. **Always claim with `take`, never with `list` + `move`:**
+the two-call version races against other agents (both can pick the same
+task). `take` needs an identity for the assignee: `--assignee A`, or the
+`NORTH_AGENT` environment variable (ask the user to `export NORTH_AGENT=…`
+per agent if unset). `{"task": null}` with exit 0 means nothing is workable —
+stop or wait; it is not an error. A `conflict` mentioning `max_wip` means you
+already hold your limit of in-progress tasks — finish those first (find them
+with `north task list --assignee <you> --status in_progress`).
+
+To preview without claiming, `north next --json` shows the same pick
+read-only. Use `north take --label L` to claim only from a labelled slice
+when the user has partitioned work by label.
 
 When you finish, set `done`. If the work cannot succeed, set `failed`. If you
 are stuck on something outside your control, set `blocked`. In every non-done
@@ -98,6 +113,13 @@ use `--body-file` (or `--body-file -` to read stdin) rather than trying to
 escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
 (pass an empty value to clear).
 
+Picking work (multi-agent safe):
+
+```bash
+north next [--label L] [--plain | --json]                 # peek at the next workable task (read-only)
+north take [--assignee A] [--label L] [--plain | --json]  # claim it atomically (assignee falls back to $NORTH_AGENT)
+```
+
 Query and maintenance:
 
 ```bash
@@ -106,7 +128,7 @@ north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS]     # archive active 'done' tasks
 north doctor [--fix]                  # board integrity check (duplicates, cycles, bad files)
-north config get|set|list             # board settings (auto_commit, deps_enforcement)
+north config get|set|list             # board settings (auto_commit, deps_enforcement, max_wip)
 ```
 
 ## Dependencies
@@ -149,8 +171,15 @@ plain/human modes, a `"warnings"` array in `--json` payloads.
   names a task.
 - A freshly created task is a **draft** — `north task state <id> active` puts
   it on the board before `move` can change its status.
-- Prefer `--deps met` when picking work; on strict boards north refuses
-  starting/finishing a task whose dependencies are unmet.
+- **Claim work with `north take`, never `list` + `move`** — only `take` is
+  atomic against other agents. On restart, resume your own work first:
+  `north task list --assignee <you> --status in_progress`.
+- Never reset or reassign another assignee's `in_progress` task on your own
+  initiative — a task can look stale while its agent is still working. That
+  call belongs to the user.
+- Prefer `--deps met` when picking work manually (`take` already only offers
+  deps-met tasks); on strict boards north refuses starting/finishing a task
+  whose dependencies are unmet.
 - Record plans, progress, blockers, and results in the task **body**
   (prefer `--append-body`); north does not impose body structure.
 - Set `--assignee` to the identity working the task — a person ("john") or an

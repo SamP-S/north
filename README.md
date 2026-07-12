@@ -65,6 +65,7 @@ north/
   config.yml         # board marker + settings (version, auto_commit)
   task-template.md   # body scaffold for bodyless creates (yours to edit)
   .gitattributes     # "* text eol=lf" — keeps board files LF on every clone
+  .gitignore         # keeps the transient .lock and *.tmp files out of git
   drafts/            # state: draft
   tasks/             # state: active   (status in frontmatter)
   archive/           # state: archive
@@ -108,10 +109,12 @@ Malformed files never break the board — they surface as warnings, and
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
+| `north next [--label L]` | Show the next workable task (active, ready, unassigned, deps met) — read-only |
+| `north take [--assignee A] [--label L]` | Atomically claim the next workable task (`in_progress` + assignee, one lock hold); assignee falls back to `$NORTH_AGENT` |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS]` | Archive active done tasks |
-| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes) |
-| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`; `version` is read-only) |
+| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes/.gitignore) |
+| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` is read-only) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
 | `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |
@@ -207,6 +210,13 @@ north skill check                      # is the installed skill this binary's ve
 The skill describes the state/status model, the commands, a typical work loop,
 and the output/error contract. It works with Claude Code and opencode (and any
 agent that reads `.claude/skills`).
+
+Agents claim work with `north take`: it picks the next workable task (active,
+`ready`, unassigned, dependencies met) and marks it `in_progress` with their
+assignee in one atomic step under the board's file lock, so concurrent
+`take`s always receive different tasks. The assignee comes from `--assignee`
+or the `NORTH_AGENT` environment variable; the optional `max_wip` board
+setting caps how many in-progress tasks one assignee can hold.
 
 ---
 

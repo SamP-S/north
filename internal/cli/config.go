@@ -11,7 +11,7 @@ import (
 
 // configKeys lists the config keys visible to list/get. version is read-only
 // (the board's format stamp); set refuses it.
-var configKeys = []string{"version", "auto_commit", "deps_enforcement"}
+var configKeys = []string{"version", "auto_commit", "deps_enforcement", "max_wip"}
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -42,6 +42,8 @@ func configValue(cfg board.Config, key string) (string, error) {
 		return strconv.FormatBool(cfg.AutoCommit), nil
 	case "deps_enforcement":
 		return string(cfg.DepsEnforcement), nil
+	case "max_wip":
+		return strconv.Itoa(cfg.MaxWIP), nil
 	default:
 		return "", nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
 	}
@@ -126,6 +128,13 @@ func newConfigSetCmd() *cobra.Command {
 					return err
 				}
 				cfg.DepsEnforcement = level
+			case "max_wip":
+				n, err := strconv.Atoi(value)
+				if err != nil || n < 0 {
+					return nerrors.Invalid(fmt.Sprintf(
+						"max_wip must be a non-negative integer, 0 = unlimited (got %q)", value))
+				}
+				cfg.MaxWIP = n
 			default:
 				return nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
 			}

@@ -28,6 +28,8 @@ const (
 	TemplateName = "task-template.md"
 	// GitattributesName guards board files against CRLF drift on any clone.
 	GitattributesName = ".gitattributes"
+	// GitignoreName keeps transient board files (.lock, *.tmp) out of git.
+	GitignoreName = ".gitignore"
 
 	// FormatVersion is the board format this binary reads and writes. Boards
 	// stamped with a newer version are refused on load.
@@ -50,6 +52,8 @@ const DefaultTaskTemplate = `## Summary
 `
 
 const gitattributesContent = "* text eol=lf\n"
+
+const gitignoreContent = ".lock\n*.tmp\n"
 
 var (
 	idRe       = regexp.MustCompile(`^(\d+)-`)
@@ -93,12 +97,15 @@ type Config struct {
 	Version         int             `yaml:"version"`
 	AutoCommit      bool            `yaml:"auto_commit"`
 	DepsEnforcement DepsEnforcement `yaml:"deps_enforcement"`
+	// MaxWIP caps how many active in_progress tasks one assignee may hold,
+	// enforced only by `north take` (0 = unlimited).
+	MaxWIP int `yaml:"max_wip"`
 }
 
 // DefaultConfig returns the defaults (current format version, auto_commit
-// false, deps validated).
+// false, deps validated, max_wip unlimited).
 func DefaultConfig() Config {
-	return Config{Version: FormatVersion, AutoCommit: false, DepsEnforcement: DepsValidated}
+	return Config{Version: FormatVersion, AutoCommit: false, DepsEnforcement: DepsValidated, MaxWIP: 0}
 }
 
 // LocateBoard walks up from start (default cwd) to find the "north/" board dir
@@ -183,7 +190,19 @@ func InitBoard(root string) (string, error) {
 			return "", err
 		}
 	}
+	giPath := filepath.Join(board, GitignoreName)
+	if _, err := os.Stat(giPath); os.IsNotExist(err) {
+		if err := WriteGitignore(board); err != nil {
+			return "", err
+		}
+	}
 	return board, nil
+}
+
+// WriteGitignore writes the board's .gitignore (".lock", "*.tmp"),
+// overwriting. Used by init and `doctor --fix`.
+func WriteGitignore(board string) error {
+	return os.WriteFile(filepath.Join(board, GitignoreName), []byte(gitignoreContent), 0o644)
 }
 
 // WriteGitattributes writes the board's .gitattributes ("* text eol=lf"),
@@ -238,6 +257,14 @@ func LoadConfig(board string) (Config, error) {
 			return cfg, errors.Invalid(fmt.Sprintf("%s: %v", path, err))
 		}
 		cfg.DepsEnforcement = level
+	}
+	if v, ok := raw["max_wip"]; ok {
+		n := toInt(v, -1)
+		if n < 0 {
+			return cfg, errors.Invalid(fmt.Sprintf(
+				"%s: max_wip must be a non-negative integer (got %v)", path, v))
+		}
+		cfg.MaxWIP = n
 	}
 	// A missing version key means a board from before the stamp existed — v1.
 	cfg.Version = toInt(raw["version"], FormatVersion)

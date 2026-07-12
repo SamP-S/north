@@ -99,6 +99,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newInitCmd(),
 		newTaskCmd(),
+		newNextCmd(),
+		newTakeCmd(),
 		newBoardCmd(),
 		newCleanupCmd(),
 		newDoctorCmd(),

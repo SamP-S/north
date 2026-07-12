@@ -83,7 +83,7 @@ where two branches each created the same id): they are detected on every load
 
 ## Board files
 
-Besides the state folders, `init` scaffolds three board-owned files (each
+Besides the state folders, `init` scaffolds four board-owned files (each
 written only when missing, so user edits survive re-init):
 
 - `config.yml` — discovery marker + settings, stamped `version: 1` (see
@@ -95,6 +95,10 @@ written only when missing, so user edits survive re-init):
   and North never parses it back.
 - `.gitattributes` (`* text eol=lf`) — keeps board files LF on every clone.
   `north doctor` warns when it is missing; `--fix` restores it.
+- `.gitignore` (`.lock`, `*.tmp`) — keeps the advisory lock and in-flight
+  temp files out of git, so a mutation in progress (or a crashed holder's
+  leftover lock) never shows up in `git status` or gets committed. Same
+  doctor warn/`--fix` treatment as `.gitattributes`.
 
 ## Dependencies
 
@@ -130,4 +134,5 @@ tolerant snapshot: a malformed task file becomes a *warning* naming the file
 (stderr, or `"warnings"` in `--json`) instead of an error — one bad file never
 takes down the board. `north doctor` reports (and `--fix` repairs where safe)
 malformed files, duplicate ids, filename/id drift, dangling `depends_on`,
-dependency cycles, CRLF files, and a missing `.gitattributes`.
+dependency cycles, CRLF files, and a missing `.gitattributes` or
+`.gitignore`.

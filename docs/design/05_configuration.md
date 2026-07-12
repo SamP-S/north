@@ -8,6 +8,7 @@ up looking for it) and the home for per-board settings.
 version: 1                   # board format stamp (read-only; written by init)
 auto_commit: false           # commit each board change locally (never pushes)
 deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
+max_wip: 0                   # per-assignee in_progress cap enforced by `take` (0 = unlimited)
 ```
 
 - `version` — the board format this North wrote. Loading a board with a
@@ -21,6 +22,13 @@ deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
   warns), `strict` (validated + `move done`/`in_progress` with unmet deps
   refused). Writes-only: changing the level never touches stored tasks. See
   the event matrix in [02_board-data-model.md](02_board-data-model.md).
+- `max_wip` — a non-negative integer capping how many **active
+  `in_progress`** tasks one assignee may hold, enforced **only by
+  `north take`** (a `conflict` naming the held ids). `0` (default) disables
+  the guard. Assignees compare case-insensitively ("Claude-A" and "claude-a"
+  are one agent), though the stored value keeps its casing. `task move <id> in_progress` is deliberately not gated — it
+  stays a pure freeform primitive; the cap is a claim-time guard (e.g. a
+  double-invoked agent grabbing two tasks), not a workflow rule.
 - `auto_commit` — when `true`, North shells out to the system `git` to
   `add` + `commit` the changed `north/…` files after each mutation; when
   `false` (default) it only writes/moves files and leaves git to you. Commits
@@ -73,8 +81,18 @@ tui:
   source only), and `north config get/set/list` stays board-scoped to
   `north/config.yml` — it does not read or write this file.
 
+## Environment: `NORTH_AGENT`
+The one environment variable North reads: the default for `take --assignee`
+(the flag overrides; neither set is an `invalid` error). It is a per-process
+identity convenience for the multi-agent workflow — each agent's shell/pane
+does `export NORTH_AGENT=claude-a` once — not configuration: it selects no
+board, changes no behaviour, and holds no state. Deliberately **not** a
+board-location override (a shell-scoped path variable would be a
+cross-project footgun; board discovery stays walk-up only).
+
 ## State
-North keeps no global board state — there is no daemon and no environment
-configuration. Board data lives entirely in the repo under `north/`; the
-one exception is the user-level TUI preference file above, which is
+North keeps no global board state — there is no daemon, and no environment
+variable configures behaviour (`NORTH_AGENT` above is an identity default,
+not configuration). Board data lives entirely in the repo under `north/`;
+the one exception is the user-level TUI preference file above, which is
 per-machine and deliberately outside the repo.

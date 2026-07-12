@@ -345,7 +345,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&state, "state", "", "filter by state: draft|active|archive|all (default active)")
 	cmd.Flags().StringVar(&search, "search", "", "filter by substring over id, title, assignee, labels, and body (case-insensitive)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (exact match; repeatable)")
-	cmd.Flags().StringVar(&assignee, "assignee", "", "filter by assignee (exact match; empty matches unassigned)")
+	cmd.Flags().StringVar(&assignee, "assignee", "", "filter by assignee (case-insensitive; empty matches unassigned)")
 	cmd.Flags().StringVar(&deps, "deps", "", "filter by dependency resolution: met|unmet (a dep resolves when done or archived)")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "sort by: id|updated|title|assignee (id/updated newest-first, title/assignee A→Z)")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
@@ -373,12 +373,12 @@ func filterSearch(ts []*models.Task, q string) []*models.Task {
 	return out
 }
 
-// filterAssignee keeps tasks whose assignee matches exactly ("" matches
-// unassigned tasks).
+// filterAssignee keeps tasks whose assignee matches case-insensitively
+// ("" matches unassigned tasks).
 func filterAssignee(ts []*models.Task, assignee string) []*models.Task {
 	out := make([]*models.Task, 0, len(ts))
 	for _, t := range ts {
-		if t.Assignee == assignee {
+		if strings.EqualFold(t.Assignee, assignee) {
 			out = append(out, t)
 		}
 	}
