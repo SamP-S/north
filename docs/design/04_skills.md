@@ -25,8 +25,9 @@ north skill check [--global]           # compare installed version stamps agains
   `.claude/skills`, so the Claude install covers it too; we write both for clarity.
 
 The skill body covers the two-axis model (freeform state + status moves), the
-command surface, a typical agent work loop (list ready → view → move
-in_progress → append results → move done/failed/blocked), the
+command surface, a typical agent work loop (take → view → append results →
+move done/failed/blocked, with `take` as the only claim path — never
+`list` + `move`, which races against other agents), the
 `--append-body`-vs-`--body` distinction, and the `--plain`/`--json` output and
 error contract. `north init` does **not** write an `AGENTS.md` — the skill is
 the single source of agent guidance.
