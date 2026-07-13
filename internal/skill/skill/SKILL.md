@@ -116,9 +116,17 @@ escape newlines in `--body`. `--labels`/`--depends-on` replace the full list
 Picking work (multi-agent safe):
 
 ```bash
-north next [--label L] [--plain | --json]                 # peek at the next workable task (read-only)
-north take [--assignee A] [--label L] [--plain | --json]  # claim it atomically (assignee falls back to $NORTH_AGENT)
+north next [-l N] [--label L] [--plain | --json]               # peek at the next workable task(s), read-only
+north take [id] [--assignee A] [--label L] [--plain | --json]  # claim atomically (assignee falls back to $NORTH_AGENT)
 ```
+
+`next -l 3` previews the next 3 in take order (`{"tasks": […]}` under
+`--json`). `take <id>` claims a specific task instead of the queue head —
+refused (`conflict`) unless it is active, ready, unassigned, and its
+dependencies are met; never steal a refused task by editing around the
+error. When the user resets a task with `move <id> ready`, its assignee must
+also be cleared (`edit <id> --assignee ""`) or `next`/`take` will never
+offer it — north warns when this happens.
 
 Query and maintenance:
 
@@ -126,7 +134,7 @@ Query and maintenance:
 north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--deps met|unmet] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
 north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
-north cleanup [--older-than DAYS]     # archive active 'done' tasks
+north cleanup [--older-than DAYS] [--dry-run]   # archive active 'done' tasks (--dry-run previews)
 north doctor [--fix]                  # board integrity check (duplicates, cycles, bad files)
 north config get|set|list             # board settings (auto_commit, deps_enforcement, max_wip)
 ```

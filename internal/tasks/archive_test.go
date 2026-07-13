@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SamP-S/north/internal/board"
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
 )
@@ -105,7 +106,19 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	archived, err := tasks.Cleanup(boardDir, 0)
+	// Dry run first: reports the candidate without touching anything.
+	would, err := tasks.Cleanup(boardDir, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(would) != 1 || would[0].ID != "1" || would[0].State != models.StateActive {
+		t.Errorf("dry-run candidates: %v", would)
+	}
+	if fresh, err := tasks.Get(boardDir, "1"); err != nil || fresh.State != models.StateActive {
+		t.Errorf("dry run mutated the board: %v %v", fresh, err)
+	}
+
+	archived, err := tasks.Cleanup(boardDir, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,5 +128,26 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 	active := list(t, boardDir, []models.TaskState{models.StateActive}, "")
 	if len(active) != 1 || active[0].ID != "2" {
 		t.Errorf("active: %v", active)
+	}
+}
+
+// TestCleanupHoldsLock: a held board lock blocks a real cleanup (conflict
+// after the retry budget) but never a dry run, which is read-only.
+func TestCleanupHoldsLock(t *testing.T) {
+	boardDir := newBoard(t)
+	mustActive(t, boardDir, "done one")
+	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := board.Lock(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if _, err := tasks.Cleanup(boardDir, 0, true); err != nil {
+		t.Fatalf("dry run should not need the lock: %v", err)
+	}
+	if _, err := tasks.Cleanup(boardDir, 0, false); !isBoardErr(err, "conflict") {
+		t.Fatalf("expected conflict while locked, got %v", err)
 	}
 }

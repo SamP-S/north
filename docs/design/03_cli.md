@@ -32,10 +32,10 @@ array (batch payloads too).
 | `north task move <id[,id…]> <status> [--plain \| --json]` | Set status, in place (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive> [--plain \| --json]` | Move tasks between lifecycle folders, preserving status (any → any) |
 | `north task delete <id[,id…]> [-y/--yes] [--plain \| --json]` | Delete tasks. With `--plain`/`--json`, non-TTY stdin, or a batch, `-y` is required (no prompt) |
-| `north next [--label L] [--plain \| --json]` | Show the next **workable** task (active, `ready`, unassigned, deps met, lowest id; `--label` narrows, repeatable). Pure read. No workable task is a normal outcome: exit 0, `{"task": null}` under `--json`, empty output under `--plain` |
-| `north take [--assignee A] [--label L] [--plain \| --json]` | Atomically claim the next workable task: same pick as `next`, then `status=in_progress` + `assignee` in **one write under one lock hold**, so concurrent takes get different tasks. Assignee falls back to `$NORTH_AGENT`; neither set is `invalid`. Refuses (`conflict`) when the assignee already holds `max_wip` active `in_progress` tasks (`max_wip > 0`). Same empty-result contract as `next` |
+| `north next [-l/--limit N] [--label L] [--plain \| --json]` | Show the next **workable** task (active, `ready`, unassigned, deps met, lowest id; `--label` narrows, repeatable). Pure read. No workable task is a normal outcome: exit 0, `{"task": null}` under `--json`, empty output under `--plain`. `--limit N` (≥ 2) shows the next N in take order, rendered as a task list (`{"tasks": […]}` under `--json`); `--limit < 1` is `invalid` |
+| `north take [id] [--assignee A] [--label L] [--plain \| --json]` | Atomically claim the next workable task: same pick as `next`, then `status=in_progress` + `assignee` in **one write under one lock hold**, so concurrent takes get different tasks. With `id`, claim that specific task instead — refused (`conflict`, naming the reason) unless it is active + `ready` + unassigned + deps met (no steal, no overrides; unknown id is `not_found`; `--label` with an id is `invalid`). Assignee falls back to `$NORTH_AGENT`; neither set is `invalid`. Refuses (`conflict`) when the assignee already holds `max_wip` active `in_progress` tasks (`max_wip > 0`). Same empty-result contract as `next` (queue mode only) |
 | `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
-| `north cleanup [--older-than DAYS] [--plain \| --json]` | Archive active `done` tasks |
+| `north cleanup [--older-than DAYS] [--dry-run] [--plain \| --json]` | Archive active `done` tasks. The board lock is held for the whole run (snapshot + every archive), so a concurrent status change can never be archived stale. `--dry-run` lists what would be archived without locking or writing |
 | `north doctor [--fix] [--plain \| --json]` | Board integrity check; exits non-zero (`conflict`) when unfixed issues remain |
 | `north config list \| get <key> \| set <key> <value>` | Read/write `north/config.yml` settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` is read-only — `set` refuses it) |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
@@ -62,7 +62,9 @@ the same task. `take` selects and claims under a single lock hold, so
 concurrent takes hand out different tasks. There is no claim data model:
 `assignee` + `status: in_progress` *is* the claim, and it never expires — a
 crashed agent's task stays claimed until a human/orchestrator resets it
-(`north task move <id> ready`). Live coordination requires all agents to
+(`north task move <id> ready` **and** `edit --assignee ""` — a ready task
+that keeps its assignee is invisible to `next`/`take`, so `move` to `ready`
+warns while an assignee is set). Live coordination requires all agents to
 share **one physical `north/` directory** (one checkout); across git
 worktrees each checkout has its own board copy, so partition work up front
 (e.g. by `--label`) and reconcile at merge (`doctor --fix` heals duplicate

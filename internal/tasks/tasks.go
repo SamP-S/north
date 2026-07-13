@@ -462,6 +462,14 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []strin
 	if err != nil {
 		return nil, nil, err
 	}
+	// A ready task that keeps its assignee is invisible to next/take (they
+	// only offer unassigned work) — surface that so a crash-recovery reset
+	// doesn't silently starve the task.
+	if target == models.Ready && task.Assignee != "" {
+		warns = append(warns, fmt.Sprintf(
+			"task %s is still assigned to %q; next/take will not offer it (clear with `north task edit %s --assignee \"\"`)",
+			task.ID, task.Assignee, task.ID))
+	}
 	task.Status = target
 	n := now()
 	task.UpdatedAt = &n
@@ -498,25 +506,43 @@ func SetState(boardDir, taskID string, newState string) (*models.Task, error) {
 	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → %s", task.ID, target))
 }
 
-// Cleanup archives active done tasks (optionally only those older than N days).
-// olderThanDays <= 0 means archive all active done tasks.
-func Cleanup(boardDir string, olderThanDays int) ([]*models.Task, error) {
+// Cleanup archives active done tasks (optionally only those older than N
+// days; olderThanDays <= 0 means all). The lock is held for the whole run —
+// snapshot and every archive write — so a task moved off done by a
+// concurrent process mid-run can never be archived stale. With dryRun the
+// candidates are returned without locking or writing anything.
+func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, error) {
 	var cutoff *time.Time
 	if olderThanDays > 0 {
 		c := now().Add(-time.Duration(olderThanDays) * 24 * time.Hour)
 		cutoff = &c
 	}
+	if !dryRun {
+		unlock, err := board.Lock(boardDir)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, err
 	}
-	done := snap.Filter([]models.TaskState{models.StateActive}, string(models.Done))
 	var archived []*models.Task
-	for _, task := range done {
+	for _, task := range snap.Filter([]models.TaskState{models.StateActive}, string(models.Done)) {
 		if cutoff != nil && (task.UpdatedAt == nil || task.UpdatedAt.After(*cutoff)) {
 			continue
 		}
-		a, err := SetState(boardDir, task.ID, string(models.StateArchive))
+		if dryRun {
+			archived = append(archived, task)
+			continue
+		}
+		// Save directly — we already hold the lock, so SetState would deadlock.
+		oldPath := task.Path
+		task.State = models.StateArchive
+		n := now()
+		task.UpdatedAt = &n
+		a, err := save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → archive", task.ID))
 		if err != nil {
 			return nil, err
 		}

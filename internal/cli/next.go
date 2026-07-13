@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/SamP-S/north/internal/board"
+	nerrors "github.com/SamP-S/north/internal/errors"
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
@@ -58,31 +59,76 @@ func printPickResult(cmd *cobra.Command, task *models.Task, warnings []tasks.War
 func newNextCmd() *cobra.Command {
 	var plain, asJSON bool
 	var labels []string
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "next",
-		Short: "show the next workable task (read-only)",
+		Short: "show the next workable task(s) (read-only)",
 		Long: "Show the next workable task: active, status ready, unassigned, all\n" +
 			"dependencies met, lowest id first. A pure read — nothing is claimed.\n" +
 			"No workable task is a normal outcome: exit 0 with {\"task\": null}\n" +
-			"under --json, empty output under --plain.",
+			"under --json, empty output under --plain. With -l/--limit N (N ≥ 2)\n" +
+			"the next N tasks are shown in take order, rendered as a task list\n" +
+			"({\"tasks\": […]} under --json).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if limit < 1 {
+				return nerrors.Invalid(fmt.Sprintf("--limit must be at least 1 (got %d)", limit))
+			}
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			task, warnings, err := tasks.Next(boardDir, labels)
+			picked, warnings, err := tasks.Next(boardDir, labels, limit)
 			if err != nil {
 				return err
+			}
+			if limit > 1 {
+				return printPickList(cmd, picked, warnings, plain, asJSON)
+			}
+			var task *models.Task
+			if len(picked) > 0 {
+				task = picked[0]
 			}
 			return printPickResult(cmd, task, warnings, plain, asJSON, func(t *models.Task) string {
 				return fmt.Sprintf("Next: %s — %s", t.ID, t.Title)
 			})
 		},
 	}
+	cmd.Flags().IntVarP(&limit, "limit", "l", 1, "how many workable tasks to show, in take order")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "only consider tasks carrying this label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
+}
+
+// printPickList renders next --limit N output as a task list. Snapshot
+// warnings follow the list convention; an empty pick is exit 0 with
+// {"tasks": []} under --json, no rows otherwise.
+func printPickList(cmd *cobra.Command, picked []*models.Task, warnings []tasks.Warning, plain, asJSON bool) error {
+	if !asJSON {
+		printWarnings(cmd, warnings)
+	}
+	if asJSON {
+		warns := make([]string, len(warnings))
+		for i, w := range warnings {
+			warns[i] = w.String()
+		}
+		data, err := json.MarshalIndent(map[string]any{"tasks": taskMaps(picked), "warnings": warns}, "", "  ")
+		if err != nil {
+			return err
+		}
+		cmd.Println(string(data))
+		return nil
+	}
+	if len(picked) == 0 && !plain {
+		cmd.Println("No workable task.")
+		return nil
+	}
+	out, err := render.TaskList(picked, warnings, plain, false)
+	if err != nil {
+		return err
+	}
+	cmd.Println(out)
+	return nil
 }
 
 func newTakeCmd() *cobra.Command {
@@ -90,25 +136,35 @@ func newTakeCmd() *cobra.Command {
 	var assignee string
 	var labels []string
 	cmd := &cobra.Command{
-		Use:   "take",
-		Short: "atomically claim the next workable task",
+		Use:   "take [id]",
+		Short: "atomically claim the next workable task (or a specific one)",
 		Long: "Select the next workable task (same pick as `north next`) and claim it —\n" +
 			"status in_progress plus assignee, in one write under the board lock — so\n" +
-			"concurrent takes get different tasks. The assignee comes from --assignee,\n" +
-			"falling back to the NORTH_AGENT environment variable. When the board's\n" +
-			"max_wip is set (> 0), take refuses (conflict) while the assignee already\n" +
-			"holds that many in_progress tasks. No workable task is a normal outcome:\n" +
-			"exit 0 with {\"task\": null} under --json, empty output under --plain.",
-		Args: noArgs,
+			"concurrent takes get different tasks. With an id, claim that specific task\n" +
+			"instead: refused (conflict) unless it is active, ready, unassigned, and its\n" +
+			"dependencies are met — no steal, no overrides. The assignee comes from\n" +
+			"--assignee, falling back to the NORTH_AGENT environment variable. When the\n" +
+			"board's max_wip is set (> 0), take refuses (conflict) while the assignee\n" +
+			"already holds that many in_progress tasks. No workable task is a normal\n" +
+			"outcome: exit 0 with {\"task\": null} under --json, empty output under\n" +
+			"--plain.",
+		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
+			taskID := ""
+			if len(args) == 1 {
+				taskID = args[0]
+				if len(labels) > 0 {
+					return nerrors.Invalid("--label cannot be combined with an explicit task id")
+				}
+			}
 			if !cmd.Flags().Changed("assignee") {
 				assignee = os.Getenv("NORTH_AGENT")
 			}
-			task, warnings, err := tasks.Take(boardDir, assignee, labels)
+			task, warnings, err := tasks.Take(boardDir, assignee, taskID, labels)
 			if err != nil {
 				return err
 			}

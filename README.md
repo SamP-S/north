@@ -109,10 +109,10 @@ Malformed files never break the board — they surface as warnings, and
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
-| `north next [--label L]` | Show the next workable task (active, ready, unassigned, deps met) — read-only |
-| `north take [--assignee A] [--label L]` | Atomically claim the next workable task (`in_progress` + assignee, one lock hold); assignee falls back to `$NORTH_AGENT` |
+| `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met) — read-only |
+| `north take [id] [--assignee A] [--label L]` | Atomically claim the next workable task — or a specific id (refused unless it's workable) — `in_progress` + assignee in one lock hold; assignee falls back to `$NORTH_AGENT` |
 | `north board` | Active counts per status + draft/archive tally |
-| `north cleanup [--older-than DAYS]` | Archive active done tasks |
+| `north cleanup [--older-than DAYS] [--dry-run]` | Archive active done tasks (`--dry-run` previews) |
 | `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes/.gitignore) |
 | `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` is read-only) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |

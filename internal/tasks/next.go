@@ -39,10 +39,11 @@ func hasLabels(t *models.Task, labels []string) bool {
 	return true
 }
 
-// nextWorkable returns the first workable task in the snapshot, or nil.
-// Snapshot order is state then ascending id, so this is the lowest-id
-// active+ready+unassigned+deps-met task matching the labels.
-func nextWorkable(snap *Snapshot, labels []string) *models.Task {
+// workable returns up to limit workable tasks in take order (limit <= 0
+// means all). Snapshot order is state then ascending id, so the first entry
+// is the lowest-id active+ready+unassigned+deps-met task matching the labels.
+func workable(snap *Snapshot, labels []string, limit int) []*models.Task {
+	var out []*models.Task
 	for _, t := range snap.Tasks {
 		if t.State != models.StateActive || t.Status != models.Ready {
 			continue
@@ -53,30 +54,57 @@ func nextWorkable(snap *Snapshot, labels []string) *models.Task {
 		if len(snap.UnmetDeps(t)) > 0 {
 			continue
 		}
-		return t
+		out = append(out, t)
+		if limit > 0 && len(out) == limit {
+			break
+		}
 	}
-	return nil
+	return out
 }
 
-// Next returns the next workable task without touching anything (a pure
-// read). A nil task with a nil error means nothing is workable — a normal
-// outcome, not a failure. The snapshot warnings are returned alongside.
-func Next(boardDir string, labels []string) (*models.Task, []Warning, error) {
+// Next returns up to limit workable tasks in take order without touching
+// anything (a pure read; limit <= 0 means all). An empty result with a nil
+// error means nothing is workable — a normal outcome, not a failure. The
+// snapshot warnings are returned alongside.
+func Next(boardDir string, labels []string, limit int) ([]*models.Task, []Warning, error) {
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
-	return nextWorkable(snap, labels), snap.Warnings, nil
+	return workable(snap, labels, limit), snap.Warnings, nil
 }
 
-// Take atomically selects the next workable task and claims it for assignee:
-// selection, status=in_progress, and the assignee are all applied under one
-// board-lock hold, so concurrent Takes hand out different tasks. A nil task
-// with a nil error means nothing is workable. When the board's max_wip is
-// set (> 0) and assignee already holds that many active in_progress tasks,
-// Take refuses with a conflict. Selection only offers deps-met tasks, so no
-// additional dependency enforcement applies.
-func Take(boardDir, assignee string, labels []string) (*models.Task, []Warning, error) {
+// claimable refuses (Conflict) unless t could be handed out by take: active,
+// ready, unassigned, and — beyond what selection needs — deps met.
+func claimable(snap *Snapshot, t *models.Task) error {
+	switch {
+	case t.State != models.StateActive:
+		return errors.Conflict(fmt.Sprintf(
+			"task %s is %s — activate it first (`north task state %s active`)", t.ID, t.State, t.ID))
+	case t.Status != models.Ready:
+		return errors.Conflict(fmt.Sprintf("task %s is %s, not ready", t.ID, t.Status))
+	case t.Assignee != "":
+		return errors.Conflict(fmt.Sprintf("task %s is already assigned to %q", t.ID, t.Assignee))
+	}
+	if unmet := snap.UnmetDeps(t); len(unmet) > 0 {
+		return errors.Conflict(fmt.Sprintf(
+			"task %s has unmet dependencies: %s", t.ID, strings.Join(unmet, ", ")))
+	}
+	return nil
+}
+
+// Take atomically claims a task for assignee: selection/validation,
+// status=in_progress, and the assignee are all applied under one board-lock
+// hold, so concurrent Takes hand out different tasks. With taskID empty the
+// next workable task is selected — a nil task with a nil error means nothing
+// is workable. With taskID set, that specific task is claimed instead:
+// unknown ids are NotFound, and a task take could not have selected (not
+// active, not ready, already assigned, unmet deps) is refused with a
+// Conflict naming the reason — no steal, no overrides. When the board's
+// max_wip is set (> 0) and assignee already holds that many active
+// in_progress tasks, Take refuses with a conflict. Only deps-met tasks are
+// ever claimed, so no additional dependency enforcement applies.
+func Take(boardDir, assignee, taskID string, labels []string) (*models.Task, []Warning, error) {
 	if strings.TrimSpace(assignee) == "" {
 		return nil, nil, errors.Invalid("take needs an assignee (pass --assignee or set NORTH_AGENT)")
 	}
@@ -108,9 +136,21 @@ func Take(boardDir, assignee string, labels []string) (*models.Task, []Warning, 
 				assignee, len(held), cfg.MaxWIP, strings.Join(held, ", ")))
 		}
 	}
-	task := nextWorkable(snap, labels)
-	if task == nil {
-		return nil, snap.Warnings, nil
+	var task *models.Task
+	if taskID != "" {
+		task = snap.Get(taskID)
+		if task == nil {
+			return nil, nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
+		}
+		if err := claimable(snap, task); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		picked := workable(snap, labels, 1)
+		if len(picked) == 0 {
+			return nil, snap.Warnings, nil
+		}
+		task = picked[0]
 	}
 	task.Status = models.InProgress
 	task.Assignee = assignee

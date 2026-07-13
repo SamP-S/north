@@ -82,6 +82,95 @@ func TestCLINextAndTake(t *testing.T) {
 	}
 }
 
+func TestCLITakeSpecificID(t *testing.T) {
+	dir := pickBoard(t)
+	if out, err := run(t, dir, "task", "create", "Second task"); err != nil {
+		t.Fatalf("create: %v (%s)", err, out)
+	}
+	if out, err := run(t, dir, "task", "state", "2", "active"); err != nil {
+		t.Fatalf("state: %v (%s)", err, out)
+	}
+
+	out, err := run(t, dir, "take", "2", "--assignee", "agent-a", "--json")
+	if err != nil {
+		t.Fatalf("take 2: %v (%s)", err, out)
+	}
+	if task := pickJSON(t, out); task == nil || task["id"] != "2" || task["status"] != "in_progress" {
+		t.Fatalf("unexpected payload: %v", task)
+	}
+	// Taken → conflict; --label with an id → invalid.
+	_, err = run(t, dir, "take", "2", "--assignee", "agent-b")
+	if be, ok := nerrors.As(err); !ok || be.Code() != "conflict" {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	_, err = run(t, dir, "take", "1", "--assignee", "agent-b", "--label", "x")
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("expected invalid for --label with id, got %v", err)
+	}
+}
+
+func TestCLINextLimit(t *testing.T) {
+	dir := pickBoard(t)
+	if out, err := run(t, dir, "task", "create", "Second task"); err != nil {
+		t.Fatalf("create: %v (%s)", err, out)
+	}
+	if out, err := run(t, dir, "task", "state", "2", "active"); err != nil {
+		t.Fatalf("state: %v (%s)", err, out)
+	}
+
+	out, err := run(t, dir, "next", "-l", "3", "--json")
+	if err != nil {
+		t.Fatalf("next -l 3: %v (%s)", err, out)
+	}
+	var payload struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Tasks) != 2 || payload.Tasks[0]["id"] != "1" || payload.Tasks[1]["id"] != "2" {
+		t.Fatalf("unexpected tasks: %v", payload.Tasks)
+	}
+	// Plain renders list rows; limit 0 is invalid.
+	if out, err := run(t, dir, "next", "-l", "2", "--plain"); err != nil || len(strings.Split(strings.TrimSpace(out), "\n")) != 2 {
+		t.Fatalf("plain rows: %v (%q)", err, out)
+	}
+	_, err = run(t, dir, "next", "-l", "0")
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("expected invalid for -l 0, got %v", err)
+	}
+}
+
+func TestCLICleanupDryRun(t *testing.T) {
+	dir := pickBoard(t)
+	if out, err := run(t, dir, "task", "move", "1", "done"); err != nil {
+		t.Fatalf("move: %v (%s)", err, out)
+	}
+	out, err := run(t, dir, "cleanup", "--dry-run")
+	if err != nil || !strings.Contains(out, "Would archive 1 done task(s): 1") {
+		t.Fatalf("dry run: %v (%q)", err, out)
+	}
+	// Nothing moved.
+	out, err = run(t, dir, "task", "view", "1", "--json")
+	if err != nil || !strings.Contains(out, `"state": "active"`) {
+		t.Fatalf("dry run mutated: %v (%s)", err, out)
+	}
+	if out, err := run(t, dir, "cleanup"); err != nil || !strings.Contains(out, "Archived 1 done task(s): 1") {
+		t.Fatalf("real cleanup: %v (%q)", err, out)
+	}
+}
+
+func TestCLIMoveReadyAssignedWarns(t *testing.T) {
+	dir := pickBoard(t)
+	if out, err := run(t, dir, "take", "--assignee", "agent-a"); err != nil {
+		t.Fatalf("take: %v (%s)", err, out)
+	}
+	out, err := run(t, dir, "task", "move", "1", "ready")
+	if err != nil || !strings.Contains(out, "still assigned to \"agent-a\"") {
+		t.Fatalf("expected still-assigned warning: %v (%q)", err, out)
+	}
+}
+
 func TestCLITakeAssigneeFromEnv(t *testing.T) {
 	dir := pickBoard(t)
 	t.Setenv("NORTH_AGENT", "env-agent")

@@ -71,6 +71,15 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func maxArgs(n int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := cobra.MaximumNArgs(n)(cmd, args); err != nil {
+			return nerrors.Invalid(err.Error())
+		}
+		return nil
+	}
+}
+
 // jsonRequested reports whether the executed command was invoked with --json.
 func jsonRequested(cmd *cobra.Command) bool {
 	if cmd == nil {

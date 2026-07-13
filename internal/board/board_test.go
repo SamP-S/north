@@ -240,3 +240,24 @@ func TestLoadConfigStringBool(t *testing.T) {
 		t.Error("string 'true' should parse as true")
 	}
 }
+
+// TestScaffoldedConfigMatchesDefaults guards the commented config.yml
+// template against drifting from DefaultConfig: the file init writes must
+// load back as exactly the defaults.
+func TestScaffoldedConfigMatchesDefaults(t *testing.T) {
+	boardDir := newBoard(t)
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != board.DefaultConfig() {
+		t.Errorf("scaffolded config loads as %+v, defaults are %+v", cfg, board.DefaultConfig())
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, board.ConfigName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "#") {
+		t.Error("scaffolded config.yml carries no comments")
+	}
+}

@@ -44,7 +44,7 @@ func newBoardCmd() *cobra.Command {
 
 func newCleanupCmd() *cobra.Command {
 	var olderThan int
-	var plain, asJSON bool
+	var dryRun, plain, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "archive done tasks",
@@ -54,7 +54,7 @@ func newCleanupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			archived, err := tasks.Cleanup(boardDir, olderThan)
+			archived, err := tasks.Cleanup(boardDir, olderThan, dryRun)
 			if err != nil {
 				return err
 			}
@@ -74,11 +74,16 @@ func newCleanupCmd() *cobra.Command {
 			for i, t := range archived {
 				ids[i] = t.ID
 			}
+			if dryRun {
+				cmd.Printf("Would archive %d done task(s): %s\n", len(archived), strings.Join(ids, ", "))
+				return nil
+			}
 			cmd.Printf("Archived %d done task(s): %s\n", len(archived), strings.Join(ids, ", "))
 			return nil
 		},
 	}
 	cmd.Flags().IntVar(&olderThan, "older-than", 0, "only archive done tasks older than DAYS")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be archived without changing anything")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }

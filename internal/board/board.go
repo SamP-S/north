@@ -55,6 +55,19 @@ const gitattributesContent = "* text eol=lf\n"
 
 const gitignoreContent = ".lock\n*.tmp\n"
 
+// defaultConfigContent is the commented config.yml init scaffolds — the
+// valid values live in the file itself (the same discoverability story as
+// the user-level TUI config). Comments survive until the first
+// `north config set`, which rewrites the file plain; the header says so.
+// Values must match DefaultConfig.
+const defaultConfigContent = `# north board settings — read/write with ` + "`north config get|set|list`" + `
+# (note: ` + "`north config set`" + ` rewrites this file without comments)
+version: 1                   # board format stamp (read-only)
+auto_commit: false           # commit each board change locally (never pushes/pulls)
+deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
+max_wip: 0                   # per-assignee in_progress cap enforced by ` + "`north take`" + ` (0 = unlimited)
+`
+
 var (
 	idRe       = regexp.MustCompile(`^(\d+)-`)
 	taskFileRe = regexp.MustCompile(`^\d+-.*\.md$`)
@@ -174,7 +187,7 @@ func InitBoard(root string) (string, error) {
 	}
 	configPath := filepath.Join(board, ConfigName)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if _, err := WriteConfig(board, DefaultConfig()); err != nil {
+		if err := os.WriteFile(configPath, []byte(defaultConfigContent), 0o644); err != nil {
 			return "", err
 		}
 	}

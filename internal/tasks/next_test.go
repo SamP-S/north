@@ -2,6 +2,7 @@ package tasks_test
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -10,17 +11,26 @@ import (
 	"github.com/SamP-S/north/internal/tasks"
 )
 
+// nextOne returns the single next workable task (nil when none).
+func nextOne(t *testing.T, boardDir string, labels []string) *models.Task {
+	t.Helper()
+	picked, _, err := tasks.Next(boardDir, labels, 1)
+	if err != nil {
+		t.Fatalf("next: %v", err)
+	}
+	if len(picked) == 0 {
+		return nil
+	}
+	return picked[0]
+}
+
 func TestNextPicksLowestWorkable(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "still a draft") // 1 — not active, never picked
 	a := mustActive(t, boardDir, "first active")
 	b := mustActive(t, boardDir, "second active")
 
-	got, _, err := tasks.Next(boardDir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.ID != a.ID {
+	if got := nextOne(t, boardDir, nil); got == nil || got.ID != a.ID {
 		t.Fatalf("expected %s, got %+v", a.ID, got)
 	}
 
@@ -28,12 +38,17 @@ func TestNextPicksLowestWorkable(t *testing.T) {
 	if _, _, err := tasks.SetStatus(boardDir, a.ID, "in_progress"); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err = tasks.Next(boardDir, nil)
+	if got := nextOne(t, boardDir, nil); got == nil || got.ID != b.ID {
+		t.Fatalf("expected %s, got %+v", b.ID, got)
+	}
+
+	// --limit style: both remaining ready tasks in take order.
+	picked, _, err := tasks.Next(boardDir, nil, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got == nil || got.ID != b.ID {
-		t.Fatalf("expected %s, got %+v", b.ID, got)
+	if len(picked) != 1 || picked[0].ID != b.ID {
+		t.Fatalf("expected [%s], got %d tasks", b.ID, len(picked))
 	}
 }
 
@@ -53,11 +68,7 @@ func TestNextSkipsAssignedAndUnmetDeps(t *testing.T) {
 	}
 
 	// assigned is owned, blocker is in_progress, dependent waits → nothing.
-	got, _, err := tasks.Next(boardDir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
+	if got := nextOne(t, boardDir, nil); got != nil {
 		t.Fatalf("expected no workable task, got %s", got.ID)
 	}
 
@@ -65,11 +76,7 @@ func TestNextSkipsAssignedAndUnmetDeps(t *testing.T) {
 	if _, _, err := tasks.SetStatus(boardDir, blocker.ID, "done"); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err = tasks.Next(boardDir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.ID != dependent.ID {
+	if got := nextOne(t, boardDir, nil); got == nil || got.ID != dependent.ID {
 		t.Fatalf("expected %s, got %+v", dependent.ID, got)
 	}
 }
@@ -85,18 +92,10 @@ func TestNextLabelFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, _, err := tasks.Next(boardDir, []string{"backend", "api"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.ID != labelled.ID {
+	if got := nextOne(t, boardDir, []string{"backend", "api"}); got == nil || got.ID != labelled.ID {
 		t.Fatalf("expected %s, got %+v", labelled.ID, got)
 	}
-	got, _, err = tasks.Next(boardDir, []string{"frontend"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
+	if got := nextOne(t, boardDir, []string{"frontend"}); got != nil {
 		t.Fatalf("expected no match, got %s", got.ID)
 	}
 }
@@ -105,7 +104,7 @@ func TestTakeClaimsAtomically(t *testing.T) {
 	boardDir := newBoard(t)
 	a := mustActive(t, boardDir, "claim me")
 
-	got, _, err := tasks.Take(boardDir, "agent-1", nil)
+	got, _, err := tasks.Take(boardDir, "agent-1", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +124,7 @@ func TestTakeClaimsAtomically(t *testing.T) {
 	}
 
 	// Nothing left → nil task, nil error.
-	got, _, err = tasks.Take(boardDir, "agent-2", nil)
+	got, _, err = tasks.Take(boardDir, "agent-2", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +135,7 @@ func TestTakeClaimsAtomically(t *testing.T) {
 
 func TestTakeRequiresAssignee(t *testing.T) {
 	boardDir := newBoard(t)
-	if _, _, err := tasks.Take(boardDir, "  ", nil); !isBoardErr(err, "invalid") {
+	if _, _, err := tasks.Take(boardDir, "  ", "", nil); !isBoardErr(err, "invalid") {
 		t.Fatalf("expected invalid, got %v", err)
 	}
 }
@@ -157,7 +156,7 @@ func TestTakeConcurrentDistinct(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			got[i], _, errs[i] = tasks.Take(boardDir, fmt.Sprintf("agent-%d", i), nil)
+			got[i], _, errs[i] = tasks.Take(boardDir, fmt.Sprintf("agent-%d", i), "", nil)
 		}(i)
 	}
 	wg.Wait()
@@ -195,18 +194,18 @@ func TestTakeMaxWIP(t *testing.T) {
 	first := mustActive(t, boardDir, "first")
 	mustActive(t, boardDir, "second")
 
-	if _, _, err := tasks.Take(boardDir, "agent-1", nil); err != nil {
+	if _, _, err := tasks.Take(boardDir, "agent-1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	// At the cap → conflict; assignees match case-insensitively; another
 	// assignee is unaffected.
-	if _, _, err := tasks.Take(boardDir, "agent-1", nil); !isBoardErr(err, "conflict") {
+	if _, _, err := tasks.Take(boardDir, "agent-1", "", nil); !isBoardErr(err, "conflict") {
 		t.Fatalf("expected conflict, got %v", err)
 	}
-	if _, _, err := tasks.Take(boardDir, "Agent-1", nil); !isBoardErr(err, "conflict") {
+	if _, _, err := tasks.Take(boardDir, "Agent-1", "", nil); !isBoardErr(err, "conflict") {
 		t.Fatalf("expected case-insensitive conflict, got %v", err)
 	}
-	if _, _, err := tasks.Take(boardDir, "agent-2", nil); err != nil {
+	if _, _, err := tasks.Take(boardDir, "agent-2", "", nil); err != nil {
 		t.Fatalf("other assignee blocked: %v", err)
 	}
 	// Finishing frees the slot.
@@ -214,8 +213,79 @@ func TestTakeMaxWIP(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustActive(t, boardDir, "third")
-	if _, _, err := tasks.Take(boardDir, "agent-1", nil); err != nil {
+	if _, _, err := tasks.Take(boardDir, "agent-1", "", nil); err != nil {
 		t.Fatalf("take after done: %v", err)
+	}
+}
+
+func TestTakeSpecificID(t *testing.T) {
+	boardDir := newBoard(t)
+	draft := mustCreate(t, boardDir, "still a draft")
+	a := mustActive(t, boardDir, "target")
+	b := mustActive(t, boardDir, "other")
+
+	// Claim b explicitly even though a is the queue head.
+	got, _, err := tasks.Take(boardDir, "agent-1", b.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != b.ID || got.Status != models.InProgress || got.Assignee != "agent-1" {
+		t.Fatalf("unexpected claim: %+v", got)
+	}
+
+	// Every non-claimable shape is refused with a conflict; unknown is not_found.
+	if _, _, err := tasks.Take(boardDir, "agent-2", b.ID, nil); !isBoardErr(err, "conflict") {
+		t.Fatalf("already-taken should conflict, got %v", err)
+	}
+	if _, _, err := tasks.Take(boardDir, "agent-2", draft.ID, nil); !isBoardErr(err, "conflict") {
+		t.Fatalf("draft should conflict, got %v", err)
+	}
+	if _, _, err := tasks.Take(boardDir, "agent-2", "999", nil); !isBoardErr(err, "not_found") {
+		t.Fatalf("unknown id should be not_found, got %v", err)
+	}
+	assigned := mustActive(t, boardDir, "pre-assigned")
+	if _, _, err := tasks.Edit(boardDir, assigned.ID, tasks.EditOpts{Assignee: strPtr("human")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tasks.Take(boardDir, "agent-2", assigned.ID, nil); !isBoardErr(err, "conflict") {
+		t.Fatalf("assigned should conflict (no steal), got %v", err)
+	}
+	waiting := mustActive(t, boardDir, "waiting")
+	if _, _, err := tasks.Edit(boardDir, waiting.ID, tasks.EditOpts{DependsOn: &[]string{a.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tasks.Take(boardDir, "agent-2", waiting.ID, nil); !isBoardErr(err, "conflict") {
+		t.Fatalf("unmet deps should conflict, got %v", err)
+	}
+}
+
+func TestMoveReadyWarnsWhenAssigned(t *testing.T) {
+	boardDir := newBoard(t)
+	mustActive(t, boardDir, "claim me")
+	got, _, err := tasks.Take(boardDir, "agent-1", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warns, err := tasks.SetStatus(boardDir, got.ID, "ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "still assigned") {
+		t.Fatalf("expected still-assigned warning, got %v", warns)
+	}
+	// Unassigned resets stay silent.
+	if _, _, err := tasks.Edit(boardDir, got.ID, tasks.EditOpts{Assignee: strPtr("")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tasks.SetStatus(boardDir, got.ID, "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	_, warns, err = tasks.SetStatus(boardDir, got.ID, "ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("expected no warnings, got %v", warns)
 	}
 }
 
