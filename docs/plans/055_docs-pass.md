@@ -40,3 +40,11 @@ untouched.
 ## Change history
 
 - [2026-07-14] Plan created; pass executed same day.
+- [2026-07-14] README condensed 250 → 189 lines: TUI keybinding manual
+  reduced to an overview + "press ?" (the in-app help is the reference),
+  Dependencies to one line per enforcement level, CLI table trimmed
+  (completion/version rows folded into prose, skill rows merged) with the
+  contract paragraph pointing at 03_cli.md, repo-layout tree replaced by a
+  two-line note under Development, Requirements merged into Install. The
+  `NO_COLOR` claim was verified live (zero SGR sequences in a NO_COLOR=1
+  TUI capture) and kept.

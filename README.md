@@ -11,22 +11,17 @@ the files, and **git is entirely yours** (North never pushes or pulls).
 
 ---
 
-## Requirements
-- [Go](https://go.dev/dl/) 1.25+ (to build/install)
-
 ## Install
-```bash
-go install github.com/SamP-S/north/cmd/north@latest   # installs to $GOBIN / $GOPATH/bin
-# or, from a clone:
-make install          # go install ./cmd/north
-```
-This installs a single self-contained `north` binary — no runtime, no daemon.
-`go install` places it in `$GOPATH/bin`; if `north` is then "command not
-found", add that directory to your PATH (e.g. in your `~/.bashrc` / shell rc):
+Requires [Go](https://go.dev/dl/) 1.25+:
 
 ```bash
-export PATH="$PATH:$(go env GOPATH)/bin"
+go install github.com/SamP-S/north/cmd/north@latest
+# or, from a clone: make install
 ```
+
+One self-contained binary — no runtime, no daemon. If `north` is "command not
+found" afterwards, add Go's bin dir to your PATH:
+`export PATH="$PATH:$(go env GOPATH)/bin"`.
 
 ## Quick start
 ```bash
@@ -73,10 +68,9 @@ north/
 A task is one file, `<n>-<title-slug>.md`, in its state folder. `config.yml`
 carries a `version: 1` format stamp; a board written by a newer North is
 refused rather than misread. Creating a task without `--body` fills it from
-`task-template.md` (Summary / Acceptance Criteria / Notes / Changes /
-Comments) — edit or delete the file to change what new tasks start with;
-North never parses it back. Mutating commands take a brief advisory lock
-(`north/.lock`) so concurrent `north` calls cannot mint duplicate ids.
+`task-template.md` — edit or delete the file to change what new tasks start
+with; North never parses it back. Mutating commands take a brief advisory
+lock (`north/.lock`), and task ids are never reused.
 
 ### Task file
 ```yaml
@@ -103,94 +97,59 @@ Malformed files never break the board — they surface as warnings, and
 |---|---|
 | `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
 | `north task create <title> [--assignee --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
-| `north task list [--state …] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse] [-l N]` | List tasks (default active, newest first; `-l/--limit` caps rows) |
+| `north task list [--state …] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort …] [--reverse] [-l N]` | List tasks (default active, newest first) |
 | `north task view <id>` | Show a task |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
 | `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met) — read-only |
-| `north take [id] [--assignee A] [--label L]` | Atomically claim the next workable task — or a specific id (refused unless it's workable) — `in_progress` + assignee in one lock hold; assignee falls back to `$NORTH_AGENT` |
+| `north take [id] [--assignee A] [--label L]` | Atomically claim the next workable task (or a specific id) — `in_progress` + assignee in one lock hold |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--dry-run]` | Archive active done tasks (`--dry-run` previews) |
-| `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes/.gitignore) |
-| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` and `last_id` are read-only) |
-| `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
-| `north skill show` / `north skill check` | Print / version-check the embedded skill |
+| `north doctor [--fix]` | Board integrity check (report only — exits 0; `--fix` repairs what is safe) |
+| `north config list\|get\|set` | Board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version`/`last_id` read-only) |
+| `north skill install\|show\|check` | Install / print / version-check the embedded agent skill |
 | `north tui` | Interactive terminal UI (human use only) |
-| `north completion <shell>` | Shell completions (bash/zsh/fish/powershell) |
-| `north version` | Print the north version |
 
 Every task/board command accepts `--plain` (tab-separated) or `--json` for
-stable, parseable output; ids are bare numbers (`north task view 12`).
-`task list --plain` columns are `id  state  status  assignee  labels  title`.
-`move`/`state`/`delete` accept a comma-delimited id batch — deduplicated,
-continue-on-error, with a per-id report. Failures print
-`error [<code>]: <message>` to stderr (with `--json`, a
-`{"error":{"code":…,"message":…}}` object instead), and exit codes follow one
-contract in every mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
-4 conflict (a partially failed batch exits with the shared failure code).
-`NO_COLOR` is honoured in the TUI.
+stable, parseable output, with structured JSON errors and one exit-code
+contract in every mode. `move`/`state`/`delete` accept comma-delimited id
+batches (deduplicated, continue-on-error, per-id report). Full contract —
+exit codes, plain columns, warning arrays — in
+[docs/design/03_cli.md](docs/design/03_cli.md); `north completion <shell>`
+generates shell completions.
 
 ---
 
 ## TUI
 
-`north tui` opens a full-screen interactive terminal UI:
+`north tui` opens a full-screen, keyboard-only terminal UI for humans: a
+**board view** (draft column, the five status columns, archive column) and a
+**list view** with a full-detail pane rendering the task body as Markdown.
+Create and edit open your `$EDITOR` on the real task-file format; pickers
+cover status, state, sort, and dependencies; `/` live-filters; `x` runs
+doctor in place; `y` yanks the task id via OSC 52. Press **`?`** for the
+complete key reference.
 
-- **Board view** — the whole two-axis model on one screen: a `draft` column on the left, the status columns (`ready | in_progress | blocked | done | failed`) for active tasks, and an `archive` column on the right; columns sort newest-first by default. Cards in the two state columns carry a status-colored dot, and all cards show dim tags: `@` assignee set, `!` waiting on an unmet dependency (resolves when the dependency is done or archived), `&` other tasks depend on it.
-- **List view** — all tasks sorted newest-first in a scrollable list; right pane shows the selected task in full detail (id, deps with their status, rendered Markdown body).
-- **Tab** switches between the two views; **Enter** on a board card opens the task in a scrollable popup (`e` edits from there, esc closes).
-- **`c`** creates and **`e`** edits a task in `$VISUAL`/`$EDITOR` — the buffer is the real task-file format (frontmatter + body); quitting the editor with a non-zero exit (`:cq`) cancels.
-- **`m`** opens a status picker; **`s`** opens a state picker (draft/active/archive); **`d`** deletes (with confirm).
-- **`/`** live-filters **both views** in place (id, title, assignee, labels, body — case-insensitive) — the board narrows its columns, the list its rows; **esc** clears the filter.
-- A status bar above the footer confirms every action (green), warns (yellow — e.g. setting status on a draft), and reports errors (red).
-- **`o`** opens a sort picker (id / updated / title / assignee, each ascending or descending; default id ↓); **`g`/`G`** jump to top/bottom; **`r`** reloads from disk; **`?`** shows the full key reference.
-- **`x`** opens the doctor popup — the same integrity report as `north doctor`, scrollable in place; **`f`** inside applies `--fix` and reloads the board. The footer's file-warning indicator points at it.
-- **`y`** yanks the selected task's bare id to the clipboard via OSC 52 (terminal-handled — no external tools, works over SSH).
-- **`w`** opens the dependency picker: every task in the board (draft/active first in the current sort, archive last), with the selection's existing deps pre-checked. Resolved candidates are marked ✓ (linking them documents lineage; it gates nothing), invalid ones (itself, anything that would create a cycle) are greyed with the reason rather than hidden. **space** toggles, **/** filters in place, **enter** applies, and a pinned "(clear all)" row empties the set.
-
-The TUI is keyboard-only by design (no mouse) and for human use. Agents should use the CLI commands — the TUI requires a real TTY and produces no machine-readable output.
-
-### Themes
-
-`north tui` picks its color theme from a **user-level** config file at
-`~/.north/config.yml` (separate from the board's committed `north/config.yml`
-— this one is personal preference, never shared). Three presets, set via
-`tui.theme`: `default` (inherits the terminal's own ANSI palette — the
-terminal theme is the theme), `saturated` (a fixed vivid truecolor palette,
-terminal-independent), and `high-contrast` (ANSI brights only, no dim greys).
-The file is scaffolded with a commented template on first `north tui` run and
-never rewritten afterwards. A missing/unknown theme or an unreadable file
-never blocks the TUI — it falls back to `default` with a yellow status-bar
-warning.
-
----
+Colors come from three presets (`default` — inherits your terminal palette,
+`saturated`, `high-contrast`) via `tui.theme` in the user-level
+`~/.north/config.yml`, scaffolded on first run; `NO_COLOR` is honoured. Bad
+config never blocks startup — it falls back to `default` with a warning.
+Agents should use the CLI: the TUI needs a real TTY and produces no
+machine-readable output.
 
 ## Dependencies
 `depends_on` links tasks: a dependency is **resolved** once its task is
-`done` or archived (archive is terminal, so it counts as done). The links are
-queryable — `north task list --deps met` is "what is workable", `--deps
-unmet` is "what is waiting" (the TUI's `!` tag, same rule) — and how strictly
-they are *enforced* is per-board config:
-
-```bash
-north config set deps_enforcement hint|validated|strict   # default: validated
-```
-
-- **hint** — never refuses; warns on dangling/forward references, self-refs,
-  cycles, and finishing with unmet deps. Maximum freeform.
-- **validated** (default) — the graph must stay well-formed: dangling ids,
-  self-refs, and cycles are refused on write, and deleting a task heals its
-  dependents (the id is dropped from their `depends_on`). Workflow order
-  stays advisory: moving to `done`/`in_progress` with unmet deps warns.
-- **strict** — validated, plus moving to `done`/`in_progress` with unmet
-  dependencies is refused. Archiving is always allowed (terminal = abandon).
-
-Enforcement affects writes only — no stored data — so levels switch freely
-with no migration. Warnings go to stderr (or a `"warnings"` array in `--json`
-mutation payloads); `north doctor` reports dangling refs and cycles at every
-level, and `--fix` removes dangling refs.
+`done` or archived. Query with `north task list --deps met` ("what is
+workable") / `--deps unmet` ("what is waiting" — the TUI's `!` tag, same
+rule). Enforcement is one per-board setting,
+`north config set deps_enforcement hint|validated|strict`: **hint** only
+warns, **validated** (default) refuses dangling ids/self-refs/cycles and
+heals dependents on delete, **strict** additionally refuses
+`done`/`in_progress` moves while deps are unmet. Writes-only — levels switch
+freely with no migration; details in
+[docs/design/02_board-data-model.md](docs/design/02_board-data-model.md).
 
 ## Git
 By default North does not commit — your task changes appear in `git status` and
@@ -200,23 +159,19 @@ change, using your system `git` — so linked worktrees, hooks, commit signing,
 and your identity config all behave normally. It never pushes or pulls.
 
 ## Agents
-North ships an installable **skill** that teaches agents the CLI:
+North ships an installable **skill** that teaches agents the CLI — the
+state/status model, the command surface, a typical work loop, and the
+output/error contract:
 ```bash
 north skill install                    # ./.claude/skills + ./.opencode/skills
-north skill install --target claude    # just one tool (claude|opencode)
 north skill install --global           # ~/.claude/skills + ~/.config/opencode/skills
 north skill check                      # is the installed skill this binary's version?
 ```
-The skill describes the state/status model, the commands, a typical work loop,
-and the output/error contract. It works with Claude Code and opencode (and any
-agent that reads `.claude/skills`).
-
-Agents claim work with `north take`: it picks the next workable task (active,
-`ready`, unassigned, dependencies met) and marks it `in_progress` with their
-assignee in one atomic step under the board's file lock, so concurrent
-`take`s always receive different tasks. The assignee comes from `--assignee`
-or the `NORTH_AGENT` environment variable; the optional `max_wip` board
-setting caps how many in-progress tasks one assignee can hold.
+It works with Claude Code and opencode (and any agent that reads
+`.claude/skills`). Agents claim work with `north take` — one atomic
+select-and-claim under the board lock, so concurrent agents always get
+different tasks — identified by `--assignee` or `$NORTH_AGENT`, optionally
+capped by the `max_wip` board setting.
 
 ---
 
@@ -230,21 +185,5 @@ make test          # go test ./...
 make vet           # go vet ./... + gofmt check
 make install       # go install ./cmd/north
 ```
-
-## Repository layout
-```
-north/
-  cmd/north/         # main package — the only installable binary
-  internal/
-    errors/          # BoardError (NotFound / Conflict / Invalid)
-    models/          # Task + the state/status value sets
-    board/           # discovery, scaffolding, config, ids
-    tasks/           # task ops, frontmatter round-trip, snapshot, doctor
-    git/             # optional local auto-commit (exec system git)
-    render/          # human / --plain / --json output
-    skill/           # embedded agent skill + installer
-    tui/             # interactive terminal UI (bubbletea)
-    cli/             # the `north` cobra command tree
-    version/         # build-time version string
-  docs/design/       # design spec
-```
+All library code lives under `internal/` (the only installable package is
+`cmd/north`); the design spec is in [docs/design/](docs/design/).
