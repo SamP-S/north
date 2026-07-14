@@ -131,13 +131,20 @@ offer it — north warns when this happens.
 Query and maintenance:
 
 ```bash
-north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--deps met|unmet] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [--plain | --json]
+north task list [--state draft|active|archive|all] [--status S] [--assignee A] [--deps met|unmet] [--search TEXT] [--label L] [--sort id|updated|title|assignee] [--reverse] [-l N] [--plain | --json]
 north task view <id> [--plain | --json]
 north board [--plain | --json]        # counts per status (active) + draft/archive tally
 north cleanup [--older-than DAYS] [--dry-run]   # archive active 'done' tasks (--dry-run previews)
 north doctor [--fix]                  # board integrity check (duplicates, cycles, bad files)
 north config get|set|list             # board settings (auto_commit, deps_enforcement, max_wip)
 ```
+
+`list -l/--limit N` caps the rows after filtering and sorting (0 = all).
+`cleanup --json` payloads carry `"dry_run": true|false`, so check that key to
+confirm archiving actually happened. `doctor` exits 0 whenever the scan
+completes — issues found are its *output* (gate on the `--json` issues array),
+not a failure. Task ids are never reused: `config get last_id` shows the
+id high-water mark north maintains itself (read-only; `set` refuses it).
 
 ## Dependencies
 

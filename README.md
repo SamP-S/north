@@ -103,7 +103,7 @@ Malformed files never break the board — they surface as warnings, and
 |---|---|
 | `north init` | Scaffold the board (refuses if one already exists at or above cwd) |
 | `north task create <title> [--assignee --labels --depends-on --body \| --body-file]` | Create a task (drafts/) |
-| `north task list [--state …] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse]` | List tasks (default active, newest first) |
+| `north task list [--state …] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse] [-l N]` | List tasks (default active, newest first; `-l/--limit` caps rows) |
 | `north task view <id>` | Show a task |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body]` | Edit a task |
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
@@ -114,7 +114,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--dry-run]` | Archive active done tasks (`--dry-run` previews) |
 | `north doctor [--fix]` | Board integrity check (duplicates, cycles, bad files, missing .gitattributes/.gitignore) |
-| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` is read-only) |
+| `north config list\|get\|set` | Read/write board settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` and `last_id` are read-only) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (default: both tools) |
 | `north skill show` / `north skill check` | Print / version-check the embedded skill |
 | `north tui` | Interactive terminal UI (human use only) |

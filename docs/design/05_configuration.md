@@ -12,6 +12,7 @@ version: 1                   # board format stamp (read-only; written by init)
 auto_commit: false           # commit each board change locally (never pushes)
 deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
 max_wip: 0                   # per-assignee in_progress cap enforced by `take` (0 = unlimited)
+last_id: 0                   # id high-water mark (read-only; bumped by allocation)
 ```
 
 - `version` — the board format this North wrote. Loading a board with a
@@ -37,6 +38,11 @@ max_wip: 0                   # per-assignee in_progress cap enforced by `take` (
   `false` (default) it only writes/moves files and leaves git to you. Commits
   work in linked worktrees and fall back to a `north <north@localhost>`
   identity when the user has none configured. North never pushes or pulls.
+- `last_id` — the id high-water mark: the largest id ever allocated, bumped
+  by task creation (and doctor renumbering) via a comment-preserving rewrite,
+  so ids are never reused even after deleting the newest task. Read-only:
+  shows in `list`/`get`, `set` refuses it. The bump rides in the create's
+  auto-commit when `auto_commit` is on.
 
 Read and write settings with the CLI rather than editing by hand:
 
@@ -94,8 +100,5 @@ board-location override (a shell-scoped path variable would be a
 cross-project footgun; board discovery stays walk-up only).
 
 ## State
-North keeps no global board state — there is no daemon, and no environment
-variable configures behaviour (`NORTH_AGENT` above is an identity default,
-not configuration). Board data lives entirely in the repo under `north/`;
-the one exception is the user-level TUI preference file above, which is
-per-machine and deliberately outside the repo.
+North keeps no global state: board data lives entirely in the repo under
+`north/`; the only per-machine file is the user-level TUI preference above.

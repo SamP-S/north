@@ -1,184 +1,89 @@
 # 99. Roadmap / Deferred Work
 
-The outcome of the v1.0 roadmap review (2026-07-06/07), which walked every
-candidate from `docs/plans/041_v1.0-readyness-analysis.md` one by one. Items
-are grouped by decision and sorted by target revision: deferred (nearest
-revision first), then rejected. Not a wishlist — every entry here was
-deliberately decided. The ten items accepted for v1.0 were implemented on
-2026-07-07 (`docs/plans/046_v1.0-accepted.md`) and moved to the done list
-below.
+The living outcome of the v1.0 roadmap review (2026-07-06/07, from
+`docs/plans/041_v1.0-readyness-analysis.md`). Not a wishlist — every entry was
+deliberately decided. Details and rationale live in the numbered plans.
 
 ## Known limitations
 
-### Duplicate ids from git merges
+- **Duplicate ids from git merges** — local processes serialise through
+  `north/.lock`, but a merge of two branches that each created the same id
+  still collides. Detected on every load (warning; the extra file is excluded
+  from the snapshot), repaired by `north doctor --fix` (renumbers the later
+  file).
+- **`depends_on` enforcement is write-side config** (`deps_enforcement:
+  hint | validated | strict`, default validated — event matrix in
+  [02_board-data-model.md](02_board-data-model.md)). A layered
+  `north sequence` view stays deferred with the multi-agent story.
 
-Concurrent processes on one machine serialise through the advisory
-`north/.lock` (landed for v1.0), so `board.NextID` can no longer race
-locally. Duplicate ids can still arrive from outside — a git merge of two
-branches that each created the same id. They are detected on every load
-(warnings; the extra task is excluded from the snapshot) and repaired by
-`north doctor --fix`, which renumbers the later file.
+## Deferred
 
-### `depends_on` enforcement is per-board config
+**v1.0 release prep**
+- vhs-based demo recordings — README/marketing asset; decide at packaging.
 
-Settled 2026-07-08 (plan 047): `deps_enforcement: hint | validated | strict`
-(default validated) grades write-side enforcement — see
-`docs/design/02_board-data-model.md` for the event matrix. The read side is
-`task list --deps met|unmet` plus the TUI's `!` tag and `w` link picker, all
-sharing one resolution rule (done or archived = resolved). A full layered
-`north sequence` view stays deferred with the multi-agent story.
+**v2.0-era** (`go install` is the sufficient install path for v1.0)
+- Custom-status boards — configurable status list/colors; blocked on the
+  migration story for tasks whose status leaves the set (first real customer
+  of the `version:` key).
+- `north undo`/`redo` — git-revert-only shape works but is auto_commit-only,
+  which felt too conditional; parked (git is the undo meanwhile).
+- Named task templates (`create --template bugfix`) — wait for usage data.
+- TUI multi-select — let CLI batching prove out first.
+- goreleaser binaries, Homebrew/Scoop/AUR/Nix, man pages — ride with
+  whatever packaging lands first.
+- Skill targets beyond Claude Code/opencode (Codex, Cursor, Gemini CLI).
+- Docs site generated from `docs/design/`.
 
----
+## Shipped (ledger)
 
-## Deferred — v1.0 release prep
-
-- **vhs-based demo recordings** — README/marketing asset; decide when
-  packaging the release.
-
-## Deferred — post-v1.0
-
-- **Multi-agent claims cluster** — **resolved (plans 049/050):** the
-  first-principles design landed as `north next` + `north take` (atomic
-  select-and-claim under the board lock; `assignee` + `in_progress` *is* the
-  claim) plus the `max_wip` config guard and `NORTH_AGENT` identity default.
-  Deliberately **not** built, per the analysis in
-  `docs/plans/049_multi-agent-usage-review.md`: a `claim` frontmatter field,
-  timeout/lease expiry (can put two agents on one task), `require_claim`,
-  `watch --json` (the board is plain files — orchestrators can watch `north/`
-  with any watcher), and a board-location env override (cross-project
-  footgun).
-- **Custom-status boards** — configurable status list/colors in `config.yml`;
-  the #1 "make it mine" request to expect. Blocked on the migration story: a
-  user-defined set must answer what happens to tasks (incl. archived) whose
-  status leaves the set — first real customer of the `version:` key.
-
-## Deferred — v2.0-era
-
-North is a developer tool; `go install` is the standard, sufficient install
-path for v1.0 — distribution machinery isn't necessary yet.
-
-- **`north undo`/`redo`** (moved from post-v1.0, 2026-07-08) — needs a design
-  review: the git-revert-only shape (revert the last trailer-tagged `north:`
-  commit under a stateless clean-tree guard; redo = revert the revert) works
-  but is auto_commit-only, which felt too conditional; shadow storage was
-  rejected as redundant. Parked until that tension has a better answer;
-  meanwhile git is the undo (uncommitted → `git restore`, auto_commit →
-  `git revert`).
-- **Named task templates** (`create --template bugfix`) (moved from
-  post-v1.0, 2026-07-09) — extends the accepted `north/task-template.md`;
-  wait for real usage data on how agents behave with different bodies
-  before designing.
-- **TUI multi-select** (moved from post-v1.0, 2026-07-09) — TUI twin of CLI
-  batching; let batching prove out first.
-
-- goreleaser release binaries, Homebrew tap, Scoop, AUR, Nix flake; man pages
-  ride along with whatever packaging lands first.
-- Skill targets beyond Claude Code/opencode: Codex, Cursor, Gemini CLI dirs
-  (kanban-md's registry pattern with auto-detection).
-- Docs site (mkdocs/hugo) generated from `docs/design/`.
-
-Already done, pruned from candidates: `north doctor --fix`, self-healing
-duplicate-id handling on load, atomic writes (temp+rename), CI test/vet
-matrix incl. Windows, `north skill check` (update = rerun `skill install`,
-which overwrites), `config get/set/list` with validation.
-
-Deferred-review pulls implemented for v1.0 (2026-07-08, plan 047): TUI `y`
-yank (bare id via OSC 52), the `depends_on` pass — `deps_enforcement`
-config (hint/validated/strict, default validated; cycles/self-refs/dangling
-refused at validated+, strict refuses done/in_progress with unmet deps,
-delete heals dependents at validated+), `task list --deps met|unmet`,
-mutation `--json` warnings arrays, doctor `--fix` removes dangling refs,
-and the TUI `w` dependency picker (all states, resolved ✓, invalid greyed
-with reasons, in-modal filter).
-
-TUI themes implemented (2026-07-09, plan 048): three built-in presets
-(`default`, `saturated`, `high-contrast`) selected via `tui.theme` in a new
-user-level `~/.north/config.yml`, scaffolded on first `north tui` run and
-never rewritten afterwards; unknown theme/unreadable file falls back to
-`default` with a status-bar warning instead of blocking. Per-slot color
-config and theme downloads were considered and rejected — three built-in
-presets only.
-
-Accepted for v1.0 and implemented (2026-07-07, plan 046): advisory file lock
-(`north/.lock`), `version: 1` format stamp (read-only config key, newer boards
-refused), default body template (`north/task-template.md`), CLI batch ids on
-`move`/`state`/`delete`, `--assignee` filter on `task list`, universal
-exit-code contract (0/1/2/3/4 with `error [<code>]:` output), wider `--plain`
-task list (assignee + labels columns), `init` next-steps epilogue, `init`
-scaffolds `north/.gitattributes` (doctor warns/fixes), docs hygiene
-("freeform" reworded; doctor flags unknown statuses as unparseable).
-
----
+- v1.0 accepted set (plan 046, 2026-07-07): board lock, `version: 1` stamp,
+  task-template.md, batch ids on move/state/delete, `--assignee` filter,
+  exit-code contract, wider `--plain` columns, init epilogue,
+  `.gitattributes` scaffold, docs hygiene.
+- Deferred-review pulls (plan 047, 2026-07-08): `deps_enforcement` +
+  `--deps met|unmet` + delete healing, mutation `--json` warnings, doctor
+  dangling-ref fix, TUI `y` yank + `w` dependency picker.
+- TUI themes (plan 048, 2026-07-09): three presets via user-level
+  `~/.north/config.yml`; per-slot colors and theme downloads rejected.
+- Multi-agent claims (plans 049/050, 2026-07-12): `next` + `take` (atomic
+  select-and-claim; `assignee` + `in_progress` *is* the claim), `max_wip`,
+  `NORTH_AGENT`. Deliberately not built: claim fields, lease expiry,
+  `require_claim`, `watch --json`, board-location env override.
+- v1.0 polish (plan 051) and CLI consistency pass (plan 054, 2026-07-14):
+  `take <id>`, `next --limit`, cleanup lock + `--dry-run` (+ JSON `dry_run`
+  key), `last_id` no-reuse mark, doctor exit 0, plain row unification,
+  `list --limit`.
+- Earlier: `doctor --fix`, tolerant duplicate-id loading, atomic writes,
+  CI matrix incl. Windows, `skill check`, `config get/set/list`.
 
 ## Rejected
 
 Decided out, permanently — do not re-propose without new evidence.
 
-**Task schema** (the frontmatter-preservation guarantee is North's answer to
-custom fields — users own their extra keys, North preserves them):
-- `priority` field
-- Due dates / overdue surfacing
-- Estimates (additionally: no command would ever consume the value)
-- References field + `modified_files` tracking (template's Changes section is
-  the convention; kept as template-content ideas under the accepted template
-  entry)
+**Task schema** (frontmatter preservation is the answer to custom fields):
+priority field; due dates; estimates; references/`modified_files` tracking.
 
-**Body structure** (the body is the user's; the accepted template scaffold
-suggests conventions without enforcing them):
-- Acceptance-criteria commands (`--ac` / `--check-ac`)
-- Structured body sections with append flags
-- Comments command (`--append-body` + the template's Comments section cover it)
+**Body structure** (the body is the user's; the template suggests, never
+enforces): acceptance-criteria commands; structured sections with append
+flags; a comments command.
 
-**Task model shape** (one object, flat list):
-- Parent/subtasks — dotted ids or `parent:` field (labels + `depends_on`
-  group and sequence)
-- Milestones / epics (label conventions, no code needed)
-- Recurring tasks (needs a scheduler; nothing in North runs unbidden)
-- Ordinal/manual column ordering (`--sort` + `depends_on` cover ordering;
-  ordinals are a drag-UI concept North doesn't have)
-- Docs & decisions (ADRs) as object types (staying lightweight — tasks only;
-  docs are ordinary repo files with no workflow axis)
+**Task model shape** (one object, flat list): parent/subtasks; milestones/
+epics (label conventions suffice); recurring tasks (nothing runs unbidden);
+manual column ordering; docs/ADRs as object types.
 
-**History & analytics** (git is the log; auto_commit is the revisioning
-mechanism):
-- `north/.backup/` shadow copies
-- `activity.jsonl` + `north log` (audit with `git log -- north/`)
-- `north stats` / flow metrics (enterprise-team analytics; too heavy for a
-  lightweight CLI/TUI tool — the data is open in files + git for scripting)
-- `north context` — board summary injected into CLAUDE.md etc. (the skill
-  queries live state; injected summaries go stale instantly)
-- Board export / README injection (the board already lives in the repo;
-  adds nothing over `--plain`/`--json`)
+**History & analytics** (git is the log): `.backup/` shadow copies;
+`activity.jsonl`/`north log`; `north stats`; `north context` injection
+(goes stale instantly); board export/README injection.
 
-**CLI/UX**:
-- `-C <dir>` global flag (board discovery walks up; run from the project tree)
-- `--compact` output mode (`--plain` is the one-line token-lean format; a
-  third format fragments the contract)
-- `north completion install` (generation exists; auto-editing shell profiles
-  is invasive, standard sourcing recipes suffice)
-- Interactive `north init` wizard (prompts break non-TTY/agent use — replaced
-  by the accepted next-steps epilogue)
-- Fuzzy search `north search` (`--search` + TUI `/` filter cover board scale;
-  fuzzy ranking adds a scorer dependency for marginal gain)
-- WIP limits per status (the user owns their agent system; North doesn't
-  throttle)
+**CLI/UX**: `-C <dir>` global flag (discovery walks up); `--compact` third
+output mode; `completion install` (auto-editing shell profiles is invasive);
+interactive init wizard (breaks non-TTY/agent use); fuzzy search; per-status
+WIP limits (the user owns their agent system).
 
-**TUI**:
-- Mouse support (the TUI is keyboard-only by design)
-- Filter popups (the `/` live filter covers it)
-- Per-column WIP display (WIP limits rejected)
-- Hide-empty-columns (overkill)
-- Snapshot tests (golden-file maintenance outweighs value; 21 behavioral
-  tests + manual smoke tests are sufficient)
+**TUI**: mouse support (keyboard-only by design); filter popups; per-column
+WIP display; hide-empty-columns; snapshot tests.
 
 **Constraint-breakers** (no daemon, no network, no MCP, git is yours):
-- MCP server (skills are sufficient; agent platforms deprecating shell access
-  is not a realistic risk)
-- Web UI / `north browser` (no daemon; the TUI is the human interface)
-- Cross-branch task resolution (violates "git is yours"; doctor's post-merge
-  duplicate repair is the answer)
-- GitHub Issues import/export sync (no network; the board lives in the repo)
-- Notifications/webhooks/`on_status_change` hook (network is out by
-  constraint; the local-hook variant means repo-committed config executing
-  arbitrary commands — running north never executes anything but north and
-  your git)
+MCP server; web UI; cross-branch task resolution; GitHub Issues sync;
+notifications/webhooks/status-change hooks (repo-committed config must never
+execute arbitrary commands).

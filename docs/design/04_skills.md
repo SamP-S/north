@@ -10,8 +10,8 @@ north skill install --target claude    # one tool only (claude|opencode, repeata
 north skill install --global           # home dir: ~/.claude/skills + ~/.config/opencode/skills
 north skill show               # print the embedded SKILL.md
 north skill check [--global]           # compare installed version stamps against the binary
-                                       # (a missing tool is a warning; outdated or
-                                       #  nothing-installed-anywhere exits 1)
+                                       # (missing tool = warning; outdated = conflict/exit 4;
+                                       #  nothing installed anywhere = not_found/exit 3)
 ```
 
 - One skill named `north` (`<dir>/north/SKILL.md`).

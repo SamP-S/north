@@ -72,14 +72,16 @@ future work.
 
 ## IDs
 
-Bare numbers (`"12"`), allocated as `max(existing) + 1` across every folder
-(drafts, tasks, archive), so ids are never reused while a task exists. Stored
-as quoted YAML strings so they never degrade to integers. Mutating commands
-serialise through a brief advisory file lock (`north/.lock`, created
-`O_CREATE|O_EXCL`, stolen when stale), so concurrent `north` processes cannot
-mint the same id. Duplicate ids can still arrive from outside (a git merge
-where two branches each created the same id): they are detected on every load
-(warning) and repaired by `north doctor --fix`.
+Bare numbers (`"12"`), stored as quoted YAML strings so they never degrade to
+integers. Allocation takes `max(file scan, last_id) + 1`, where `last_id` is
+a high-water mark persisted in `config.yml` (comment-preserving rewrite,
+read-only via `config set`) — so ids are **never reused**, even after the
+newest task is deleted. Mutating commands serialise through a brief advisory
+file lock (`north/.lock`, created `O_CREATE|O_EXCL`, stolen when stale), so
+concurrent `north` processes cannot mint the same id. Duplicate ids can still
+arrive from outside (a git merge where two branches each created the same
+id): they are detected on every load (warning) and repaired by
+`north doctor --fix`.
 
 ## Board files
 

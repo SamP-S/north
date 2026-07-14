@@ -76,6 +76,11 @@ separate work once these land.
 10. **`task list --limit N`** — cap the number of rows after filter+sort
     (0 = unlimited, the default), symmetric with `next -l`.
 
+11. **SKILL.md documents the new surface** (added after implementation) —
+    `list -l/--limit`, the `cleanup --json` `dry_run` key, doctor's
+    exit-0-with-findings contract, and the read-only `last_id` config key.
+    The full docs pass (CLAUDE.md wording etc.) remains separate follow-up.
+
 ## Files to modify
 
 - `internal/board/board.go` — Config.LastID, NextID, comment-preserving
@@ -109,6 +114,8 @@ separate work once these land.
 9. [x] joinKeys/label-matcher dedup.
 10. [x] task list --limit + tests.
 11. [x] gofmt/vet/full test suite; smoke-test against the dogfood board.
+12. [x] SKILL.md: --limit, dry_run key, doctor exit contract, last_id;
+        rebuild + reinstall binary and skill.
 
 ## Deferred / explicitly out of scope
 
