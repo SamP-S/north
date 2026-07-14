@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/SamP-S/north/internal/board"
-	nerrors "github.com/SamP-S/north/internal/errors"
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
 	"github.com/spf13/cobra"
@@ -34,15 +31,8 @@ func newDoctorCmd() *cobra.Command {
 				return err
 			}
 			cmd.Println(out)
-			unfixed := 0
-			for _, i := range issues {
-				if !i.Fixed {
-					unfixed++
-				}
-			}
-			if unfixed > 0 {
-				return nerrors.Conflict(fmt.Sprintf("%d issue(s) found", unfixed))
-			}
+			// Issues found are the report, not a command failure: a completed
+			// scan exits 0 whatever it found. Gate on the --json issues array.
 			return nil
 		},
 	}

@@ -123,6 +123,11 @@ type Config struct {
 	// MaxWIP caps how many active in_progress tasks one assignee may hold,
 	// enforced only by `north take` (0 = unlimited).
 	MaxWIP int `yaml:"max_wip"`
+	// LastID is the id high-water mark: the largest id ever allocated, so
+	// deleting the newest task can never hand its id to the next create.
+	// Managed by AllocateID (read-only via `config set`); 0 on boards from
+	// before the mark existed, where the file scan alone decides.
+	LastID int `yaml:"last_id"`
 }
 
 // DefaultConfig returns the defaults (current format version, auto_commit
@@ -289,6 +294,11 @@ func LoadConfig(board string) (Config, error) {
 		}
 		cfg.MaxWIP = n
 	}
+	if v, ok := raw["last_id"]; ok {
+		if n := toInt(v, 0); n > 0 {
+			cfg.LastID = n
+		}
+	}
 	// A missing version key means a board from before the stamp existed — v1.
 	cfg.Version = toInt(raw["version"], FormatVersion)
 	if cfg.Version > FormatVersion {
@@ -346,8 +356,9 @@ func TaskFiles(board string, states ...models.TaskState) ([]string, error) {
 	return files, nil
 }
 
-// NextID returns the next free task id — a bare number, max across all
-// folders + 1 (as a string; ids are never reused).
+// NextID returns the next free task id — a bare number, one past the highest
+// of the on-disk scan and the config's last_id high-water mark. The scan alone
+// would reuse the id of a deleted newest task; the mark closes that hole.
 func NextID(board string) (string, error) {
 	files, err := TaskFiles(board)
 	if err != nil {
@@ -362,7 +373,80 @@ func NextID(board string) (string, error) {
 			}
 		}
 	}
+	cfg, err := LoadConfig(board)
+	if err != nil {
+		return "", err
+	}
+	if cfg.LastID > highest {
+		highest = cfg.LastID
+	}
 	return strconv.Itoa(highest + 1), nil
+}
+
+// AllocateID hands out the next free task id and persists it as the config's
+// last_id high-water mark, so the id can never be reissued after a delete.
+// The caller must hold the board lock (allocation is a read-bump-write).
+func AllocateID(board string) (string, error) {
+	id, err := NextID(board)
+	if err != nil {
+		return "", err
+	}
+	n, err := strconv.Atoi(id)
+	if err != nil {
+		return "", err
+	}
+	if err := setConfigLastID(board, n); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// setConfigLastID rewrites config.yml with last_id set to n, going through a
+// yaml.Node round-trip so user comments, key order, and unknown keys survive
+// (unlike WriteConfig, which re-marshals the struct plain).
+func setConfigLastID(board string, n int) error {
+	path := filepath.Join(board, ConfigName)
+	var doc yaml.Node
+	if data, err := os.ReadFile(path); err == nil {
+		// Malformed YAML falls through to a fresh mapping: LoadConfig has
+		// already rejected genuinely malformed boards before allocation.
+		_ = yaml.Unmarshal(data, &doc)
+	}
+	m := configMapping(&doc)
+	val := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(n)}
+	set := false
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == "last_id" {
+			// Keep the key node (and any comments on it); swap the value only.
+			val.LineComment = m.Content[i+1].LineComment
+			m.Content[i+1] = val
+			set = true
+			break
+		}
+	}
+	if !set {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "last_id"}, val)
+	}
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(m); err != nil {
+		return err
+	}
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(buf.String()), 0o644)
+}
+
+// configMapping returns the top-level mapping of a parsed config document,
+// or a fresh empty mapping when the document is empty or not a mapping.
+func configMapping(doc *yaml.Node) *yaml.Node {
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Kind == yaml.MappingNode {
+		return doc.Content[0]
+	}
+	return &yaml.Node{Kind: yaml.MappingNode}
 }
 
 // Slug builds a filename-safe slug from a title (Backlog.md-style, dash-separated).

@@ -3,15 +3,17 @@ package cli
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/SamP-S/north/internal/board"
 	nerrors "github.com/SamP-S/north/internal/errors"
 	"github.com/spf13/cobra"
 )
 
-// configKeys lists the config keys visible to list/get. version is read-only
-// (the board's format stamp); set refuses it.
-var configKeys = []string{"version", "auto_commit", "deps_enforcement", "max_wip"}
+// configKeys lists the config keys visible to list/get. version (the board's
+// format stamp) and last_id (the id high-water mark, managed by allocation)
+// are read-only; set refuses them.
+var configKeys = []string{"version", "auto_commit", "deps_enforcement", "max_wip", "last_id"}
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -44,21 +46,14 @@ func configValue(cfg board.Config, key string) (string, error) {
 		return string(cfg.DepsEnforcement), nil
 	case "max_wip":
 		return strconv.Itoa(cfg.MaxWIP), nil
+	case "last_id":
+		return strconv.Itoa(cfg.LastID), nil
 	default:
 		return "", nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
 	}
 }
 
-func joinKeys() string {
-	out := ""
-	for i, k := range configKeys {
-		if i > 0 {
-			out += ", "
-		}
-		out += k
-	}
-	return out
-}
+func joinKeys() string { return strings.Join(configKeys, ", ") }
 
 func newConfigListCmd() *cobra.Command {
 	return &cobra.Command{
@@ -116,6 +111,8 @@ func newConfigSetCmd() *cobra.Command {
 			switch key {
 			case "version":
 				return nerrors.Invalid("version is read-only (the board's format stamp)")
+			case "last_id":
+				return nerrors.Invalid("last_id is read-only (the id high-water mark, managed by task creation)")
 			case "auto_commit":
 				b, err := strconv.ParseBool(value)
 				if err != nil {

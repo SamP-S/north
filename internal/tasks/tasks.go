@@ -139,7 +139,9 @@ func targetPath(boardDir string, task *models.Task) string {
 
 // save writes the task to its target path (atomically: temp file + rename),
 // removes the old file on a move/rename, and auto-commits when configured.
-func save(boardDir string, task *models.Task, oldPath, message string) (*models.Task, error) {
+// extraPaths are committed alongside the task file (e.g. the config.yml
+// last_id bump an allocation just wrote).
+func save(boardDir string, task *models.Task, oldPath, message string, extraPaths ...string) (*models.Task, error) {
 	target := targetPath(boardDir, task)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, err
@@ -166,7 +168,7 @@ func save(boardDir string, task *models.Task, oldPath, message string) (*models.
 		}
 	}
 	task.Path = target
-	if err := commit(boardDir, []string{target}, removed, message); err != nil {
+	if err := commit(boardDir, append([]string{target}, extraPaths...), removed, message); err != nil {
 		return nil, err
 	}
 	return task, nil
@@ -328,7 +330,7 @@ func Create(boardDir, title, assignee string, labels, dependsOn []string, body s
 	if err != nil {
 		return nil, nil, err
 	}
-	id, err := board.NextID(boardDir)
+	id, err := board.AllocateID(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -345,7 +347,8 @@ func Create(boardDir, title, assignee string, labels, dependsOn []string, body s
 		UpdatedAt: &n,
 		Body:      body,
 	}
-	saved, err := save(boardDir, task, "", fmt.Sprintf("north: create %s", task.ID))
+	saved, err := save(boardDir, task, "", fmt.Sprintf("north: create %s", task.ID),
+		filepath.Join(boardDir, board.ConfigName))
 	if err != nil {
 		return nil, nil, err
 	}

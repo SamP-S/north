@@ -66,8 +66,10 @@ func printWarnings(cmd *cobra.Command, warnings []tasks.Warning) {
 }
 
 // printTaskResult renders a mutated task in machine modes, returning true
-// when it printed. Advisory op warnings go to stderr in human/plain modes
-// and into a "warnings" key in the JSON payload.
+// when it printed. Plain prints the task as a single list row — the same
+// shape as batches and `task list --plain` (`view` alone shows the detail
+// record). Advisory op warnings go to stderr in human/plain modes and into a
+// "warnings" key in the JSON payload.
 func printTaskResult(cmd *cobra.Command, task *models.Task, warns []string, plain, asJSON bool) (bool, error) {
 	if !asJSON {
 		for _, w := range warns {
@@ -88,7 +90,7 @@ func printTaskResult(cmd *cobra.Command, task *models.Task, warns []string, plai
 		cmd.Println(string(data))
 		return true, nil
 	case plain:
-		out, err := render.TaskDetail(task, true, false)
+		out, err := render.TaskList([]*models.Task{task}, nil, true, false)
 		if err != nil {
 			return false, err
 		}
@@ -278,6 +280,7 @@ func newTaskListCmd() *cobra.Command {
 	var plain, asJSON, reverse bool
 	var status, state, search, sortBy, assignee, deps string
 	var labels []string
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "list tasks (default: active)",
@@ -331,6 +334,12 @@ func newTaskListCmd() *cobra.Command {
 				desc = !desc
 			}
 			tasks.Sort(ts, key, desc)
+			if limit < 0 {
+				return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
+			}
+			if limit > 0 && len(ts) > limit {
+				ts = ts[:limit]
+			}
 			if !asJSON {
 				printWarnings(cmd, snap.Warnings)
 			}
@@ -338,7 +347,11 @@ func newTaskListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cmd.Println(out)
+			// An empty plain list renders as "" — print nothing rather than a
+			// blank line (matches empty `next --plain`).
+			if out != "" {
+				cmd.Println(out)
+			}
 			return nil
 		},
 	}
@@ -350,6 +363,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&deps, "deps", "", "filter by dependency resolution: met|unmet (a dep resolves when done or archived)")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "sort by: id|updated|title|assignee (id/updated newest-first, title/assignee A→Z)")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 0, "show at most N tasks after filtering and sorting (0 = unlimited)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
 }
@@ -386,25 +400,15 @@ func filterAssignee(ts []*models.Task, assignee string) []*models.Task {
 	return out
 }
 
-// filterLabels keeps tasks carrying every requested label (exact match).
+// filterLabels keeps tasks carrying every requested label (exact match),
+// sharing the matcher next/take select with.
 func filterLabels(ts []*models.Task, labels []string) []*models.Task {
 	if len(labels) == 0 {
 		return ts
 	}
 	out := make([]*models.Task, 0, len(ts))
 	for _, t := range ts {
-		have := map[string]bool{}
-		for _, l := range t.Labels {
-			have[l] = true
-		}
-		all := true
-		for _, l := range labels {
-			if !have[l] {
-				all = false
-				break
-			}
-		}
-		if all {
+		if tasks.HasLabels(t, labels) {
 			out = append(out, t)
 		}
 	}
@@ -558,13 +562,8 @@ func newTaskStateCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if plain || asJSON {
-					out, err := render.TaskDetail(task, plain, asJSON)
-					if err != nil {
-						return err
-					}
-					cmd.Println(out)
-					return nil
+				if printed, err := printTaskResult(cmd, task, nil, plain, asJSON); err != nil || printed {
+					return err
 				}
 				cmd.Printf("%s state → %s\n", task.ID, task.State)
 				return nil

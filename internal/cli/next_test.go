@@ -264,8 +264,9 @@ func TestCLIInitScaffoldsGitignore(t *testing.T) {
 	if err := os.Remove(gi); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run(t, dir, "doctor"); err == nil || !strings.Contains(out, "gitignore") {
-		t.Fatalf("doctor should flag missing gitignore: %v (%s)", err, out)
+	// Findings are output, not failure: a completed scan exits 0.
+	if out, err := run(t, dir, "doctor"); err != nil || !strings.Contains(out, "gitignore") {
+		t.Fatalf("doctor should flag missing gitignore and exit 0: %v (%s)", err, out)
 	}
 	if out, err := run(t, dir, "doctor", "--fix"); err != nil {
 		t.Fatalf("doctor --fix: %v (%s)", err, out)

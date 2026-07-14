@@ -4,6 +4,8 @@
 // typed error set means the core stays a plain library.
 package errors
 
+import stderrors "errors"
+
 // BoardError is the interface implemented by all board errors. Each carries a
 // short machine code and a human message.
 type BoardError interface {
@@ -37,10 +39,14 @@ func Invalid(message string) BoardError {
 	return &boardError{code: "invalid", message: message}
 }
 
-// As reports whether err is a BoardError, returning it if so.
+// As reports whether err is (or wraps) a BoardError, returning it if so, so
+// a %w-wrapped domain error keeps its code and exit behaviour.
 func As(err error) (BoardError, bool) {
-	be, ok := err.(BoardError)
-	return be, ok
+	var be BoardError
+	if stderrors.As(err, &be) {
+		return be, true
+	}
+	return nil, false
 }
 
 // ExitCode maps an error to the universal CLI exit-code contract, identical

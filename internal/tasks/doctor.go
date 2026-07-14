@@ -111,7 +111,6 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		deps []string
 	}
 	var tasksParsed []parsed
-	highest := 0
 	for _, path := range files {
 		task, err := loadTask(path)
 		if err != nil {
@@ -121,9 +120,6 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		byID[task.ID] = append(byID[task.ID], path)
 		idSet[task.ID] = true
 		tasksParsed = append(tasksParsed, parsed{path: path, id: task.ID, deps: task.DependsOn})
-		if n, err := strconv.Atoi(task.ID); err == nil && n > highest {
-			highest = n
-		}
 		// Filename ↔ frontmatter id drift.
 		m := filenameID(filepath.Base(path))
 		if m != "" && m != task.ID {
@@ -154,11 +150,16 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 				Detail: fmt.Sprintf("id %q already used by %s", id, filepath.Base(paths[0]))}
 			if fix {
 				if task, err := loadTask(path); err == nil {
-					highest++
-					task.ID = strconv.Itoa(highest)
-					if _, err := save(boardDir, task, path, fmt.Sprintf("north: doctor renumber %s → %s", id, task.ID)); err == nil {
-						issue.Fixed = true
-						idSet[task.ID] = true
+					// Allocate through the shared path so last_id advances and
+					// the renumbered id can never be reissued later.
+					if newID, err := board.AllocateID(boardDir); err == nil {
+						task.ID = newID
+						if _, err := save(boardDir, task, path,
+							fmt.Sprintf("north: doctor renumber %s → %s", id, task.ID),
+							filepath.Join(boardDir, board.ConfigName)); err == nil {
+							issue.Fixed = true
+							idSet[task.ID] = true
+						}
 					}
 				}
 			}

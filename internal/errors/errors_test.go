@@ -2,6 +2,7 @@ package errors_test
 
 import (
 	stderrors "errors"
+	"fmt"
 	"testing"
 
 	"github.com/SamP-S/north/internal/errors"
@@ -50,5 +51,16 @@ func TestExitCode(t *testing.T) {
 		if got := errors.ExitCode(c.err); got != c.want {
 			t.Errorf("ExitCode(%v) = %d, want %d", c.err, got, c.want)
 		}
+	}
+}
+
+func TestAsUnwrapsWrappedBoardErrors(t *testing.T) {
+	wrapped := fmt.Errorf("outer context: %w", errors.Conflict("clash"))
+	be, ok := errors.As(wrapped)
+	if !ok || be.Code() != "conflict" {
+		t.Fatalf("As should see through %%w wrapping: %v %v", be, ok)
+	}
+	if got := errors.ExitCode(wrapped); got != 4 {
+		t.Errorf("wrapped conflict should exit 4, got %d", got)
 	}
 }

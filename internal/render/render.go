@@ -127,6 +127,24 @@ func summary(t *models.Task) map[string]any {
 	return m
 }
 
+// CleanupReport renders a cleanup run's archived (or would-be-archived) tasks.
+// Human/plain match TaskList; JSON additionally carries "dry_run" so agents
+// can confirm from the payload alone whether archiving actually happened.
+func CleanupReport(archived []*models.Task, dryRun, plain, asJSON bool) (string, error) {
+	if asJSON {
+		summaries := make([]map[string]any, len(archived))
+		for i, t := range archived {
+			summaries[i] = summary(t)
+		}
+		return marshalJSON(map[string]any{
+			"tasks":    summaries,
+			"dry_run":  dryRun,
+			"warnings": []string{},
+		})
+	}
+	return TaskList(archived, nil, plain, false)
+}
+
 // DoctorReport renders doctor issues. Human/plain: one line per issue ("board
 // is healthy" when clean); JSON: {"issues": [...]} with structured fields.
 func DoctorReport(issues []tasks.Issue, plain, asJSON bool) (string, error) {

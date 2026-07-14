@@ -11,7 +11,6 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -28,7 +27,7 @@ func CommitBoard(board, message string, paths, removed []string) error {
 		return fmt.Errorf("auto_commit is on but git is not installed")
 	}
 	if !insideWorkTree(gitBin, board) {
-		log.Printf("auto_commit is on but %s is not in a git repo; skipping commit", board)
+		fmt.Fprintf(os.Stderr, "warning: auto_commit is on but %s is not in a git repo; skipping commit\n", board)
 		return nil
 	}
 

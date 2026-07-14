@@ -225,13 +225,14 @@ func TestCLIDeleteOutputFlags(t *testing.T) {
 	run(t, dir, "init")
 	run(t, dir, "task", "create", "x")
 	out, err := run(t, dir, "task", "delete", "1", "--yes", "--plain")
-	if err != nil || !strings.Contains(out, "id:         1") {
-		t.Errorf("delete --plain: %q %v", out, err)
+	if err != nil || !strings.HasPrefix(out, "1\tdraft\tready") {
+		t.Errorf("delete --plain should print a list row: %q %v", out, err)
 	}
 
+	// Deleted ids are never reused: the next create gets 2.
 	run(t, dir, "task", "create", "y")
-	out, err = run(t, dir, "task", "delete", "1", "--yes", "--json")
-	if err != nil || !strings.Contains(out, `"id": "1"`) {
+	out, err = run(t, dir, "task", "delete", "2", "--yes", "--json")
+	if err != nil || !strings.Contains(out, `"id": "2"`) {
 		t.Errorf("delete --json: %q %v", out, err)
 	}
 }
@@ -553,13 +554,14 @@ func TestCLIDoctor(t *testing.T) {
 	if out, err := run(t, dir, "doctor"); err != nil || !strings.Contains(out, "healthy") {
 		t.Errorf("clean doctor: %q %v", out, err)
 	}
-	// Inject a duplicate id; doctor must exit non-zero, then --fix repairs it.
+	// Inject a duplicate id; doctor reports it (exit 0 — findings are output,
+	// not failure), then --fix repairs it.
 	dup := filepath.Join(dir, "north", "drafts", "1-dup.md")
 	if err := os.WriteFile(dup, []byte("---\nid: \"1\"\ntitle: dup\nstatus: ready\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, dir, "doctor"); err == nil {
-		t.Error("doctor with issues should exit non-zero")
+	if out, err := run(t, dir, "doctor"); err != nil || !strings.Contains(out, "duplicate-id") {
+		t.Errorf("doctor should report the duplicate and exit 0: %q %v", out, err)
 	}
 	if out, err := run(t, dir, "doctor", "--fix"); err != nil {
 		t.Errorf("doctor --fix should exit zero when everything was fixed: %q %v", out, err)
@@ -907,5 +909,113 @@ func TestCLIDepsEnforcementConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, `"warnings"`) || !strings.Contains(out, "unmet") {
 		t.Errorf("expected unmet warning in JSON: %q", out)
+	}
+}
+
+func TestCLIMutationPlainPrintsRow(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	out, err := run(t, dir, "task", "create", "Row shape", "--labels", "a,b", "--plain")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	row := strings.TrimSuffix(out, "\n")
+	if strings.Contains(row, "\n") {
+		t.Fatalf("plain mutation should print one row: %q", out)
+	}
+	cols := strings.Split(row, "\t")
+	if len(cols) != 6 || cols[0] != "1" || cols[1] != "draft" || cols[5] != "Row shape" {
+		t.Fatalf("unexpected columns: %q", row)
+	}
+	for _, args := range [][]string{
+		{"task", "state", "1", "active", "--plain"},
+		{"task", "move", "1", "done", "--plain"},
+		{"task", "edit", "1", "--assignee", "sam", "--plain"},
+		{"task", "delete", "1", "-y", "--plain"},
+	} {
+		out, err := run(t, dir, args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if got := strings.Count(strings.TrimSuffix(out, "\n"), "\n"); got != 0 {
+			t.Errorf("%v should print one row, got %q", args, out)
+		}
+		if len(strings.Split(strings.TrimSuffix(out, "\n"), "\t")) != 6 {
+			t.Errorf("%v: not a 6-column row: %q", args, out)
+		}
+	}
+}
+
+func TestCLIListEmptyPlainPrintsNothing(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	out, err := run(t, dir, "task", "list", "--plain")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if out != "" {
+		t.Errorf("empty plain list should print nothing, got %q", out)
+	}
+}
+
+func TestCLIListLimit(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	for _, title := range []string{"a", "b", "c"} {
+		run(t, dir, "task", "create", title)
+	}
+	out, err := run(t, dir, "task", "list", "--state", "draft", "--limit", "2", "--plain")
+	if err != nil {
+		t.Fatalf("list --limit: %v", err)
+	}
+	if rows := strings.Split(strings.TrimSpace(out), "\n"); len(rows) != 2 {
+		t.Errorf("want 2 rows, got %d: %q", len(rows), out)
+	}
+	if _, err := run(t, dir, "task", "list", "--limit", "-1"); err == nil {
+		t.Error("negative --limit should be invalid")
+	}
+}
+
+func TestCLIConfigLastID(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	run(t, dir, "task", "create", "y")
+	if out, err := run(t, dir, "config", "get", "last_id"); err != nil || strings.TrimSpace(out) != "2" {
+		t.Fatalf("last_id after two creates: %q %v", out, err)
+	}
+	// Read-only.
+	if _, err := run(t, dir, "config", "set", "last_id", "99"); err == nil {
+		t.Error("config set last_id should be refused")
+	}
+	// Deleting the newest task must not free its id.
+	run(t, dir, "task", "delete", "2", "-y")
+	out, err := run(t, dir, "task", "create", "z", "--json")
+	if err != nil || !strings.Contains(out, `"id": "3"`) {
+		t.Fatalf("id 2 must not be reused: %q %v", out, err)
+	}
+	// The allocation rewrite preserves the scaffold's comments.
+	data, err := os.ReadFile(filepath.Join(dir, "north", "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "#") {
+		t.Errorf("config comments should survive allocation: %q", data)
+	}
+}
+
+func TestCLICleanupJSONDryRunKey(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	run(t, dir, "task", "state", "1", "active")
+	run(t, dir, "task", "move", "1", "done")
+	out, err := run(t, dir, "cleanup", "--dry-run", "--json")
+	if err != nil || !strings.Contains(out, `"dry_run": true`) {
+		t.Fatalf("dry-run payload should say so: %q %v", out, err)
+	}
+	out, err = run(t, dir, "cleanup", "--json")
+	if err != nil || !strings.Contains(out, `"dry_run": false`) {
+		t.Fatalf("real run payload should say so: %q %v", out, err)
 	}
 }

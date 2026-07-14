@@ -60,7 +60,7 @@ func TestLockStealsStale(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte("pid 1 at long ago\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-time.Minute)
+	old := time.Now().Add(-3 * time.Minute)
 	if err := os.Chtimes(lockPath, old, old); err != nil {
 		t.Fatal(err)
 	}

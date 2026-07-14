@@ -21,9 +21,14 @@ import (
 const LockName = ".lock"
 
 const (
-	lockRetry  = 25 * time.Millisecond
-	lockWait   = 2 * time.Second
-	staleAfter = 10 * time.Second
+	lockRetry = 25 * time.Millisecond
+	lockWait  = 2 * time.Second
+	// staleAfter must comfortably outlive the slowest single mutation — an
+	// auto-commit with hooks/signing, or a multi-task cleanup — since the
+	// holder never refreshes the lock and a stolen live lock means two
+	// concurrent writers. The cost of a large value is only how long a
+	// crashed process blocks writers before the lock self-heals.
+	staleAfter = 120 * time.Second
 )
 
 // Lock takes the advisory board lock and returns a release func. It retries

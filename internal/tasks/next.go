@@ -22,8 +22,10 @@ import (
 	"github.com/SamP-S/north/internal/models"
 )
 
-// hasLabels reports whether the task carries every requested label.
-func hasLabels(t *models.Task, labels []string) bool {
+// HasLabels reports whether the task carries every requested label (exact
+// match; an empty request matches everything). The one label matcher shared
+// by next/take selection and the CLI's --label filter.
+func HasLabels(t *models.Task, labels []string) bool {
 	if len(labels) == 0 {
 		return true
 	}
@@ -48,7 +50,7 @@ func workable(snap *Snapshot, labels []string, limit int) []*models.Task {
 		if t.State != models.StateActive || t.Status != models.Ready {
 			continue
 		}
-		if t.Assignee != "" || !hasLabels(t, labels) {
+		if t.Assignee != "" || !HasLabels(t, labels) {
 			continue
 		}
 		if len(snap.UnmetDeps(t)) > 0 {

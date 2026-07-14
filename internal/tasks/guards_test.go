@@ -47,7 +47,7 @@ func TestCleanupRespectsOlderThan(t *testing.T) {
 	}
 }
 
-func TestNextIDCountsArchiveAndReusesTop(t *testing.T) {
+func TestNextIDCountsArchiveAndNeverReuses(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "a") // 1
 	mustActive(t, boardDir, "b") // 2 (active)
@@ -61,14 +61,15 @@ func TestNextIDCountsArchiveAndReusesTop(t *testing.T) {
 	if id, _ := board.NextID(boardDir); id != "3" {
 		t.Errorf("archive should reserve ids: NextID=%s want 3", id)
 	}
-	// Deleting the highest id frees it for reuse (derived, no stored counter).
+	// Deleting the highest id must NOT free it: the last_id high-water mark
+	// in config.yml outlives the file scan.
 	boardDir2 := newBoard(t)
 	mustCreate(t, boardDir2, "a") // 1
 	if _, err := tasks.Delete(boardDir2, "1"); err != nil {
 		t.Fatal(err)
 	}
-	if id, _ := board.NextID(boardDir2); id != "1" {
-		t.Errorf("top delete should reuse: NextID=%s want 1", id)
+	if id, _ := board.NextID(boardDir2); id != "2" {
+		t.Errorf("deleted top id must not be reused: NextID=%s want 2", id)
 	}
 }
 
