@@ -9,4 +9,8 @@
 tmp/
 
 # North board (dogfooding — not committed)
-north/
+/north/
+
+# Installed north skill (stamped per-binary by `north skill install`)
+/.claude/skills/north/
+/.opencode/skills/north/
