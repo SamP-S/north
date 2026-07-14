@@ -82,6 +82,32 @@ func TestCLINextAndTake(t *testing.T) {
 	}
 }
 
+func TestCLINextTakePlainSingleRow(t *testing.T) {
+	dir := pickBoard(t)
+
+	out, err := run(t, dir, "next", "--plain")
+	if err != nil {
+		t.Fatalf("next --plain: %v (%s)", err, out)
+	}
+	row := strings.TrimSuffix(out, "\n")
+	if strings.Contains(row, "\n") {
+		t.Fatalf("plain next should print one list row: %q", out)
+	}
+	cols := strings.Split(row, "\t")
+	if len(cols) != 6 || cols[0] != "1" || cols[1] != "active" || cols[2] != "ready" || cols[5] != "First task" {
+		t.Fatalf("unexpected plain next columns: %q", row)
+	}
+
+	out, err = run(t, dir, "take", "--assignee", "agent-a", "--plain")
+	if err != nil {
+		t.Fatalf("take --plain: %v (%s)", err, out)
+	}
+	cols = strings.Split(strings.TrimSuffix(out, "\n"), "\t")
+	if len(cols) != 6 || cols[0] != "1" || cols[2] != "in_progress" || cols[3] != "agent-a" {
+		t.Fatalf("unexpected plain take columns: %q", out)
+	}
+}
+
 func TestCLITakeSpecificID(t *testing.T) {
 	dir := pickBoard(t)
 	if out, err := run(t, dir, "task", "create", "Second task"); err != nil {

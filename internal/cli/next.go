@@ -15,8 +15,9 @@ import (
 
 // printPickResult renders next/take output. "No workable task" is a normal
 // outcome (exit 0): json emits an explicit {"task": null}, plain prints
-// nothing, human prints a note. Snapshot warnings follow the list convention —
-// stderr in human/plain, a "warnings" array in the json payload.
+// nothing, human prints a note. Plain prints the task as a single list row
+// (same columns as `task list --plain`). Snapshot warnings follow the list
+// convention — stderr in human/plain, a "warnings" array in the json payload.
 func printPickResult(cmd *cobra.Command, task *models.Task, warnings []tasks.Warning,
 	plain, asJSON bool, humanLine func(*models.Task) string) error {
 	if !asJSON {
@@ -41,7 +42,7 @@ func printPickResult(cmd *cobra.Command, task *models.Task, warnings []tasks.War
 		if task == nil {
 			return nil
 		}
-		out, err := render.TaskDetail(task, true, false)
+		out, err := render.TaskList([]*models.Task{task}, nil, true, false)
 		if err != nil {
 			return err
 		}

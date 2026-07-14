@@ -416,12 +416,55 @@ func TestCLIDeleteDeclined(t *testing.T) {
 	if err == nil {
 		t.Error("declining should exit non-zero")
 	}
+	if nerrors.ExitCode(err) != 4 {
+		t.Errorf("declined delete should exit with the conflict code: %v", err)
+	}
 	if !strings.Contains(out, "Aborted.") {
 		t.Errorf("expected Aborted: %q", out)
 	}
 	// Task still exists.
 	if _, err := run(t, dir, "task", "view", "1"); err != nil {
 		t.Errorf("task should survive a declined delete: %v", err)
+	}
+}
+
+func TestCLIDeleteNonInteractiveRequiresYes(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+
+	// A redirected stdin (/dev/null is a char device but not a terminal) must
+	// hit the -y guard, not the interactive prompt.
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devnull.Close()
+
+	wd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+
+	root := newRootCmd()
+	buf := &bytes.Buffer{}
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetIn(devnull)
+	root.SetArgs([]string{"task", "delete", "1"})
+	err = root.Execute()
+	if err == nil {
+		t.Fatalf("non-interactive delete without -y should fail: %q", buf.String())
+	}
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Errorf("expected invalid error, got: %v", err)
+	}
+	if strings.Contains(buf.String(), "[y/N]") {
+		t.Errorf("must not prompt on non-TTY stdin: %q", buf.String())
+	}
+	if _, err := run(t, dir, "task", "view", "1"); err != nil {
+		t.Errorf("task should survive: %v", err)
 	}
 }
 

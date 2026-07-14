@@ -25,7 +25,9 @@ func Execute() int {
 	cmd, err := root.ExecuteC()
 	if err != nil {
 		if err == errAborted {
-			return 1 // user-facing message already printed
+			// User-facing message already printed; exit with the error's
+			// contract code (conflict) without an extra error line.
+			return nerrors.ExitCode(err)
 		}
 		// Cobra reports an unmatched subcommand as a plain error; it is a
 		// usage mistake under the exit-code contract.

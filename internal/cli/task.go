@@ -14,6 +14,7 @@ import (
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func newTaskCmd() *cobra.Command {
@@ -702,17 +703,14 @@ func changedSlice(cmd *cobra.Command, name string, val []string) *[]string {
 }
 
 // stdinIsTTY reports whether the command's stdin is an interactive terminal.
-// Non-file readers (tests injecting input) count as interactive.
+// Non-file readers (tests injecting input) count as interactive. A char-device
+// check is not enough here: /dev/null is a char device but not a terminal.
 func stdinIsTTY(cmd *cobra.Command) bool {
 	f, ok := cmd.InOrStdin().(*os.File)
 	if !ok {
 		return true
 	}
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // confirm prompts on stderr and reads a y/N answer from stdin.

@@ -42,13 +42,23 @@ const (
 // this constant is not a runtime fallback.
 const DefaultTaskTemplate = `## Summary
 
+What this task is and why it exists, in a sentence or two.
+
 ## Acceptance Criteria
+
+Checklist of verifiable outcomes that mean "done".
 
 ## Notes
 
+Context, links, and constraints useful to whoever picks this up.
+
 ## Changes
 
+Running log of what was done, dated as work happens.
+
 ## Comments
+
+Discussion and review remarks from humans or agents.
 `
 
 const gitattributesContent = "* text eol=lf\n"

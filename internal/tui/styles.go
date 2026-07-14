@@ -66,15 +66,18 @@ type palette struct {
 // user's terminal scheme is the theme.
 func defaultPalette() palette {
 	return palette{
-		ready:          lipgloss.Color("12"), // bright blue
-		inProgress:     lipgloss.Color("11"), // bright yellow
-		done:           lipgloss.Color("10"), // bright green
-		failed:         lipgloss.Color("9"),  // bright red
-		blocked:        lipgloss.Color("13"), // bright magenta (16-color has no orange)
-		draft:          lipgloss.Color("14"), // bright cyan
-		dim:            lipgloss.Color("8"),  // bright black
-		activeBorder:   lipgloss.Color("5"),  // magenta, distinct from status colors
-		inactiveBorder: lipgloss.Color("8"),  // bright black
+		ready:        lipgloss.Color("12"), // bright blue
+		inProgress:   lipgloss.Color("11"), // bright yellow
+		done:         lipgloss.Color("10"), // bright green
+		failed:       lipgloss.Color("9"),  // bright red
+		blocked:      lipgloss.Color("13"), // bright magenta (16-color has no orange)
+		draft:        lipgloss.Color("14"), // bright cyan
+		activeBorder: lipgloss.Color("5"),  // magenta, distinct from status colors
+		// ANSI 7 (light grey), not 8: many terminal schemes map bright black
+		// at or near the background, which made dim text and unfocused
+		// outlines invisible.
+		dim:            lipgloss.Color("7"),
+		inactiveBorder: lipgloss.Color("7"),
 	}
 }
 
