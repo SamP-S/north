@@ -56,7 +56,7 @@ Todo:
 10. [x] Test hygiene: hermetic git tests (#15), theme invariant test (#16), pathspec test (#17)
 11. [x] `make fmt vet test` green; copy plan to docs/plans/056
 
-Change history: [2026-07-15] plan created from audit findings. [2026-07-15] all 11 todo items implemented via three parallel sub-agents; full suite green (go test -count=1 ./...), e2e-verified empty `next --plain` and single-run doctor --fix on a drifted duplicate.
+Change history: [2026-07-15] plan created from audit findings. [2026-07-15] all 11 todo items implemented via three parallel sub-agents; full suite green (go test -count=1 ./...), e2e-verified empty `next --plain` and single-run doctor --fix on a drifted duplicate. [2026-07-15] follow-up: release workflow now cross-compiles via new `make dist` (linux/darwin amd64+arm64, windows amd64) and attaches the stamped binaries to GitHub releases, closing the audit's ldflags-untested-in-CI note.
 
 ## Verification
 `make fmt && make vet && make test`; manually exercise `north next -l 2 --plain` on an empty board and `north doctor --fix` on a board with a drifted duplicate.
