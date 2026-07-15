@@ -93,8 +93,9 @@ func newDepsModal(boardDir string, t *models.Task, key tasks.SortKey, desc bool,
 	}, nil
 }
 
-// matchEntry reports whether an entry matches the filter query, using the
-// same fields as the main views' live filter.
+// matchEntry reports whether an entry matches the filter query, delegating
+// to tasks.MatchesSearch — the main views' live filter. Dangling entries
+// (task == nil) match on their bare id.
 func matchEntry(e depEntry, q string) bool {
 	if q == "" {
 		return true
@@ -102,12 +103,7 @@ func matchEntry(e depEntry, q string) bool {
 	if e.task == nil {
 		return strings.Contains(strings.ToLower(e.id), q)
 	}
-	t := e.task
-	return strings.Contains(strings.ToLower(t.ID), q) ||
-		strings.Contains(strings.ToLower(t.Title), q) ||
-		strings.Contains(strings.ToLower(t.Assignee), q) ||
-		strings.Contains(strings.ToLower(t.Body), q) ||
-		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q)
+	return tasks.MatchesSearch(e.task, q)
 }
 
 // visibleEntries returns the indices of entries passing the current filter.

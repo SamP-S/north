@@ -74,6 +74,6 @@ func TestNextIDCountsArchiveAndNeverReuses(t *testing.T) {
 }
 
 func doneTask(id, title, updated string) string {
-	return fmt.Sprintf("---\nid: %q\ntitle: %s\nstatus: done\nagent: \"\"\nlabels: []\ndepends_on: []\ncreated_at: %q\nupdated_at: %q\n---\n",
+	return fmt.Sprintf("---\nid: %q\ntitle: %s\nstatus: done\nassignee: \"\"\nlabels: []\ndepends_on: []\ncreated_at: %q\nupdated_at: %q\n---\n",
 		id, title, updated, updated)
 }

@@ -32,7 +32,8 @@ func newDoctorCmd() *cobra.Command {
 			}
 			cmd.Println(out)
 			// Issues found are the report, not a command failure: a completed
-			// scan exits 0 whatever it found. Gate on the --json issues array.
+			// scan always exits 0. Scripts that need to act on findings must
+			// inspect the --json issues array, not the exit code.
 			return nil
 		},
 	}

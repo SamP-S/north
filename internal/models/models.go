@@ -19,8 +19,11 @@ import "time"
 type TaskState string
 
 const (
-	StateDraft   TaskState = "draft"
-	StateActive  TaskState = "active"
+	// StateDraft is a task in drafts/ — not yet on the active board.
+	StateDraft TaskState = "draft"
+	// StateActive is a task in tasks/ — visible on the board.
+	StateActive TaskState = "active"
+	// StateArchive is a task in archive/ — off the board, kept for history.
 	StateArchive TaskState = "archive"
 )
 
@@ -38,11 +41,16 @@ var StateOrder = []TaskState{StateDraft, StateActive, StateArchive}
 type TaskStatus string
 
 const (
-	Ready      TaskStatus = "ready"
+	// Ready is a task waiting to be picked up.
+	Ready TaskStatus = "ready"
+	// InProgress is a task currently being worked on.
 	InProgress TaskStatus = "in_progress"
-	Done       TaskStatus = "done"
-	Failed     TaskStatus = "failed"
-	Blocked    TaskStatus = "blocked"
+	// Done is a task completed successfully (terminal).
+	Done TaskStatus = "done"
+	// Failed is a task abandoned or unsuccessful (terminal).
+	Failed TaskStatus = "failed"
+	// Blocked is a task parked on something outside it.
+	Blocked TaskStatus = "blocked"
 )
 
 // Statuses lists every workflow status in board order — a left→right flow:

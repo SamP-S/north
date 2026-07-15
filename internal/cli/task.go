@@ -368,20 +368,15 @@ func newTaskListCmd() *cobra.Command {
 	return cmd
 }
 
-// filterSearch keeps tasks whose id, title, assignee, labels, or body contain q
-// (case-insensitive). Empty q keeps everything.
+// filterSearch keeps tasks matching q per tasks.MatchesSearch (id, title,
+// assignee, labels, body; case-insensitive). Empty q keeps everything.
 func filterSearch(ts []*models.Task, q string) []*models.Task {
 	if q == "" {
 		return ts
 	}
-	q = strings.ToLower(q)
 	out := make([]*models.Task, 0, len(ts))
 	for _, t := range ts {
-		if strings.Contains(strings.ToLower(t.ID), q) ||
-			strings.Contains(strings.ToLower(t.Title), q) ||
-			strings.Contains(strings.ToLower(t.Assignee), q) ||
-			strings.Contains(strings.ToLower(t.Body), q) ||
-			strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) {
+		if tasks.MatchesSearch(t, q) {
 			out = append(out, t)
 		}
 	}
@@ -659,12 +654,11 @@ func newTaskDeleteCmd() *cobra.Command {
 	return cmd
 }
 
-// warnDependents prints a stderr warning when other tasks depend on task,
-// returning the dependent ids.
-func warnDependents(cmd *cobra.Command, boardDir string, task *models.Task) []string {
+// warnDependents prints a stderr warning when other tasks depend on task.
+func warnDependents(cmd *cobra.Command, boardDir string, task *models.Task) {
 	dependents, err := tasks.Dependents(boardDir, task.ID)
 	if err != nil {
-		return nil
+		return
 	}
 	depIDs := make([]string, len(dependents))
 	for i, d := range dependents {
@@ -673,7 +667,6 @@ func warnDependents(cmd *cobra.Command, boardDir string, task *models.Task) []st
 	if len(depIDs) > 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s depend on %s\n", strings.Join(depIDs, ", "), task.ID)
 	}
-	return depIDs
 }
 
 // errAborted yields a non-zero exit without printing an extra error line.

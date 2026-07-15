@@ -22,9 +22,6 @@ var agents = []Agent{
 	{Name: "opencode", DisplayName: "opencode", ProjectDir: ".opencode/skills", GlobalDir: ".config/opencode/skills"},
 }
 
-// Agents returns the supported agents.
-func Agents() []Agent { return agents }
-
 // Target is a resolved install location for one agent.
 type Target struct {
 	Agent string // agent display name

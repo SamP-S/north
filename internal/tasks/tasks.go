@@ -206,16 +206,13 @@ func depsPolicy(boardDir string) (board.DepsEnforcement, error) {
 	if err != nil {
 		return "", err
 	}
-	if cfg.DepsEnforcement == "" {
-		return board.DepsValidated, nil
-	}
 	return cfg.DepsEnforcement, nil
 }
 
 // dedupIDs drops duplicates from a depends_on list, preserving order.
 func dedupIDs(ids []string) []string {
 	seen := map[string]bool{}
-	out := ids[:0]
+	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		if id == "" || seen[id] {
 			continue
@@ -459,20 +456,15 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []strin
 		return nil, nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
 	}
 	if target == task.Status {
-		return task, nil, nil
+		// Even a no-op surfaces the assignee note — a crash-recovery reset
+		// to ready must never silently starve the task.
+		return task, readyAssigneeWarning(task, target), nil
 	}
 	warns, err := checkStatusDeps(snap, level, task, target)
 	if err != nil {
 		return nil, nil, err
 	}
-	// A ready task that keeps its assignee is invisible to next/take (they
-	// only offer unassigned work) — surface that so a crash-recovery reset
-	// doesn't silently starve the task.
-	if target == models.Ready && task.Assignee != "" {
-		warns = append(warns, fmt.Sprintf(
-			"task %s is still assigned to %q; next/take will not offer it (clear with `north task edit %s --assignee \"\"`)",
-			task.ID, task.Assignee, task.ID))
-	}
+	warns = append(warns, readyAssigneeWarning(task, target)...)
 	task.Status = target
 	n := now()
 	task.UpdatedAt = &n
@@ -481,6 +473,17 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []strin
 		return nil, nil, err
 	}
 	return saved, warns, nil
+}
+
+// readyAssigneeWarning warns when a task is set to ready while still assigned:
+// next/take only offer unassigned work, so the task would sit invisible.
+func readyAssigneeWarning(task *models.Task, target models.TaskStatus) []string {
+	if target != models.Ready || task.Assignee == "" {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"task %s is still assigned to %q; next/take will not offer it (clear with `north task edit %s --assignee \"\"`)",
+		task.ID, task.Assignee, task.ID)}
 }
 
 // SetState moves a task's file between state folders (draft/active/archive),

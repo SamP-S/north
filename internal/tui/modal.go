@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/tasks"
@@ -28,8 +29,8 @@ const (
 	modalConfirmDelete           // confirm a delete (d)
 	modalTaskView                // read-only task popup (enter, board view)
 	modalSortPicker              // choose the task ordering (o)
-	modalDoctor                  // board integrity report (D; f applies --fix)
-	modalDepsPicker              // edit a task's depends_on (L)
+	modalDoctor                  // board integrity report (x; f applies --fix)
+	modalDepsPicker              // edit a task's depends_on (w)
 )
 
 // sortMsg carries a chosen ordering from the sort picker to the root model.
@@ -266,7 +267,16 @@ func (m modal) view() string {
 			if i == m.cursor {
 				prefix = "> "
 			}
-			sb.WriteString(prefix + statusStyle(item).Render(item) + "\n")
+			// Colors only: status entries take the status color, state
+			// entries the state color; sort entries stay plain.
+			style := lipgloss.NewStyle()
+			switch m.mode {
+			case modalStatusPicker:
+				style = statusStyle(item)
+			case modalStatePicker:
+				style = stateStyle(models.TaskState(item))
+			}
+			sb.WriteString(prefix + style.Render(item) + "\n")
 		}
 		return th.Modal.Render(strings.TrimRight(sb.String(), "\n"))
 	case modalConfirmDelete:

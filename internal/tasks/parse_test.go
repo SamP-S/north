@@ -85,6 +85,44 @@ func TestLoadCoercesScalars(t *testing.T) {
 	}
 }
 
+func TestFrontmatterFenceIsExact(t *testing.T) {
+	boardDir := newBoard(t)
+	// A meta line starting with "----" is not a closing fence: everything up
+	// to the real "---" stays in the frontmatter.
+	writeRaw(t, boardDir, "tasks", "9-dashes.md",
+		"---\nid: \"9\"\ntitle: dashes\nstatus: ready\n----: marker\nassignee: sam\n---\nbody here\n")
+	task, err := tasks.Get(boardDir, "9")
+	if err != nil {
+		t.Fatalf("meta line starting with ---- broke the parse: %v", err)
+	}
+	if task.Assignee != "sam" || task.Body != "body here" {
+		t.Errorf("frontmatter cut short at ----: %+v", task)
+	}
+
+	// A closing fence with trailing spaces still terminates the block.
+	writeRaw(t, boardDir, "tasks", "10-trailing.md",
+		"---\nid: \"10\"\ntitle: trailing\nstatus: ready\n---  \nbody here\n")
+	task, err = tasks.Get(boardDir, "10")
+	if err != nil {
+		t.Fatalf("trailing spaces on fence should parse: %v", err)
+	}
+	if task.Body != "body here" {
+		t.Errorf("body after padded fence: %q", task.Body)
+	}
+
+	// A block "closed" only by "----" is unterminated.
+	boardDir2 := newBoard(t)
+	writeRaw(t, boardDir2, "tasks", "1-bad.md",
+		"---\nid: \"1\"\ntitle: bad\nstatus: ready\n----\n")
+	snap, err := tasks.Load(boardDir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Warnings) != 1 || !strings.Contains(snap.Warnings[0].Err, "unterminated frontmatter") {
+		t.Errorf("expected unterminated-frontmatter warning, got %v", snap.Warnings)
+	}
+}
+
 func TestUnknownFrontmatterKeysSurviveRewrite(t *testing.T) {
 	boardDir := newBoard(t)
 	writeRaw(t, boardDir, "tasks", "8-custom.md",

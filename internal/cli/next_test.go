@@ -167,6 +167,22 @@ func TestCLINextLimit(t *testing.T) {
 	}
 }
 
+// TestCLINextLimitPlainEmpty verifies an empty pick under -l N --plain prints
+// nothing at all — not even a blank line.
+func TestCLINextLimitPlainEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := run(t, dir, "init"); err != nil {
+		t.Fatalf("init: %v (%s)", err, out)
+	}
+	out, err := run(t, dir, "next", "-l", "2", "--plain")
+	if err != nil {
+		t.Fatalf("next -l 2 --plain: %v (%s)", err, out)
+	}
+	if out != "" {
+		t.Fatalf("empty plain pick should print nothing, got %q", out)
+	}
+}
+
 func TestCLICleanupDryRun(t *testing.T) {
 	dir := pickBoard(t)
 	if out, err := run(t, dir, "task", "move", "1", "done"); err != nil {

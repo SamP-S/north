@@ -31,26 +31,26 @@ func TaskList(taskList []*models.Task, warnings []tasks.Warning, plain, asJSON b
 			"warnings": warningStrings(warnings),
 		})
 	}
-	tasks := taskList
+	items := taskList
 	if plain {
-		lines := make([]string, len(tasks))
-		for i, t := range tasks {
+		lines := make([]string, len(items))
+		for i, t := range items {
 			lines[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s",
 				t.ID, t.State, t.Status, t.Assignee, strings.Join(t.Labels, ","), t.Title)
 		}
 		return strings.Join(lines, "\n"), nil
 	}
-	if len(tasks) == 0 {
+	if len(items) == 0 {
 		return "(no tasks)", nil
 	}
 	width := 0
-	for _, t := range tasks {
+	for _, t := range items {
 		if len(t.ID) > width {
 			width = len(t.ID)
 		}
 	}
 	var lines []string
-	for _, t := range tasks {
+	for _, t := range items {
 		lines = append(lines, fmt.Sprintf("%-*s  %-8s %-12s %s", width, t.ID, t.State, t.Status, t.Title))
 	}
 	return strings.Join(lines, "\n"), nil

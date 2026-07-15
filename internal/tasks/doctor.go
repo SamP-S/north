@@ -117,10 +117,9 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 			issues = append(issues, Issue{Kind: "unparseable", File: filepath.Base(path), Detail: err.Error()})
 			continue
 		}
-		byID[task.ID] = append(byID[task.ID], path)
-		idSet[task.ID] = true
-		tasksParsed = append(tasksParsed, parsed{path: path, id: task.ID, deps: task.DependsOn})
-		// Filename ↔ frontmatter id drift.
+		// Filename ↔ frontmatter id drift. Checked before recording the path:
+		// fixing renames the file in place, and later repairs (duplicate-id)
+		// must operate on the renamed path.
 		m := filenameID(filepath.Base(path))
 		if m != "" && m != task.ID {
 			issue := Issue{Kind: "id-drift", File: filepath.Base(path),
@@ -129,10 +128,14 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 				target := filepath.Join(filepath.Dir(path), board.TaskFilename(task.ID, task.Title))
 				if err := os.Rename(path, target); err == nil {
 					issue.Fixed = true
+					path = target
 				}
 			}
 			issues = append(issues, issue)
 		}
+		byID[task.ID] = append(byID[task.ID], path)
+		idSet[task.ID] = true
+		tasksParsed = append(tasksParsed, parsed{path: path, id: task.ID, deps: task.DependsOn})
 	}
 
 	// Duplicate ids: first file keeps the id, later ones are renumbered.

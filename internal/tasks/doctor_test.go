@@ -151,3 +151,45 @@ func TestDoctorFix(t *testing.T) {
 		t.Error("CRLF not rewritten")
 	}
 }
+
+func TestDoctorFixDriftedDuplicate(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "original") // 1 (drafts)
+	// One file with both problems: its filename id drifts from its frontmatter
+	// id, and that frontmatter id duplicates task 1. The drift repair renames
+	// the file, so the duplicate repair must load the renamed path.
+	writeRaw(t, boardDir, "tasks", "9-drift-dup.md",
+		"---\nid: \"1\"\ntitle: drifted dup\nstatus: ready\n---\n")
+
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := issueKinds(issues)
+	if kinds["id-drift"] != 1 || kinds["duplicate-id"] != 1 {
+		t.Fatalf("expected one id-drift and one duplicate-id, got %v", issues)
+	}
+	for _, i := range issues {
+		if !i.Fixed {
+			t.Errorf("issue not fixed in one run: %v", i)
+		}
+	}
+
+	// A single --fix run must leave the board healthy.
+	again, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("issues remain after --fix: %v", again)
+	}
+	// The drifted file was renumbered to a fresh id.
+	snap, _ := tasks.Load(boardDir)
+	if snap.Get("1") == nil || snap.Get("2") == nil {
+		ids := make([]string, len(snap.Tasks))
+		for i, task := range snap.Tasks {
+			ids[i] = task.ID
+		}
+		t.Errorf("duplicate not renumbered: ids %v", ids)
+	}
+}

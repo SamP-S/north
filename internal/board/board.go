@@ -251,11 +251,20 @@ func checkVersion(configPath string) error {
 	if yaml.Unmarshal(data, &raw) != nil {
 		return nil
 	}
-	if v := toInt(raw["version"], FormatVersion); v > FormatVersion {
-		return errors.Conflict(fmt.Sprintf(
+	_, err = configVersion(raw)
+	return err
+}
+
+// configVersion extracts the board format version from parsed config keys,
+// refusing versions newer than FormatVersion. A missing version key means a
+// board from before the stamp existed — v1.
+func configVersion(raw map[string]any) (int, error) {
+	v := toInt(raw["version"], 1)
+	if v > FormatVersion {
+		return v, errors.Conflict(fmt.Sprintf(
 			"board format version %d was created by a newer north (this binary supports version %d) — upgrade north", v, FormatVersion))
 	}
-	return nil
+	return v, nil
 }
 
 // LoadConfig reads "north/config.yml" into a Config. A missing file and extra
@@ -299,11 +308,9 @@ func LoadConfig(board string) (Config, error) {
 			cfg.LastID = n
 		}
 	}
-	// A missing version key means a board from before the stamp existed — v1.
-	cfg.Version = toInt(raw["version"], FormatVersion)
-	if cfg.Version > FormatVersion {
-		return cfg, errors.Conflict(fmt.Sprintf(
-			"board format version %d was created by a newer north (this binary supports version %d) — upgrade north", cfg.Version, FormatVersion))
+	cfg.Version, err = configVersion(raw)
+	if err != nil {
+		return cfg, err
 	}
 	return cfg, nil
 }

@@ -1,20 +1,18 @@
-package skill_test
+package skill
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/SamP-S/north/internal/skill"
 )
 
 func TestContentHasVersionAndFrontmatter(t *testing.T) {
-	c := skill.Content()
+	c := Content()
 	if !strings.HasPrefix(c, "---\n") {
 		t.Error("skill should start with frontmatter")
 	}
-	if !strings.Contains(c, "north-skill-version: "+skill.Version) {
+	if !strings.Contains(c, "north-skill-version: "+Version) {
 		t.Error("version comment not injected")
 	}
 	if !strings.Contains(c, "name: north") {
@@ -23,17 +21,17 @@ func TestContentHasVersionAndFrontmatter(t *testing.T) {
 }
 
 func TestInstalledVersionRoundTrip(t *testing.T) {
-	if got := skill.InstalledVersion(skill.Content()); got != skill.Version {
-		t.Errorf("InstalledVersion = %q, want %q", got, skill.Version)
+	if got := InstalledVersion(Content()); got != Version {
+		t.Errorf("InstalledVersion = %q, want %q", got, Version)
 	}
-	if got := skill.InstalledVersion("no stamp here"); got != "" {
+	if got := InstalledVersion("no stamp here"); got != "" {
 		t.Errorf("expected empty for unstamped content, got %q", got)
 	}
 }
 
 func TestInstallProject(t *testing.T) {
 	root := t.TempDir()
-	targets, err := skill.Install(root, false)
+	targets, err := Install(root, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +55,11 @@ func TestInstallProject(t *testing.T) {
 
 func TestInstallIsIdempotent(t *testing.T) {
 	root := t.TempDir()
-	if _, err := skill.Install(root, false); err != nil {
+	if _, err := Install(root, false); err != nil {
 		t.Fatal(err)
 	}
 	// Re-installing overwrites cleanly without error.
-	targets, err := skill.Install(root, false)
+	targets, err := Install(root, false)
 	if err != nil {
 		t.Fatalf("re-install: %v", err)
 	}
@@ -73,7 +71,7 @@ func TestInstallIsIdempotent(t *testing.T) {
 
 func TestAgentsRegistry(t *testing.T) {
 	names := map[string]bool{}
-	for _, a := range skill.Agents() {
+	for _, a := range agents {
 		names[a.Name] = true
 	}
 	if !names["claude"] || !names["opencode"] {
@@ -86,7 +84,7 @@ func TestInstallGlobalTargetsHome(t *testing.T) {
 	if err != nil {
 		t.Skip("no home dir")
 	}
-	targets, err := skill.Targets("", true)
+	targets, err := Targets("", true)
 	if err != nil {
 		t.Fatal(err)
 	}

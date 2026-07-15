@@ -120,8 +120,11 @@ func printPickList(cmd *cobra.Command, picked []*models.Task, warnings []tasks.W
 		cmd.Println(string(data))
 		return nil
 	}
-	if len(picked) == 0 && !plain {
-		cmd.Println("No workable task.")
+	if len(picked) == 0 {
+		// Plain prints nothing on an empty pick — no blank line.
+		if !plain {
+			cmd.Println("No workable task.")
+		}
 		return nil
 	}
 	out, err := render.TaskList(picked, warnings, plain, false)

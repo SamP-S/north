@@ -144,6 +144,33 @@ func TestStatusChangeStaysInPlace(t *testing.T) {
 	}
 }
 
+func TestStatusReadyWarnsWhenAssigned(t *testing.T) {
+	boardDir := newBoard(t)
+	if _, _, err := tasks.Create(boardDir, "x", "opus", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The task is already ready, so this is a no-op — the assignee warning
+	// must still fire (a crash-recovery reset must not starve silently).
+	_, warns, err := tasks.SetStatus(boardDir, "1", "ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "still assigned") {
+		t.Errorf("no-op ready on assigned task: warns = %v, want assignee warning", warns)
+	}
+	// A real transition back to ready warns too.
+	if _, _, err := tasks.SetStatus(boardDir, "1", "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	_, warns, err = tasks.SetStatus(boardDir, "1", "ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "still assigned") {
+		t.Errorf("ready on assigned task: warns = %v, want assignee warning", warns)
+	}
+}
+
 func TestStatusUnknownRejected(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")

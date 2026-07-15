@@ -10,6 +10,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,7 +42,11 @@ func CommitBoard(board, message string, paths, removed []string) error {
 		return err
 	}
 	// Nothing actually changed → nothing to commit.
-	if _, err := run(gitBin, board, append([]string{"diff", "--cached", "--quiet", "--"}, all...)...); err == nil {
+	changed, err := stagedChanges(gitBin, board, all)
+	if err != nil {
+		return err
+	}
+	if !changed {
 		return nil
 	}
 
@@ -52,6 +57,28 @@ func CommitBoard(board, message string, paths, removed []string) error {
 		return err
 	}
 	return nil
+}
+
+// stagedChanges reports whether any of the given paths have staged changes,
+// via `git diff --cached --quiet` (exit 0 = clean, exit 1 = changes staged).
+// Any other failure is a real error, not "changes present".
+func stagedChanges(gitBin, dir string, paths []string) (bool, error) {
+	cmd := exec.Command(gitBin, append([]string{"-C", dir, "diff", "--cached", "--quiet", "--"}, paths...)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return false, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return true, nil
+	}
+	msg := strings.TrimSpace(stderr.String())
+	if msg == "" {
+		msg = err.Error()
+	}
+	return false, fmt.Errorf("git diff: %s", msg)
 }
 
 // stageable filters paths down to what `git add` can act on: paths that still

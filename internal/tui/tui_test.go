@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/SamP-S/north/internal/board"
 	"github.com/SamP-S/north/internal/models"
@@ -940,6 +943,73 @@ func TestNewModelThemeWarning(t *testing.T) {
 	m.width, m.height = 80, 24
 	if !strings.Contains(m.View(), "unknown theme") {
 		t.Error("initial view should render the theme warning")
+	}
+}
+
+// styleChrome renders a style's non-color attributes — border glyphs and
+// edges, bold flag, padding — as a comparable string.
+func styleChrome(s lipgloss.Style) string {
+	top, right, bottom, left := s.GetPadding()
+	return fmt.Sprintf("border=%v edges=%v/%v/%v/%v bold=%v padding=%d/%d/%d/%d",
+		s.GetBorderStyle(),
+		s.GetBorderTop(), s.GetBorderRight(), s.GetBorderBottom(), s.GetBorderLeft(),
+		s.GetBold(), top, right, bottom, left)
+}
+
+// themeChrome renders every style in a theme through styleChrome, keyed by
+// field name so mismatches point at the offending style.
+func themeChrome(tm theme) string {
+	named := []struct {
+		name string
+		s    lipgloss.Style
+	}{
+		{"ColumnActive", tm.ColumnActive},
+		{"ColumnInactive", tm.ColumnInactive},
+		{"CardSelected", tm.CardSelected},
+		{"CardNormal", tm.CardNormal},
+		{"ID", tm.ID},
+		{"PaneActive", tm.PaneActive},
+		{"PaneInactive", tm.PaneInactive},
+		{"Modal", tm.Modal},
+		{"Header", tm.Header},
+		{"Footer", tm.Footer},
+		{"StateDraft", tm.StateDraft},
+		{"StateArchive", tm.StateArchive},
+		{"NoticeSuccess", tm.NoticeSuccess},
+		{"NoticeWarn", tm.NoticeWarn},
+		{"NoticeError", tm.NoticeError},
+		{"Help", tm.Help},
+		{"HelpKey", tm.HelpKey},
+		{"HelpDesc", tm.HelpDesc},
+	}
+	var sb strings.Builder
+	for _, n := range named {
+		fmt.Fprintf(&sb, "%s: %s\n", n.name, styleChrome(n.s))
+	}
+	statuses := make([]string, 0, len(tm.Status))
+	for k := range tm.Status {
+		statuses = append(statuses, k)
+	}
+	sort.Strings(statuses)
+	for _, k := range statuses {
+		fmt.Fprintf(&sb, "Status[%s]: %s\n", k, styleChrome(tm.Status[k]))
+	}
+	return sb.String()
+}
+
+// TestThemePresetsAreColorsOnly pins the project invariant that theme presets
+// differ in colors only: every preset must share the default's border glyphs,
+// bold flags, and padding on every style.
+func TestThemePresetsAreColorsOnly(t *testing.T) {
+	want := themeChrome(buildTheme(defaultPalette()))
+	presets := map[string]theme{
+		"saturated":     buildTheme(saturatedPalette()),
+		"high-contrast": buildTheme(highContrastPalette()),
+	}
+	for name, tm := range presets {
+		if got := themeChrome(tm); got != want {
+			t.Errorf("preset %q changes non-color chrome:\n got: %s\nwant: %s", name, got, want)
+		}
 	}
 }
 

@@ -48,14 +48,35 @@ func splitFrontmatter(content string) (meta, body string, err error) {
 	if rest == content {
 		rest = strings.TrimPrefix(content, "---")
 	}
-	idx := strings.Index(rest, "\n---")
-	if idx < 0 {
-		return "", "", fmt.Errorf("unterminated frontmatter block")
+	// The closing fence is a line that is exactly "---" plus optional
+	// trailing spaces/tabs, terminated by "\n" or EOF. "----" and "--- text"
+	// do not terminate the block.
+	for pos := 0; ; {
+		lineEnd := strings.IndexByte(rest[pos:], '\n')
+		var line string
+		if lineEnd < 0 {
+			line = rest[pos:]
+		} else {
+			line = rest[pos : pos+lineEnd]
+		}
+		if closingFence(line) {
+			meta = strings.TrimSuffix(rest[:pos], "\n")
+			if lineEnd < 0 {
+				return meta, "", nil
+			}
+			return meta, rest[pos+lineEnd+1:], nil
+		}
+		if lineEnd < 0 {
+			return "", "", fmt.Errorf("unterminated frontmatter block")
+		}
+		pos += lineEnd + 1
 	}
-	meta = rest[:idx]
-	body = rest[idx+len("\n---"):]
-	body = strings.TrimPrefix(body, "\n")
-	return meta, body, nil
+}
+
+// closingFence reports whether a line ends a frontmatter block: exactly "---"
+// plus optional trailing spaces/tabs.
+func closingFence(line string) bool {
+	return strings.HasPrefix(line, "---") && strings.TrimRight(line[3:], " \t") == ""
 }
 
 // parseFront unmarshals a frontmatter block into its document node (for

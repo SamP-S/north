@@ -22,8 +22,21 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// isolateGitConfig shields every git invocation in the test — the helpers
+// here and the ones CommitBoard itself runs — from the developer's
+// global/system git config.
+func isolateGitConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+}
+
 func initRepo(t *testing.T) string {
 	t.Helper()
+	isolateGitConfig(t)
 	root := t.TempDir()
 	runGit(t, root, "init", "-q")
 	runGit(t, root, "config", "user.name", "tester")
@@ -55,6 +68,7 @@ func commitCount(t *testing.T, dir string) int {
 // TestCommitBoard_NotInGitRepo confirms CommitBoard is a silent no-op when
 // the board directory is not inside a git work tree.
 func TestCommitBoard_NotInGitRepo(t *testing.T) {
+	isolateGitConfig(t)
 	dir := t.TempDir()
 	if err := git.CommitBoard(dir, "test", []string{}, nil); err != nil {
 		t.Errorf("expected nil for non-repo, got %v", err)
@@ -192,18 +206,38 @@ func TestCommitBoard_LinkedWorktree(t *testing.T) {
 	}
 }
 
+// TestCommitBoard_UnrelatedStagedFileUntouched confirms that files the user
+// has staged outside the given paths are neither committed nor unstaged —
+// CommitBoard scopes add and commit with an explicit pathspec.
+func TestCommitBoard_UnrelatedStagedFileUntouched(t *testing.T) {
+	root := initRepo(t)
+	unrelated := filepath.Join(root, "unrelated.txt")
+	writeFile(t, unrelated, "user work in progress")
+	runGit(t, root, "add", "--", unrelated)
+
+	p := filepath.Join(root, "1-task.md")
+	writeFile(t, p, "# task 1")
+	if err := git.CommitBoard(root, "north: create 1", []string{p}, nil); err != nil {
+		t.Fatalf("CommitBoard returned error: %v", err)
+	}
+
+	// Still staged, not committed.
+	if status := runGit(t, root, "status", "--porcelain"); !strings.Contains(status, "A  unrelated.txt") {
+		t.Errorf("unrelated file no longer staged:\n%s", status)
+	}
+	if files := runGit(t, root, "log", "-1", "--name-only", "--format="); strings.Contains(files, "unrelated.txt") {
+		t.Errorf("unrelated file was committed:\n%s", files)
+	}
+}
+
 // TestCommitBoard_NoIdentity confirms the fallback identity is used when the
 // user has no git user.name/email configured (the previous implementation
 // errored after the file write).
 func TestCommitBoard_NoIdentity(t *testing.T) {
+	isolateGitConfig(t)
 	root := t.TempDir()
 
-	// Isolate from the developer's global/system git config.
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
-	t.Setenv("HOME", root)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
-
+	// init without setting a local identity (unlike initRepo).
 	runGit(t, root, "init", "-q")
 	p := filepath.Join(root, "1-task.md")
 	writeFile(t, p, "# task 1")

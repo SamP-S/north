@@ -363,16 +363,11 @@ func (m listModel) applyFilter() []*models.Task {
 	return out
 }
 
-// matchesFilter reports whether a task's id, title, assignee, labels, or body
-// contain the query (case-insensitive substring match, same fields as the
-// CLI's list --search). Shared by the board and list.
+// matchesFilter reports whether a task matches the live filter query. It
+// delegates to tasks.MatchesSearch — the same matcher as the CLI's
+// list --search. Shared by the board and list.
 func matchesFilter(t *models.Task, query string) bool {
-	q := strings.ToLower(query)
-	return strings.Contains(strings.ToLower(t.Title), q) ||
-		strings.Contains(strings.ToLower(t.ID), q) ||
-		strings.Contains(strings.ToLower(t.Assignee), q) ||
-		strings.Contains(strings.ToLower(strings.Join(t.Labels, "\n")), q) ||
-		strings.Contains(strings.ToLower(t.Body), q)
+	return tasks.MatchesSearch(t, query)
 }
 
 // selectByID moves the cursor to the task with the given ID and focuses the
