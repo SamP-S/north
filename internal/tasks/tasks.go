@@ -231,6 +231,18 @@ func dedupIDs(ids []string) []string {
 	return out
 }
 
+// cleanLabels trims whitespace from each label and drops empties, preserving
+// order, so stored labels always agree with trimmed filter values.
+func cleanLabels(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
 // checkDeps vets a proposed depends_on set for the task with taskID ("" on
 // create, when no cycle or self-reference is possible yet): dangling ids,
 // self-references, and cycles. At hint level every problem is a warning; at
@@ -345,8 +357,8 @@ func Create(boardDir, title, assignee string, labels, dependsOn []string, body s
 		Title:     strings.TrimSpace(title),
 		State:     models.StateDraft,
 		Status:    models.DefaultStatus,
-		Assignee:  assignee,
-		Labels:    labels,
+		Assignee:  strings.TrimSpace(assignee),
+		Labels:    cleanLabels(labels),
 		DependsOn: dependsOn,
 		CreatedAt: &n,
 		UpdatedAt: &n,
@@ -403,10 +415,10 @@ func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, []string, error
 		task.Title = strings.TrimSpace(*opts.Title)
 	}
 	if opts.Assignee != nil {
-		task.Assignee = *opts.Assignee
+		task.Assignee = strings.TrimSpace(*opts.Assignee)
 	}
 	if opts.Labels != nil {
-		task.Labels = *opts.Labels
+		task.Labels = cleanLabels(*opts.Labels)
 	}
 	var warns []string
 	if opts.DependsOn != nil {
@@ -466,13 +478,14 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []strin
 	if target == task.Status {
 		// Even a no-op surfaces the assignee note — a crash-recovery reset
 		// to ready must never silently starve the task.
-		return task, readyAssigneeWarning(task, target), nil
+		return task, append(readyAssigneeWarning(task, target), inactiveNote(task)...), nil
 	}
 	warns, err := checkStatusDeps(snap, level, task, target)
 	if err != nil {
 		return nil, nil, err
 	}
 	warns = append(warns, readyAssigneeWarning(task, target)...)
+	warns = append(warns, inactiveNote(task)...)
 	task.Status = target
 	n := now()
 	task.UpdatedAt = &n
@@ -494,38 +507,55 @@ func readyAssigneeWarning(task *models.Task, target models.TaskStatus) []string 
 		task.ID, task.Assignee, task.ID)}
 }
 
+// inactiveNote reminds that status only shows on the board once the task is
+// active. Empty for active tasks.
+func inactiveNote(task *models.Task) []string {
+	if task.State == models.StateActive {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"task %s is %s; status shows on the board once active", task.ID, task.State)}
+}
+
 // SetState moves a task's file between state folders (draft/active/archive),
 // preserving status. Freeform: any valid state is reachable from any other.
-func SetState(boardDir, taskID string, newState string) (*models.Task, error) {
+// The returned warnings are advisory (op succeeded) — e.g. a reminder that
+// status stays invisible while the resulting state is not active.
+func SetState(boardDir, taskID string, newState string) (*models.Task, []string, error) {
 	target, err := ParseState(newState)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer unlock()
 	task, err := find(boardDir, taskID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if task.State == target {
-		return task, nil
+		return task, inactiveNote(task), nil
 	}
 	oldPath := task.Path
 	task.State = target
 	n := now()
 	task.UpdatedAt = &n
-	return save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → %s", task.ID, target))
+	saved, err := save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → %s", task.ID, target))
+	if err != nil {
+		return nil, nil, err
+	}
+	return saved, inactiveNote(saved), nil
 }
 
 // Cleanup archives active done tasks (optionally only those older than N
 // days; olderThanDays <= 0 means all). The lock is held for the whole run —
 // snapshot and every archive write — so a task moved off done by a
 // concurrent process mid-run can never be archived stale. With dryRun the
-// candidates are returned without locking or writing anything.
-func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, error) {
+// candidates are returned without locking or writing anything. The snapshot
+// warnings are returned alongside.
+func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, []Warning, error) {
 	var cutoff *time.Time
 	if olderThanDays > 0 {
 		c := now().Add(-time.Duration(olderThanDays) * 24 * time.Hour)
@@ -534,13 +564,13 @@ func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, e
 	if !dryRun {
 		unlock, err := board.Lock(boardDir)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		defer unlock()
 	}
 	snap, err := Load(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var archived []*models.Task
 	for _, task := range snap.Filter([]models.TaskState{models.StateActive}, string(models.Done)) {
@@ -558,51 +588,51 @@ func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, e
 		task.UpdatedAt = &n
 		a, err := save(boardDir, task, oldPath, fmt.Sprintf("north: %s state → archive", task.ID))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		archived = append(archived, a)
 	}
-	return archived, nil
+	return archived, snap.Warnings, nil
 }
 
-// Delete removes a task file. At validated/strict the dependents are healed
-// (the deleted id is dropped from their depends_on, under the same lock
-// hold); at hint the dangling references stay, warned. Returned warnings
-// describe either outcome.
-func Delete(boardDir, taskID string) ([]string, error) {
+// Delete removes a task file, returning the removed task. At validated/strict
+// the dependents are healed (the deleted id is dropped from their depends_on,
+// under the same lock hold); at hint the dangling references stay, warned.
+// Returned warnings describe either outcome.
+func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 	level, err := depsPolicy(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer unlock()
 	snap, err := Load(boardDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	task := snap.Get(taskID)
 	if task == nil {
-		return nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
+		return nil, nil, errors.NotFound(fmt.Sprintf("task %q not found", taskID))
 	}
 	dependents := snap.Dependents(taskID)
 	if err := os.Remove(task.Path); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID)); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(dependents) == 0 {
-		return nil, nil
+		return task, nil, nil
 	}
 	ids := make([]string, len(dependents))
 	for i, d := range dependents {
 		ids[i] = d.ID
 	}
 	if level == board.DepsHint {
-		return []string{fmt.Sprintf(
+		return task, []string{fmt.Sprintf(
 			"%s depended on %s — their depends_on now dangles", strings.Join(ids, ", "), taskID)}, nil
 	}
 	// Heal: rewrite each dependent without the deleted id (save directly —
@@ -618,10 +648,10 @@ func Delete(boardDir, taskID string) ([]string, error) {
 		n := now()
 		d.UpdatedAt = &n
 		if _, err := save(boardDir, d, d.Path, fmt.Sprintf("north: heal deps of %s after delete %s", d.ID, taskID)); err != nil {
-			return nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
+			return nil, nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
 		}
 	}
-	return []string{fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", "))}, nil
+	return task, []string{fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", "))}, nil
 }
 
 // StatusCount is one row of the board summary.

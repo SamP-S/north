@@ -34,7 +34,7 @@ func mustCreate(t *testing.T, boardDir, title string) *models.Task {
 func mustActive(t *testing.T, boardDir, title string) *models.Task {
 	t.Helper()
 	task := mustCreate(t, boardDir, title)
-	active, err := tasks.SetState(boardDir, task.ID, "active")
+	active, _, err := tasks.SetState(boardDir, task.ID, "active")
 	if err != nil {
 		t.Fatalf("set state active: %v", err)
 	}
@@ -88,6 +88,43 @@ func TestCreateLandsInDrafts(t *testing.T) {
 	}
 }
 
+// TestCreateEditTrimAssigneeAndLabels verifies assignee and labels are
+// trimmed (and empty labels dropped) on the way in, so stored values always
+// agree with trimmed filters.
+func TestCreateEditTrimAssigneeAndLabels(t *testing.T) {
+	boardDir := newBoard(t)
+	task, _, err := tasks.Create(boardDir, "x", "  opus4.8 ", []string{" auth ", "  ", "ui"}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Assignee != "opus4.8" {
+		t.Errorf("create assignee not trimmed: %q", task.Assignee)
+	}
+	if len(task.Labels) != 2 || task.Labels[0] != "auth" || task.Labels[1] != "ui" {
+		t.Errorf("create labels not cleaned: %v", task.Labels)
+	}
+	// Round-trip: the trimmed values survive the file rewrite.
+	got, err := tasks.Get(boardDir, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignee != "opus4.8" || len(got.Labels) != 2 {
+		t.Errorf("round-trip lost trimming: %q %v", got.Assignee, got.Labels)
+	}
+	assignee := " sonnet "
+	labels := []string{"  backend  ", ""}
+	edited, _, err := tasks.Edit(boardDir, task.ID, tasks.EditOpts{Assignee: &assignee, Labels: &labels})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.Assignee != "sonnet" {
+		t.Errorf("edit assignee not trimmed: %q", edited.Assignee)
+	}
+	if len(edited.Labels) != 1 || edited.Labels[0] != "backend" {
+		t.Errorf("edit labels not cleaned: %v", edited.Labels)
+	}
+}
+
 func TestEmptyTitleRejected(t *testing.T) {
 	boardDir := newBoard(t)
 	_, _, err := tasks.Create(boardDir, "   ", "", nil, nil, "")
@@ -107,7 +144,7 @@ func TestStatusChangeAnyState(t *testing.T) {
 		t.Errorf("got status=%s state=%s", task.Status, task.State)
 	}
 	// The status survives activation.
-	task, err = tasks.SetState(boardDir, "1", "active")
+	task, _, err = tasks.SetState(boardDir, "1", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +192,7 @@ func TestStatusReadyWarnsWhenAssigned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(warns) != 1 || !strings.Contains(warns[0], "still assigned") {
+	if len(warns) == 0 || !strings.Contains(warns[0], "still assigned") {
 		t.Errorf("no-op ready on assigned task: warns = %v, want assignee warning", warns)
 	}
 	// A real transition back to ready warns too.
@@ -166,7 +203,7 @@ func TestStatusReadyWarnsWhenAssigned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(warns) != 1 || !strings.Contains(warns[0], "still assigned") {
+	if len(warns) == 0 || !strings.Contains(warns[0], "still assigned") {
 		t.Errorf("ready on assigned task: warns = %v, want assignee warning", warns)
 	}
 }
@@ -258,7 +295,7 @@ func TestListFiltersByState(t *testing.T) {
 func TestDeleteRemovesFile(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "x")
-	if _, err := tasks.Delete(boardDir, "1"); err != nil {
+	if _, _, err := tasks.Delete(boardDir, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tasks.Get(boardDir, "1"); !isBoardErr(err, "not_found") {

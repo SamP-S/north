@@ -230,6 +230,60 @@ func TestMissingVersionIsV1(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsMalformedAutoCommit(t *testing.T) {
+	boardDir := newBoard(t)
+	// A typo like "flase" must be a hard error, not a silent false.
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte("auto_commit: flase\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := board.LoadConfig(boardDir)
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("expected invalid error, got %v", err)
+	}
+}
+
+func TestSetConfigValuePreservesFile(t *testing.T) {
+	boardDir := newBoard(t)
+	content := "# my board notes\n" +
+		"version: 1 # stamp\n" +
+		"auto_commit: false\n" +
+		"custom_key: kept\n" +
+		"last_id: 41\n"
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := board.SetConfigValue(boardDir, "max_wip", "3"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# my board notes", "# stamp", "custom_key: kept", "last_id: 41"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("config set dropped %q: %q", want, data)
+		}
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxWIP != 3 || cfg.LastID != 41 {
+		t.Errorf("after set: max_wip=%d last_id=%d, want 3/41", cfg.MaxWIP, cfg.LastID)
+	}
+	// Typed values, not strings: the bool key round-trips as a YAML bool.
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AutoCommit || cfg.LastID != 41 {
+		t.Errorf("after bool set: %+v", cfg)
+	}
+}
+
 func TestLoadConfigStringBool(t *testing.T) {
 	boardDir := newBoard(t)
 	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"), []byte(`auto_commit: "true"`), 0o644); err != nil {

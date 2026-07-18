@@ -50,8 +50,8 @@ func As(err error) (BoardError, bool) {
 }
 
 // ExitCode maps an error to the universal CLI exit-code contract, identical
-// in every output mode: 0 success, 1 internal, 2 invalid/usage, 3 not_found,
-// 4 conflict.
+// in every output mode: 0 success, 1 internal (or user-aborted),
+// 2 invalid/usage, 3 not_found, 4 conflict.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0

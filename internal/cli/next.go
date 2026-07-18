@@ -67,23 +67,23 @@ func newNextCmd() *cobra.Command {
 		Long: "Show the next workable task: active, status ready, unassigned, all\n" +
 			"dependencies met, lowest id first. A pure read — nothing is claimed.\n" +
 			"No workable task is a normal outcome: exit 0 with {\"task\": null}\n" +
-			"under --json, empty output under --plain. With -l/--limit N (N ≥ 2)\n" +
-			"the next N tasks are shown in take order, rendered as a task list\n" +
-			"({\"tasks\": […]} under --json).",
+			"under --json, empty output under --plain. With -l/--limit N (N ≥ 2,\n" +
+			"or 0 = all) the next N tasks are shown in take order, rendered as a\n" +
+			"task list ({\"tasks\": […]} under --json).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if limit < 1 {
-				return nerrors.Invalid(fmt.Sprintf("--limit must be at least 1 (got %d)", limit))
+			if limit < 0 {
+				return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
 			}
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
-			picked, warnings, err := tasks.Next(boardDir, labels, limit)
+			picked, warnings, err := tasks.Next(boardDir, cleanLabelFilter(labels), limit)
 			if err != nil {
 				return err
 			}
-			if limit > 1 {
+			if limit != 1 {
 				return printPickList(cmd, picked, warnings, plain, asJSON)
 			}
 			var task *models.Task
@@ -95,9 +95,10 @@ func newNextCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().IntVarP(&limit, "limit", "l", 1, "how many workable tasks to show, in take order")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 1, "how many workable tasks to show, in take order (0 = all)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "only consider tasks carrying this label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
+	cmd.Flags().SetNormalizeFunc(aliasFlag("labels", "label"))
 	return cmd
 }
 
@@ -168,7 +169,7 @@ func newTakeCmd() *cobra.Command {
 			if !cmd.Flags().Changed("assignee") {
 				assignee = os.Getenv("NORTH_AGENT")
 			}
-			task, warnings, err := tasks.Take(boardDir, assignee, taskID, labels)
+			task, warnings, err := tasks.Take(boardDir, assignee, taskID, cleanLabelFilter(labels))
 			if err != nil {
 				return err
 			}
@@ -180,5 +181,6 @@ func newTakeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&assignee, "assignee", "", "who claims the task (default: $NORTH_AGENT; required if unset)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "only consider tasks carrying this label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
+	cmd.Flags().SetNormalizeFunc(aliasFlag("labels", "label"))
 	return cmd
 }

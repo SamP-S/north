@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,8 +15,22 @@ import (
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 )
+
+// aliasFlag returns a flag-normalize func mapping only alias to canonical,
+// leaving every other flag name untouched. Used to forgive --label/--labels
+// mix-ups: the flag stays registered (and documented) under its canonical
+// name, so help output is unchanged — only lookups of the alias are rewritten.
+func aliasFlag(alias, canonical string) func(*pflag.FlagSet, string) pflag.NormalizedName {
+	return func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == alias {
+			name = canonical
+		}
+		return pflag.NormalizedName(name)
+	}
+}
 
 func newTaskCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -152,7 +167,11 @@ func batchReport(cmd *cobra.Command, done []*models.Task, errs []batchErr, warns
 		}
 		cmd.Println(string(data))
 	case plain:
-		if out, err := render.TaskList(done, nil, true, false); err == nil && out != "" {
+		out, err := render.TaskList(done, nil, true, false)
+		if err != nil {
+			return err
+		}
+		if out != "" {
 			cmd.Println(out)
 		}
 	default:
@@ -246,6 +265,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&body, "body", "", "task body text")
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read task body from a file (- for stdin)")
 	addOutputFlags(cmd, &plain, &asJSON)
+	cmd.Flags().SetNormalizeFunc(aliasFlag("label", "labels"))
 	return cmd
 }
 
@@ -264,7 +284,13 @@ func newTaskViewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := render.TaskDetail(task, plain, asJSON)
+			// --json wraps as {"task": …, "warnings": []} — the same envelope
+			// every mutation payload uses.
+			if asJSON {
+				_, err := printTaskResult(cmd, task, nil, false, true)
+				return err
+			}
+			out, err := render.TaskDetail(task, plain)
 			if err != nil {
 				return err
 			}
@@ -309,7 +335,7 @@ func newTaskListCmd() *cobra.Command {
 			}
 			ts := snap.Filter(states, status)
 			ts = filterSearch(ts, search)
-			ts = filterLabels(ts, labels)
+			ts = filterLabels(ts, cleanLabelFilter(labels))
 			if cmd.Flags().Changed("assignee") {
 				ts = filterAssignee(ts, assignee)
 			}
@@ -365,6 +391,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 0, "show at most N tasks after filtering and sorting (0 = unlimited)")
 	addOutputFlags(cmd, &plain, &asJSON)
+	cmd.Flags().SetNormalizeFunc(aliasFlag("labels", "label"))
 	return cmd
 }
 
@@ -390,6 +417,18 @@ func filterAssignee(ts []*models.Task, assignee string) []*models.Task {
 	for _, t := range ts {
 		if strings.EqualFold(t.Assignee, assignee) {
 			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// cleanLabelFilter trims --label values and drops empties, so filters agree
+// with the trimmed labels tasks store.
+func cleanLabelFilter(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
 		}
 	}
 	return out
@@ -476,6 +515,7 @@ func newTaskEditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "replace body from a file (- for stdin)")
 	cmd.Flags().StringVar(&appendBody, "append-body", "", "append text to the body (blank-line separated)")
 	addOutputFlags(cmd, &plain, &asJSON)
+	cmd.Flags().SetNormalizeFunc(aliasFlag("label", "labels"))
 	return cmd
 }
 
@@ -499,7 +539,6 @@ func newTaskMoveCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				noteInactive(cmd, task)
 				if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
 					return err
 				}
@@ -515,7 +554,6 @@ func newTaskMoveCmd() *cobra.Command {
 					errs = append(errs, batchErr{ID: id, Err: err})
 					continue
 				}
-				noteInactive(cmd, task)
 				warnsAll = append(warnsAll, warns...)
 				done = append(done, task)
 			}
@@ -526,15 +564,6 @@ func newTaskMoveCmd() *cobra.Command {
 	}
 	addOutputFlags(cmd, &plain, &asJSON)
 	return cmd
-}
-
-// noteInactive reminds on stderr that status only shows once a task is active.
-func noteInactive(cmd *cobra.Command, task *models.Task) {
-	if task.State != models.StateActive {
-		fmt.Fprintf(cmd.ErrOrStderr(),
-			"note: %s is %s; status shows on the board once active\n",
-			task.ID, task.State)
-	}
 }
 
 func newTaskStateCmd() *cobra.Command {
@@ -553,11 +582,11 @@ func newTaskStateCmd() *cobra.Command {
 				return err
 			}
 			if len(ids) == 1 {
-				task, err := tasks.SetState(boardDir, ids[0], args[1])
+				task, warns, err := tasks.SetState(boardDir, ids[0], args[1])
 				if err != nil {
 					return err
 				}
-				if printed, err := printTaskResult(cmd, task, nil, plain, asJSON); err != nil || printed {
+				if printed, err := printTaskResult(cmd, task, warns, plain, asJSON); err != nil || printed {
 					return err
 				}
 				cmd.Printf("%s state → %s\n", task.ID, task.State)
@@ -565,15 +594,17 @@ func newTaskStateCmd() *cobra.Command {
 			}
 			var done []*models.Task
 			var errs []batchErr
+			var warnsAll []string
 			for _, id := range ids {
-				task, err := tasks.SetState(boardDir, id, args[1])
+				task, warns, err := tasks.SetState(boardDir, id, args[1])
 				if err != nil {
 					errs = append(errs, batchErr{ID: id, Err: err})
 					continue
 				}
+				warnsAll = append(warnsAll, warns...)
 				done = append(done, task)
 			}
-			return batchReport(cmd, done, errs, nil, plain, asJSON, func(t *models.Task) string {
+			return batchReport(cmd, done, errs, warnsAll, plain, asJSON, func(t *models.Task) string {
 				return fmt.Sprintf("%s state → %s", t.ID, t.State)
 			})
 		},
@@ -605,12 +636,7 @@ func newTaskDeleteCmd() *cobra.Command {
 				var errs []batchErr
 				var warnsAll []string
 				for _, id := range ids {
-					task, err := tasks.Get(boardDir, id)
-					if err != nil {
-						errs = append(errs, batchErr{ID: id, Err: err})
-						continue
-					}
-					warns, err := tasks.Delete(boardDir, id)
+					task, warns, err := tasks.Delete(boardDir, id)
 					if err != nil {
 						errs = append(errs, batchErr{ID: id, Err: err})
 						continue
@@ -622,23 +648,25 @@ func newTaskDeleteCmd() *cobra.Command {
 					return fmt.Sprintf("Deleted %s", t.ID)
 				})
 			}
-			task, err := tasks.Get(boardDir, ids[0])
-			if err != nil {
-				return err
-			}
 			if !yes {
 				// Machine modes and non-TTY stdin never prompt: require -y.
 				if plain || asJSON || !stdinIsTTY(cmd) {
 					return nerrors.Invalid("delete requires -y when not run interactively")
 				}
+				// The prompt needs the title up front; only this interactive
+				// path pre-reads the task.
+				preview, err := tasks.Get(boardDir, ids[0])
+				if err != nil {
+					return err
+				}
 				// Surface dependents before the decision, not after.
-				warnDependents(cmd, boardDir, task)
-				if !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", task.ID, task.Title)) {
+				warnDependents(cmd, boardDir, preview)
+				if !confirm(cmd, fmt.Sprintf("Delete %s (%s)?", preview.ID, preview.Title)) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "Aborted.")
 					return errAborted
 				}
 			}
-			warns, err := tasks.Delete(boardDir, ids[0])
+			task, warns, err := tasks.Delete(boardDir, ids[0])
 			if err != nil {
 				return err
 			}
@@ -669,8 +697,9 @@ func warnDependents(cmd *cobra.Command, boardDir string, task *models.Task) {
 	}
 }
 
-// errAborted yields a non-zero exit without printing an extra error line.
-var errAborted = nerrors.Conflict("aborted")
+// errAborted yields a non-zero exit (1, the internal fallback — a user abort
+// is no domain conflict) without printing an extra error line.
+var errAborted = errors.New("aborted")
 
 func addOutputFlags(cmd *cobra.Command, plain, asJSON *bool) {
 	cmd.Flags().BoolVar(plain, "plain", false, "stable unformatted output")

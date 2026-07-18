@@ -135,6 +135,36 @@ func TestCLITakeSpecificID(t *testing.T) {
 	}
 }
 
+func TestCLINextTakeLabelAlias(t *testing.T) {
+	dir := pickBoard(t)
+	if out, err := run(t, dir, "task", "edit", "1", "--labels", "x"); err != nil {
+		t.Fatalf("edit: %v (%s)", err, out)
+	}
+	// next accepts the plural alias for --label.
+	out, err := run(t, dir, "next", "--labels", "x", "--json")
+	if err != nil {
+		t.Fatalf("next --labels: %v (%s)", err, out)
+	}
+	if task := pickJSON(t, out); task == nil || task["id"] != "1" {
+		t.Fatalf("next --labels x should pick task 1: %v", task)
+	}
+	out, err = run(t, dir, "next", "--labels", "other", "--json")
+	if err != nil {
+		t.Fatalf("next --labels other: %v (%s)", err, out)
+	}
+	if task := pickJSON(t, out); task != nil {
+		t.Fatalf("next --labels other should pick nothing: %v", task)
+	}
+	// take accepts the plural alias too.
+	out, err = run(t, dir, "take", "--assignee", "agent-a", "--labels", "x", "--json")
+	if err != nil {
+		t.Fatalf("take --labels: %v (%s)", err, out)
+	}
+	if task := pickJSON(t, out); task == nil || task["id"] != "1" || task["status"] != "in_progress" {
+		t.Fatalf("take --labels x should claim task 1: %v", task)
+	}
+}
+
 func TestCLINextLimit(t *testing.T) {
 	dir := pickBoard(t)
 	if out, err := run(t, dir, "task", "create", "Second task"); err != nil {
@@ -157,13 +187,26 @@ func TestCLINextLimit(t *testing.T) {
 	if len(payload.Tasks) != 2 || payload.Tasks[0]["id"] != "1" || payload.Tasks[1]["id"] != "2" {
 		t.Fatalf("unexpected tasks: %v", payload.Tasks)
 	}
-	// Plain renders list rows; limit 0 is invalid.
+	// Plain renders list rows.
 	if out, err := run(t, dir, "next", "-l", "2", "--plain"); err != nil || len(strings.Split(strings.TrimSpace(out), "\n")) != 2 {
 		t.Fatalf("plain rows: %v (%q)", err, out)
 	}
-	_, err = run(t, dir, "next", "-l", "0")
+	// Limit 0 means all workable tasks, rendered as a list.
+	out, err = run(t, dir, "next", "-l", "0", "--json")
+	if err != nil {
+		t.Fatalf("next -l 0: %v (%s)", err, out)
+	}
+	payload.Tasks = nil
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Tasks) != 2 {
+		t.Fatalf("-l 0 should return all workable, got %v", payload.Tasks)
+	}
+	// Only negative limits are invalid.
+	_, err = run(t, dir, "next", "-l", "-1")
 	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
-		t.Fatalf("expected invalid for -l 0, got %v", err)
+		t.Fatalf("expected invalid for -l -1, got %v", err)
 	}
 }
 

@@ -157,14 +157,11 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 			choice := items[m.cursor]
 			taskID := m.taskID
 			mode := m.mode
+			// Inactive-state advisories ride the ops' returned warnings, so
+			// runTaskOp escalates the notice on its own.
 			ok := notice{noticeSuccess, fmt.Sprintf("%s state → %s", taskID, choice)}
 			if mode == modalStatusPicker {
 				ok = notice{noticeSuccess, fmt.Sprintf("%s → %s", taskID, choice)}
-				if m.taskState != models.StateActive {
-					ok = notice{noticeWarn, fmt.Sprintf(
-						"%s → %s (%s — shows on the board once active)",
-						taskID, choice, m.taskState)}
-				}
 			}
 			m.mode = modalNone
 			return m, runTaskOp(func() ([]string, error) {
@@ -172,8 +169,8 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 					_, warns, err := tasks.SetStatus(boardDir, taskID, choice)
 					return warns, err
 				}
-				_, err := tasks.SetState(boardDir, taskID, choice)
-				return nil, err
+				_, warns, err := tasks.SetState(boardDir, taskID, choice)
+				return warns, err
 			}, ok)
 		case key.Matches(km, keys.Esc):
 			m.mode = modalNone
@@ -239,7 +236,10 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 			taskID := m.taskID
 			m.mode = modalNone
 			return m, runTaskOp(
-				func() ([]string, error) { return tasks.Delete(boardDir, taskID) },
+				func() ([]string, error) {
+					_, warns, err := tasks.Delete(boardDir, taskID)
+					return warns, err
+				},
 				notice{noticeSuccess, "deleted " + taskID})
 		case "n", "esc":
 			m.mode = modalNone

@@ -56,11 +56,10 @@ func TaskList(taskList []*models.Task, warnings []tasks.Warning, plain, asJSON b
 	return strings.Join(lines, "\n"), nil
 }
 
-// TaskDetail renders one task (frontmatter fields + body).
-func TaskDetail(task *models.Task, plain, asJSON bool) (string, error) {
-	if asJSON {
-		return marshalJSON(task.ToMap())
-	}
+// TaskDetail renders one task (frontmatter fields + body) in human or
+// --plain form. JSON view output goes through the CLI's shared
+// {"task": …, "warnings": []} envelope instead.
+func TaskDetail(task *models.Task, plain bool) (string, error) {
 	fields := []string{
 		fmt.Sprintf("id:         %s", task.ID),
 		fmt.Sprintf("title:      %s", task.Title),
@@ -128,9 +127,10 @@ func summary(t *models.Task) map[string]any {
 }
 
 // CleanupReport renders a cleanup run's archived (or would-be-archived) tasks.
-// Human/plain match TaskList; JSON additionally carries "dry_run" so agents
-// can confirm from the payload alone whether archiving actually happened.
-func CleanupReport(archived []*models.Task, dryRun, plain, asJSON bool) (string, error) {
+// Human/plain match TaskList (warnings go to stderr in the CLI); JSON carries
+// the board warnings plus "dry_run" so agents can confirm from the payload
+// alone whether archiving actually happened.
+func CleanupReport(archived []*models.Task, warnings []tasks.Warning, dryRun, plain, asJSON bool) (string, error) {
 	if asJSON {
 		summaries := make([]map[string]any, len(archived))
 		for i, t := range archived {
@@ -139,7 +139,7 @@ func CleanupReport(archived []*models.Task, dryRun, plain, asJSON bool) (string,
 		return marshalJSON(map[string]any{
 			"tasks":    summaries,
 			"dry_run":  dryRun,
-			"warnings": []string{},
+			"warnings": warningStrings(warnings),
 		})
 	}
 	return TaskList(archived, nil, plain, false)

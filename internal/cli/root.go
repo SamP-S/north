@@ -5,7 +5,7 @@
 // "error [<code>]: <msg>" to stderr; when the failing command was invoked with
 // --json, the error is emitted as a JSON object instead so agents can parse
 // it. Exit codes follow one contract in every output mode: 0 success,
-// 1 internal, 2 invalid/usage, 3 not_found, 4 conflict.
+// 1 internal (or user-aborted), 2 invalid/usage, 3 not_found, 4 conflict.
 package cli
 
 import (
@@ -25,12 +25,16 @@ func Execute() int {
 	cmd, err := root.ExecuteC()
 	if err != nil {
 		if err == errAborted {
-			// User-facing message already printed; exit with the error's
-			// contract code (conflict) without an extra error line.
+			// User-facing message already printed; exit with the abort code
+			// (1, the internal fallback) without an extra error line.
 			return nerrors.ExitCode(err)
 		}
 		// Cobra reports an unmatched subcommand as a plain error; it is a
-		// usage mistake under the exit-code contract.
+		// usage mistake under the exit-code contract. The string-prefix check
+		// is coupled to cobra's error text by design: a cobra upgrade that
+		// rewords it flips the exit code from 2 to 1, and the CLI exit-code
+		// test pins the wording so the break is loud in CI, not silent in
+		// the field.
 		if _, ok := nerrors.As(err); !ok && strings.HasPrefix(err.Error(), "unknown command") {
 			err = nerrors.Invalid(err.Error())
 		}

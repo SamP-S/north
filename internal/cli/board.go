@@ -59,12 +59,15 @@ func newCleanupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			archived, err := tasks.Cleanup(boardDir, olderThan, dryRun)
+			archived, warnings, err := tasks.Cleanup(boardDir, olderThan, dryRun)
 			if err != nil {
 				return err
 			}
+			if !asJSON {
+				printWarnings(cmd, warnings)
+			}
 			if plain || asJSON {
-				out, err := render.CleanupReport(archived, dryRun, plain, asJSON)
+				out, err := render.CleanupReport(archived, warnings, dryRun, plain, asJSON)
 				if err != nil {
 					return err
 				}

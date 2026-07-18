@@ -67,11 +67,10 @@ const gitignoreContent = ".lock\n*.tmp\n"
 
 // defaultConfigContent is the commented config.yml init scaffolds — the
 // valid values live in the file itself (the same discoverability story as
-// the user-level TUI config). Comments survive until the first
-// `north config set`, which rewrites the file plain; the header says so.
+// the user-level TUI config). Config writes go through a yaml.Node
+// round-trip, so these comments survive `north config set`.
 // Values must match DefaultConfig.
 const defaultConfigContent = `# north board settings — read/write with ` + "`north config get|set|list`" + `
-# (note: ` + "`north config set`" + ` rewrites this file without comments)
 version: 1                   # board format stamp (read-only)
 auto_commit: false           # commit each board change locally (never pushes/pulls)
 deps_enforcement: validated  # depends_on enforcement: hint | validated | strict
@@ -285,7 +284,12 @@ func LoadConfig(board string) (Config, error) {
 		return cfg, errors.Invalid(fmt.Sprintf("malformed %s: %v", path, err))
 	}
 	if v, ok := raw["auto_commit"]; ok {
-		cfg.AutoCommit = toBool(v, cfg.AutoCommit)
+		b, ok := parseBool(v)
+		if !ok {
+			return cfg, errors.Invalid(fmt.Sprintf(
+				"%s: auto_commit must be true or false (got %v)", path, v))
+		}
+		cfg.AutoCommit = b
 	}
 	if v, ok := raw["deps_enforcement"]; ok {
 		s, _ := v.(string)
@@ -408,22 +412,42 @@ func AllocateID(board string) (string, error) {
 	return id, nil
 }
 
-// setConfigLastID rewrites config.yml with last_id set to n, going through a
-// yaml.Node round-trip so user comments, key order, and unknown keys survive
-// (unlike WriteConfig, which re-marshals the struct plain).
+// setConfigLastID rewrites config.yml with last_id set to n.
 func setConfigLastID(board string, n int) error {
+	return setConfigKey(board, "last_id",
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(n)})
+}
+
+// SetConfigValue rewrites config.yml with one key set to value, preserving
+// user comments, key order, and unknown keys (unlike WriteConfig, which
+// re-marshals the struct plain). The value's YAML type is inferred from its
+// form: "true"/"false" → bool, digits → int, anything else → string. The
+// caller must hold the board lock and pass an already-validated value.
+func SetConfigValue(board, key, value string) error {
+	tag := "!!str"
+	if value == "true" || value == "false" {
+		tag = "!!bool"
+	} else if _, err := strconv.Atoi(value); err == nil {
+		tag = "!!int"
+	}
+	return setConfigKey(board, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value})
+}
+
+// setConfigKey rewrites config.yml with one key patched (or appended), going
+// through a yaml.Node round-trip so user comments, key order, and unknown
+// keys survive.
+func setConfigKey(board, key string, val *yaml.Node) error {
 	path := filepath.Join(board, ConfigName)
 	var doc yaml.Node
 	if data, err := os.ReadFile(path); err == nil {
 		// Malformed YAML falls through to a fresh mapping: LoadConfig has
-		// already rejected genuinely malformed boards before allocation.
+		// already rejected genuinely malformed boards before any write.
 		_ = yaml.Unmarshal(data, &doc)
 	}
 	m := configMapping(&doc)
-	val := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(n)}
 	set := false
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == "last_id" {
+		if m.Content[i].Value == key {
 			// Keep the key node (and any comments on it); swap the value only.
 			val.LineComment = m.Content[i+1].LineComment
 			m.Content[i+1] = val
@@ -433,7 +457,7 @@ func setConfigLastID(board string, n int) error {
 	}
 	if !set {
 		m.Content = append(m.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "last_id"}, val)
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, val)
 	}
 	var buf strings.Builder
 	enc := yaml.NewEncoder(&buf)
@@ -482,14 +506,16 @@ func toInt(v any, fallback int) int {
 	return fallback
 }
 
-func toBool(v any, fallback bool) bool {
+// parseBool coerces a YAML value to a bool, reporting whether it was one:
+// a real YAML bool, or a string strconv.ParseBool accepts.
+func parseBool(v any) (bool, bool) {
 	switch b := v.(type) {
 	case bool:
-		return b
+		return b, true
 	case string:
 		if pb, err := strconv.ParseBool(b); err == nil {
-			return pb
+			return pb, true
 		}
 	}
-	return fallback
+	return false, false
 }

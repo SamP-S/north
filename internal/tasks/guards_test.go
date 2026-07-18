@@ -12,7 +12,7 @@ import (
 
 func TestOpsOnMissingTaskAreNotFound(t *testing.T) {
 	boardDir := newBoard(t)
-	if _, err := tasks.SetState(boardDir, "99", "active"); !isBoardErr(err, "not_found") {
+	if _, _, err := tasks.SetState(boardDir, "99", "active"); !isBoardErr(err, "not_found") {
 		t.Errorf("SetState: expected not_found, got %v", err)
 	}
 	if _, _, err := tasks.SetStatus(boardDir, "99", "ready"); !isBoardErr(err, "not_found") {
@@ -21,7 +21,7 @@ func TestOpsOnMissingTaskAreNotFound(t *testing.T) {
 	if _, _, err := tasks.Edit(boardDir, "99", tasks.EditOpts{}); !isBoardErr(err, "not_found") {
 		t.Errorf("Edit: expected not_found, got %v", err)
 	}
-	if _, err := tasks.Delete(boardDir, "99"); !isBoardErr(err, "not_found") {
+	if _, _, err := tasks.Delete(boardDir, "99"); !isBoardErr(err, "not_found") {
 		t.Errorf("Delete: expected not_found, got %v", err)
 	}
 }
@@ -33,7 +33,7 @@ func TestCleanupRespectsOlderThan(t *testing.T) {
 	writeRaw(t, boardDir, "tasks", "1-old.md", doneTask("1", "old", old))
 	writeRaw(t, boardDir, "tasks", "2-fresh.md", doneTask("2", "fresh", recent))
 
-	archived, err := tasks.Cleanup(boardDir, 5, false) // only tasks older than 5 days
+	archived, _, err := tasks.Cleanup(boardDir, 5, false) // only tasks older than 5 days
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,11 +51,11 @@ func TestNextIDCountsArchiveAndNeverReuses(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "a") // 1
 	mustActive(t, boardDir, "b") // 2 (active)
-	if _, err := tasks.SetState(boardDir, "2", "archive"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, "2", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	// Archived 2 still reserves its id even after 1 is deleted.
-	if _, err := tasks.Delete(boardDir, "1"); err != nil {
+	if _, _, err := tasks.Delete(boardDir, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if id, _ := board.NextID(boardDir); id != "3" {
@@ -65,7 +65,7 @@ func TestNextIDCountsArchiveAndNeverReuses(t *testing.T) {
 	// in config.yml outlives the file scan.
 	boardDir2 := newBoard(t)
 	mustCreate(t, boardDir2, "a") // 1
-	if _, err := tasks.Delete(boardDir2, "1"); err != nil {
+	if _, _, err := tasks.Delete(boardDir2, "1"); err != nil {
 		t.Fatal(err)
 	}
 	if id, _ := board.NextID(boardDir2); id != "2" {

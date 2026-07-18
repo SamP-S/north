@@ -189,6 +189,41 @@ func TestCLIListSearchAndLabel(t *testing.T) {
 	}
 }
 
+func TestCLILabelFlagAliases(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	// create accepts the singular alias for --labels.
+	out, err := run(t, dir, "task", "create", "aliased", "--label", "x", "--json")
+	if err != nil {
+		t.Fatalf("create --label: %v (%s)", err, out)
+	}
+	if !strings.Contains(out, `"labels": [`) || !strings.Contains(out, `"x"`) {
+		t.Errorf("create --label should set labels: %q", out)
+	}
+	// edit accepts the singular alias too.
+	if out, err := run(t, dir, "task", "edit", "1", "--label", "y"); err != nil {
+		t.Fatalf("edit --label: %v (%s)", err, out)
+	}
+	// list accepts the plural alias for --label.
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--labels", "y", "--plain")
+	if !strings.Contains(out, "aliased") {
+		t.Errorf("list --labels should filter: %q", out)
+	}
+	out, _ = run(t, dir, "task", "list", "--state", "draft", "--labels", "zzz", "--plain")
+	if strings.Contains(out, "aliased") {
+		t.Errorf("list --labels zzz should exclude: %q", out)
+	}
+	// Help still documents only the canonical names.
+	out, _ = run(t, dir, "task", "create", "--help")
+	if !strings.Contains(out, "--labels") || strings.Contains(out, "--label ") {
+		t.Errorf("create help should show only --labels: %q", out)
+	}
+	out, _ = run(t, dir, "task", "list", "--help")
+	if !strings.Contains(out, "--label ") || strings.Contains(out, "--labels") {
+		t.Errorf("list help should show only --label: %q", out)
+	}
+}
+
 func TestCLIListWarnsOnBadFile(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
@@ -323,10 +358,128 @@ func TestCLISkillInstallTarget(t *testing.T) {
 		t.Errorf("check output: %q", out)
 	}
 
-	// Unknown target is rejected.
-	if _, err := run(t, dir, "skill", "install", "--target", "cursor"); err == nil ||
-		!strings.Contains(err.Error(), "unknown skill target") {
-		t.Errorf("unknown target: %v", err)
+	// Unknown target is rejected as invalid (exit 2).
+	_, err = run(t, dir, "skill", "install", "--target", "cursor")
+	if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "unknown skill target") {
+		t.Errorf("unknown target should be invalid: %v", err)
+	}
+}
+
+func TestCLISkillInstallIOErrorStaysInternal(t *testing.T) {
+	dir := t.TempDir()
+	// A plain file where the skill dir should go makes MkdirAll fail; that is
+	// an I/O failure, not a usage mistake, so it must not become invalid.
+	if err := os.WriteFile(filepath.Join(dir, ".claude"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := run(t, dir, "skill", "install", "--target", "claude")
+	if err == nil {
+		t.Fatal("install into a blocked dir should fail")
+	}
+	if _, ok := nerrors.As(err); ok {
+		t.Errorf("I/O failure should stay internal (exit 1), got typed error %v", err)
+	}
+}
+
+func TestCLISkillCheckOutputModes(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "skill", "install", "--target", "claude")
+
+	// claude ok + opencode missing → exit 0, both rows in the payload.
+	out, err := run(t, dir, "skill", "check", "--json")
+	if err != nil {
+		t.Fatalf("check --json: %v (%s)", err, out)
+	}
+	var payload struct {
+		Targets []struct {
+			Agent     string `json:"agent"`
+			Path      string `json:"path"`
+			Installed string `json:"installed"`
+			Binary    string `json:"binary"`
+			Status    string `json:"status"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("check --json is not valid JSON: %v (%s)", err, out)
+	}
+	if len(payload.Targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(payload.Targets))
+	}
+	statuses := map[string]string{}
+	for _, tg := range payload.Targets {
+		statuses[tg.Agent] = tg.Status
+		if tg.Path == "" || tg.Binary == "" {
+			t.Errorf("target %q missing path/binary: %+v", tg.Agent, tg)
+		}
+	}
+	if statuses["Claude Code"] != "ok" || statuses["opencode"] != "missing" {
+		t.Errorf("statuses = %v", statuses)
+	}
+
+	// Plain: one tab-separated row per target.
+	pl, err := run(t, dir, "skill", "check", "--plain")
+	if err != nil {
+		t.Fatalf("check --plain: %v", err)
+	}
+	if !strings.Contains(pl, "Claude Code\tok\t") || !strings.Contains(pl, "opencode\tmissing\t\t") {
+		t.Errorf("check plain: %q", pl)
+	}
+
+	// Stale stamp → outdated status and conflict exit, in JSON mode too.
+	stale := filepath.Join(dir, ".claude", "skills", "north", "SKILL.md")
+	if err := os.WriteFile(stale, []byte("<!-- north-skill-version: 0.0.0-old -->\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, dir, "skill", "check", "--json")
+	if errorCode(t, err) != "conflict" {
+		t.Errorf("outdated should be conflict, got %v", err)
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("outdated check --json: %v (%s)", err, out)
+	}
+	found := false
+	for _, tg := range payload.Targets {
+		if tg.Agent == "Claude Code" {
+			found = true
+			if tg.Status != "outdated" || tg.Installed != "0.0.0-old" {
+				t.Errorf("outdated target: %+v", tg)
+			}
+		}
+	}
+	if !found {
+		t.Error("Claude Code target missing from payload")
+	}
+}
+
+func TestCLIVersionOutputModes(t *testing.T) {
+	dir := t.TempDir()
+	out, err := run(t, dir, "version")
+	if err != nil || !strings.HasPrefix(out, "north ") {
+		t.Errorf("version: %q %v", out, err)
+	}
+	pl, err := run(t, dir, "version", "--plain")
+	if err != nil || strings.Contains(pl, "north ") || strings.TrimSpace(pl) == "" {
+		t.Errorf("version --plain: %q %v", pl, err)
+	}
+	js, err := run(t, dir, "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json: %v", err)
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(js), &payload); err != nil || payload.Version != strings.TrimSpace(pl) {
+		t.Errorf("version --json: %q (%v), plain %q", js, err, pl)
+	}
+}
+
+func TestCLITuiRejectsArgs(t *testing.T) {
+	dir := t.TempDir()
+	// Args validation runs before RunE, so the TUI never launches.
+	_, err := run(t, dir, "tui", "extra-arg")
+	if errorCode(t, err) != "invalid" {
+		t.Errorf("tui with positional args should be invalid usage, got %v", err)
 	}
 }
 
@@ -351,6 +504,107 @@ func TestCLIView(t *testing.T) {
 	}
 	if pl, _ := run(t, dir, "task", "view", "1", "--plain"); !strings.Contains(pl, "state:") {
 		t.Errorf("view plain: %q", pl)
+	}
+}
+
+// TestCLIViewJSONEnvelope verifies view --json wraps the task in the same
+// {"task": …, "warnings": []} envelope every mutation payload uses.
+func TestCLIViewJSONEnvelope(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "Add login")
+	out, err := run(t, dir, "task", "view", "1", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Task     map[string]any `json:"task"`
+		Warnings []string       `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if payload.Task["id"] != "1" || payload.Task["title"] != "Add login" {
+		t.Errorf("task envelope: %v", payload.Task)
+	}
+	if payload.Warnings == nil {
+		t.Error("warnings should be [] not null")
+	}
+}
+
+// TestCLIInactiveNoteInJSONWarnings verifies the draft/archive advisory from
+// move/state rides the payload warnings instead of a bare stderr note.
+func TestCLIInactiveNoteInJSONWarnings(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	out, err := run(t, dir, "task", "move", "1", "in_progress", "--json")
+	if err != nil {
+		t.Fatalf("move: %v (%s)", err, out)
+	}
+	var payload struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Warnings) == 0 || !strings.Contains(payload.Warnings[0], "status shows on the board once active") {
+		t.Errorf("move on a draft should carry the inactive note: %v", payload.Warnings)
+	}
+	// state to archive carries it too (resulting state not active)…
+	out, err = run(t, dir, "task", "state", "1", "archive", "--json")
+	if err != nil {
+		t.Fatalf("state: %v (%s)", err, out)
+	}
+	payload.Warnings = nil
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Warnings) == 0 || !strings.Contains(payload.Warnings[0], "once active") {
+		t.Errorf("state to archive should carry the inactive note: %v", payload.Warnings)
+	}
+	// …and activation does not.
+	out, err = run(t, dir, "task", "state", "1", "active", "--json")
+	if err != nil {
+		t.Fatalf("state: %v (%s)", err, out)
+	}
+	payload.Warnings = nil
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Warnings) != 0 {
+		t.Errorf("activation should carry no inactive note: %v", payload.Warnings)
+	}
+}
+
+// TestCLICleanupJSONWarnings verifies cleanup --json surfaces snapshot
+// warnings (e.g. a malformed task file) instead of a hardcoded empty list.
+func TestCLICleanupJSONWarnings(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "good")
+	run(t, dir, "task", "state", "1", "active")
+	run(t, dir, "task", "move", "1", "done")
+	bad := filepath.Join(dir, "north", "tasks", "9-bad.md")
+	if err := os.WriteFile(bad, []byte("no frontmatter at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, dir, "cleanup", "--json")
+	if err != nil {
+		t.Fatalf("cleanup: %v (%s)", err, out)
+	}
+	var payload struct {
+		Tasks    []map[string]any `json:"tasks"`
+		Warnings []string         `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("bad json %q: %v", out, err)
+	}
+	if len(payload.Tasks) != 1 {
+		t.Fatalf("expected 1 archived task, got %v", payload.Tasks)
+	}
+	if len(payload.Warnings) == 0 || !strings.Contains(payload.Warnings[0], "9-bad.md") {
+		t.Errorf("expected snapshot warning naming the bad file: %v", payload.Warnings)
 	}
 }
 
@@ -418,8 +672,8 @@ func TestCLIDeleteDeclined(t *testing.T) {
 	if err == nil {
 		t.Error("declining should exit non-zero")
 	}
-	if nerrors.ExitCode(err) != 4 {
-		t.Errorf("declined delete should exit with the conflict code: %v", err)
+	if nerrors.ExitCode(err) != 1 {
+		t.Errorf("declined delete should exit 1 (abort): %v", err)
 	}
 	if !strings.Contains(out, "Aborted.") {
 		t.Errorf("expected Aborted: %q", out)
@@ -548,6 +802,80 @@ func TestCLIConfigGetSet(t *testing.T) {
 	}
 }
 
+func TestCLIConfigOutputModes(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	// list --json: typed values under a "config" wrapper.
+	out, err := run(t, dir, "config", "list", "--json")
+	if err != nil {
+		t.Fatalf("config list --json: %v (%s)", err, out)
+	}
+	var listPayload struct {
+		Config struct {
+			Version         int    `json:"version"`
+			AutoCommit      bool   `json:"auto_commit"`
+			DepsEnforcement string `json:"deps_enforcement"`
+			MaxWIP          int    `json:"max_wip"`
+			LastID          int    `json:"last_id"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(out), &listPayload); err != nil {
+		t.Fatalf("config list --json unmarshal: %v (%s)", err, out)
+	}
+	c := listPayload.Config
+	if c.Version != 1 || c.AutoCommit || c.DepsEnforcement != "validated" || c.MaxWIP != 0 || c.LastID != 0 {
+		t.Errorf("config list --json payload: %+v", c)
+	}
+	if strings.Contains(out, `"version": "1"`) {
+		t.Errorf("list --json must carry typed values, not strings: %s", out)
+	}
+	// list --plain: tab-separated key\tvalue lines.
+	if out, _ := run(t, dir, "config", "list", "--plain"); !strings.Contains(out, "max_wip\t0\n") {
+		t.Errorf("config list --plain: %q", out)
+	}
+	// get --json: {"key": …, "value": …} with a typed value.
+	if out, _ = run(t, dir, "config", "get", "max_wip", "--json"); !strings.Contains(out, `"key": "max_wip"`) || !strings.Contains(out, `"value": 0`) {
+		t.Errorf("config get --json: %q", out)
+	}
+	// get --plain: the bare value, same as human.
+	if out, _ = run(t, dir, "config", "get", "max_wip", "--plain"); strings.TrimSpace(out) != "0" {
+		t.Errorf("config get --plain: %q", out)
+	}
+	// set --json echoes the new typed value.
+	if out, err = run(t, dir, "config", "set", "max_wip", "3", "--json"); err != nil ||
+		!strings.Contains(out, `"key": "max_wip"`) || !strings.Contains(out, `"value": 3`) {
+		t.Errorf("config set --json: %q %v", out, err)
+	}
+	// set --plain: key\tvalue.
+	if out, err = run(t, dir, "config", "set", "auto_commit", "true", "--plain"); err != nil || strings.TrimSpace(out) != "auto_commit\ttrue" {
+		t.Errorf("config set --plain: %q %v", out, err)
+	}
+}
+
+func TestCLIConfigSetPreservesFile(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	// Bump last_id via task creation, then set an unrelated key: the set must
+	// keep the scaffold's comments and never rewind the id high-water mark.
+	run(t, dir, "task", "create", "x")
+	if _, err := run(t, dir, "config", "set", "max_wip", "2"); err != nil {
+		t.Fatalf("config set: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "north", "config.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "#") {
+		t.Errorf("config comments should survive config set: %q", data)
+	}
+	if !strings.Contains(string(data), "last_id: 1") {
+		t.Errorf("config set must not rewind last_id: %q", data)
+	}
+	if out, _ := run(t, dir, "config", "get", "last_id"); strings.TrimSpace(out) != "1" {
+		t.Errorf("last_id after config set: %q", out)
+	}
+}
+
 func TestCLIDoctor(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
@@ -631,6 +959,16 @@ func TestCLIExitCodeContract(t *testing.T) {
 	_, err = run(t, dir, "init")
 	if got := nerrors.ExitCode(err); got != 4 {
 		t.Errorf("conflict exit = %d, want 4 (%v)", got, err)
+	}
+	// Unknown subcommand → 2. Execute maps it by sniffing cobra's error text;
+	// this pins the wording so a cobra reword breaks loudly here, not by
+	// silently flipping the exit code to 1 in the field.
+	_, err = run(t, dir, "bogus-subcommand")
+	if err == nil {
+		t.Fatal("unknown subcommand should error")
+	}
+	if _, ok := nerrors.As(err); ok || !strings.HasPrefix(err.Error(), "unknown command") {
+		t.Errorf("unknown subcommand error = %q, want plain cobra error with %q prefix", err, "unknown command")
 	}
 }
 

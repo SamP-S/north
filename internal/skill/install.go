@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/SamP-S/north/internal/errors"
 )
 
 // Agent describes an AI coding agent and where its skills live.
@@ -31,7 +33,7 @@ type Target struct {
 
 // Targets resolves install locations for the named agents (all when names is
 // empty). When global is true they resolve under the user's home dir,
-// otherwise under projectRoot. Unknown names are an error.
+// otherwise under projectRoot. Unknown names are an Invalid error.
 func Targets(projectRoot string, global bool, names ...string) ([]Target, error) {
 	selected, err := selectAgents(names)
 	if err != nil {
@@ -83,8 +85,8 @@ func selectAgents(names []string) ([]Agent, error) {
 			for i, a := range agents {
 				known[i] = a.Name
 			}
-			return nil, fmt.Errorf("unknown skill target %q (expected one of: %s)",
-				n, strings.Join(known, ", "))
+			return nil, errors.Invalid(fmt.Sprintf("unknown skill target %q (expected one of: %s)",
+				n, strings.Join(known, ", ")))
 		}
 	}
 	return out, nil

@@ -103,7 +103,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
-| `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met) — read-only |
+| `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met; `-l 0` = all) — read-only |
 | `north take [id] [--assignee A] [--label L]` | Atomically claim the next workable task (or a specific id) — `in_progress` + assignee in one lock hold |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--dry-run]` | Archive active done tasks (`--dry-run` previews) |
@@ -112,9 +112,9 @@ Malformed files never break the board — they surface as warnings, and
 | `north skill install\|show\|check` | Install / print / version-check the embedded agent skill |
 | `north tui` | Interactive terminal UI (human use only) |
 
-Every task/board command accepts `--plain` (tab-separated) or `--json` for
-stable, parseable output, with structured JSON errors and one exit-code
-contract in every mode. `move`/`state`/`delete` accept comma-delimited id
+Every task/board command — plus `config`, `skill check`, and `version` —
+accepts `--plain` (tab-separated) or `--json` for stable, parseable output,
+with structured JSON errors and one exit-code contract in every mode. `move`/`state`/`delete` accept comma-delimited id
 batches (deduplicated, continue-on-error, per-id report). Full contract —
 exit codes, plain columns, warning arrays — in
 [docs/design/03_cli.md](docs/design/03_cli.md); `north completion <shell>`

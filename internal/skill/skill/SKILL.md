@@ -96,8 +96,8 @@ north task move <ids> <status>   # ready | in_progress | blocked | done | failed
 non-zero.
 
 Status can be set in any state, but it only shows on the board while the task
-is active (a note is printed on stderr otherwise) — normally set state to
-active first, then move.
+is active (an advisory warning otherwise) — normally set state to active
+first, then move.
 
 Edit fields and body:
 
@@ -120,8 +120,8 @@ north next [-l N] [--label L] [--plain | --json]               # peek at the nex
 north take [id] [--assignee A] [--label L] [--plain | --json]  # claim atomically (assignee falls back to $NORTH_AGENT)
 ```
 
-`next -l 3` previews the next 3 in take order (`{"tasks": […]}` under
-`--json`). `take <id>` claims a specific task instead of the queue head —
+`next -l N` previews the next N in take order, 0 = all (`{"tasks": […]}`
+under `--json`). `take <id>` claims a specific task instead of the queue head —
 refused (`conflict`) unless it is active, ready, unassigned, and its
 dependencies are met; never steal a refused task by editing around the
 error. When the user resets a task with `move <id> ready`, its assignee must
@@ -145,6 +145,8 @@ confirm archiving actually happened. `doctor` exits 0 whenever the scan
 completes — issues found are its *output* (gate on the `--json` issues array),
 not a failure. Task ids are never reused: `config get last_id` shows the
 id high-water mark north maintains itself (read-only; `set` refuses it).
+`config` under `--json`: `list` → `{"config": {…}}` (typed values),
+`get`/`set` → `{"key": …, "value": …}`.
 
 ## Dependencies
 
@@ -166,21 +168,25 @@ plain/human modes, a `"warnings"` array in `--json` payloads.
 
 ## Output and errors
 
-- Every task/board command supports `--plain` (tab-separated) and `--json`.
-  The default is human-formatted; always pass one of the two.
+- Every task/board command — plus `config`, `skill check`, and `version` —
+  supports `--plain` (tab-separated) and `--json`. The default is
+  human-formatted; always pass one of the two.
 - `task list --plain` columns: `id  state  status  assignee  labels  title`
   (tab-separated; assignee/labels empty when unset, labels comma-joined).
-- Mutation `--json` payloads are wrapped like `next`/`take`: a single id
-  returns `{"task": {…}, "warnings": […]}` (warnings always an array, never
-  null); a batch returns `{"tasks": […], "errors": […], "warnings": […]}`.
+- Mutation and `task view` `--json` payloads are wrapped like `next`/`take`:
+  a single id returns `{"task": {…}, "warnings": […]}` (warnings always an
+  array, never null); a batch returns
+  `{"tasks": […], "errors": […], "warnings": […]}`.
 - Exit codes are one contract in every output mode: **0** success,
-  **1** internal, **2** invalid/usage, **3** not_found, **4** conflict.
+  **1** internal (or aborted), **2** invalid/usage, **3** not_found,
+  **4** conflict.
   A partially failed batch exits with the shared failure code (1 when mixed).
 - On failure `error [<code>]: <message>` is printed to stderr. With `--json`,
   the error is emitted instead as
   `{"error":{"code":"not_found|conflict|invalid|internal","message":"…"}}`.
-- List/board `--json` payloads include a `"warnings"` array naming any task
-  files that could not be parsed; in human/plain modes warnings go to stderr.
+- List/board/cleanup `--json` payloads include a `"warnings"` array naming any
+  task files that could not be parsed; in human/plain modes warnings go to
+  stderr.
 
 ## Rules for agents
 

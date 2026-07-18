@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SamP-S/north/internal/errors"
 )
 
 func TestContentHasVersionAndFrontmatter(t *testing.T) {
@@ -76,6 +78,13 @@ func TestAgentsRegistry(t *testing.T) {
 	}
 	if !names["claude"] || !names["opencode"] {
 		t.Errorf("expected claude and opencode agents, got %v", names)
+	}
+}
+
+func TestTargetsUnknownName(t *testing.T) {
+	_, err := Targets(t.TempDir(), false, "cursor")
+	if be, ok := errors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("unknown target should be an Invalid error, got %v", err)
 	}
 }
 

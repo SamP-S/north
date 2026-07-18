@@ -34,7 +34,9 @@ const (
 // Lock takes the advisory board lock and returns a release func. It retries
 // briefly while another process holds the lock, steals locks older than
 // staleAfter, and returns Conflict when the board stays locked past the wait
-// budget.
+// budget. Steals go through an atomic rename to a per-pid temp name so exactly
+// one waiter wins, and the renamed file's mtime is re-verified before it is
+// discarded — a lock that turns out fresh is restored, never destroyed.
 func Lock(boardDir string) (func(), error) {
 	path := filepath.Join(boardDir, LockName)
 	deadline := time.Now().Add(lockWait)
@@ -49,8 +51,7 @@ func Lock(boardDir string) (func(), error) {
 			return nil, err
 		}
 		if info, serr := os.Stat(path); serr == nil && time.Since(info.ModTime()) > staleAfter {
-			// Holder is presumed crashed; remove and race to recreate.
-			os.Remove(path)
+			stealStale(path)
 			continue
 		}
 		if time.Now().After(deadline) {
@@ -59,4 +60,30 @@ func Lock(boardDir string) (func(), error) {
 		}
 		time.Sleep(lockRetry)
 	}
+}
+
+// stealStale steals the lock at path, whose holder is presumed crashed, by
+// atomic rename so exactly one waiter wins: removing the path directly would
+// let a slower waiter delete the fresh lock a faster one just created. A
+// failed rename means someone else already stole it — the caller keeps
+// retrying either way. The suffix matches the board .gitignore ("*.tmp"), so
+// an orphaned steal file never dirties the repo.
+func stealStale(path string) {
+	stolen := fmt.Sprintf("%s.steal.%d.tmp", path, os.Getpid())
+	if os.Rename(path, stolen) != nil {
+		return
+	}
+	// Re-verify staleness on the renamed file: between the caller's stat and
+	// our rename another waiter may have completed a steal and recreated a
+	// fresh lock, which our rename would then have grabbed.
+	if info, err := os.Stat(stolen); err == nil && time.Since(info.ModTime()) <= staleAfter {
+		// Fresh — undo the theft. Restore by hard link, which unlike rename
+		// fails with EEXIST rather than clobbering a newer lock that may
+		// have appeared at path meanwhile. If the restore loses that race
+		// the temp is simply dropped: the displaced holder's release then
+		// removes a path it no longer owns (or nothing at all), which is
+		// harmless — release already ignores Remove errors.
+		os.Link(stolen, path)
+	}
+	os.Remove(stolen)
 }

@@ -62,22 +62,8 @@ func TestTaskListJSONOmitsBody(t *testing.T) {
 	}
 }
 
-func TestTaskDetailJSONIncludesBody(t *testing.T) {
-	out, err := render.TaskDetail(sample(), false, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got["body"] != "do the thing" {
-		t.Errorf("body missing: %v", got["body"])
-	}
-}
-
 func TestTaskDetailHumanShowsBody(t *testing.T) {
-	out, err := render.TaskDetail(sample(), false, false)
+	out, err := render.TaskDetail(sample(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +98,7 @@ func TestTaskListEmpty(t *testing.T) {
 func TestTaskDetailNoBody(t *testing.T) {
 	task := sample()
 	task.Body = ""
-	out, err := render.TaskDetail(task, false, false)
+	out, err := render.TaskDetail(task, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +111,7 @@ func TestTaskDetailNoBody(t *testing.T) {
 }
 
 func TestTaskDetailPlainBody(t *testing.T) {
-	out, err := render.TaskDetail(sample(), true, false)
+	out, err := render.TaskDetail(sample(), true)
 	if err != nil {
 		t.Fatal(err)
 	}

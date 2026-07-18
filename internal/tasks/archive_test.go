@@ -15,7 +15,7 @@ func TestStateFreeform(t *testing.T) {
 	mustCreate(t, boardDir, "x")
 	// Any state → any state in one step, including archive → active directly.
 	for _, s := range []string{"active", "archive", "active", "draft", "archive", "draft"} {
-		task, err := tasks.SetState(boardDir, "1", s)
+		task, _, err := tasks.SetState(boardDir, "1", s)
 		if err != nil {
 			t.Fatalf("state %s: %v", s, err)
 		}
@@ -28,7 +28,7 @@ func TestStateFreeform(t *testing.T) {
 func TestArchiveMovesFile(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	archived, err := tasks.SetState(boardDir, "1", "archive")
+	archived, _, err := tasks.SetState(boardDir, "1", "archive")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestStateSameIsNoOp(t *testing.T) {
 	boardDir := newBoard(t)
 	task := mustCreate(t, boardDir, "x")
 	before := task.UpdatedAt
-	same, err := tasks.SetState(boardDir, "1", "draft")
+	same, _, err := tasks.SetState(boardDir, "1", "draft")
 	if err != nil {
 		t.Fatalf("same-state move should be a no-op, got %v", err)
 	}
@@ -65,7 +65,7 @@ func TestStatePreservesStatus(t *testing.T) {
 	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	task, _ := tasks.Get(boardDir, "1")
@@ -77,7 +77,7 @@ func TestStatePreservesStatus(t *testing.T) {
 func TestStatusChangeWhenArchived(t *testing.T) {
 	boardDir := newBoard(t)
 	mustActive(t, boardDir, "x")
-	if _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, "1", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	// Freeform: status is editable in any state, including archive.
@@ -93,7 +93,7 @@ func TestStatusChangeWhenArchived(t *testing.T) {
 func TestStateUnknownRejected(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "x")
-	_, err := tasks.SetState(boardDir, "1", "limbo")
+	_, _, err := tasks.SetState(boardDir, "1", "limbo")
 	if !isBoardErr(err, "invalid") {
 		t.Fatalf("expected invalid, got %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Dry run first: reports the candidate without touching anything.
-	would, err := tasks.Cleanup(boardDir, 0, true)
+	would, _, err := tasks.Cleanup(boardDir, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 		t.Errorf("dry run mutated the board: %v %v", fresh, err)
 	}
 
-	archived, err := tasks.Cleanup(boardDir, 0, false)
+	archived, _, err := tasks.Cleanup(boardDir, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,10 +144,10 @@ func TestCleanupHoldsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if _, err := tasks.Cleanup(boardDir, 0, true); err != nil {
+	if _, _, err := tasks.Cleanup(boardDir, 0, true); err != nil {
 		t.Fatalf("dry run should not need the lock: %v", err)
 	}
-	if _, err := tasks.Cleanup(boardDir, 0, false); !isBoardErr(err, "conflict") {
+	if _, _, err := tasks.Cleanup(boardDir, 0, false); !isBoardErr(err, "conflict") {
 		t.Fatalf("expected conflict while locked, got %v", err)
 	}
 }

@@ -118,7 +118,7 @@ func TestDependentsAcrossAllStates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create gamma: %v", err)
 	}
-	if _, err := tasks.SetState(boardDir, active.ID, "archive"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, active.ID, "archive"); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
 	// Add a dep from archived 2 to 1 via Edit.
@@ -255,7 +255,8 @@ func TestStatusMoveWithUnmetDeps(t *testing.T) {
 	if _, _, err := tasks.SetStatus(boardDir, "1", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if _, warns, err := tasks.SetStatus(boardDir, "2", "done"); err != nil || len(warns) != 0 {
+	if _, warns, err := tasks.SetStatus(boardDir, "2", "done"); err != nil ||
+		strings.Contains(strings.Join(warns, " "), "unmet") {
 		t.Errorf("strict move after deps met: %v %v", err, warns)
 	}
 }
@@ -266,7 +267,7 @@ func TestDeleteHealsDependentsAtValidated(t *testing.T) {
 	if _, _, err := tasks.Create(boardDir, "child", "", nil, []string{"1"}, ""); err != nil { // 2
 		t.Fatal(err)
 	}
-	warns, err := tasks.Delete(boardDir, "1")
+	_, warns, err := tasks.Delete(boardDir, "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +290,7 @@ func TestDeleteLeavesDanglingAtHint(t *testing.T) {
 	if _, _, err := tasks.Create(boardDir, "child", "", nil, []string{"1"}, ""); err != nil { // 2
 		t.Fatal(err)
 	}
-	warns, err := tasks.Delete(boardDir, "1")
+	_, warns, err := tasks.Delete(boardDir, "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +323,7 @@ func TestUnmetDeps(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustCreate(t, boardDir, "gone") // 3
-	if _, err := tasks.SetState(boardDir, "3", "archive"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, "3", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := tasks.Create(boardDir, "work", "", nil, []string{"1", "2", "3"}, ""); err != nil { // 4

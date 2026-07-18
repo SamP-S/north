@@ -88,7 +88,7 @@ func TestNextLabelFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tasks.SetState(boardDir, labelled.ID, "active"); err != nil {
+	if _, _, err := tasks.SetState(boardDir, labelled.ID, "active"); err != nil {
 		t.Fatal(err)
 	}
 

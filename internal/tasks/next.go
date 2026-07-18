@@ -107,18 +107,21 @@ func claimable(snap *Snapshot, t *models.Task) error {
 // in_progress tasks, Take refuses with a conflict. Only deps-met tasks are
 // ever claimed, so no additional dependency enforcement applies.
 func Take(boardDir, assignee, taskID string, labels []string) (*models.Task, []Warning, error) {
-	if strings.TrimSpace(assignee) == "" {
+	assignee = strings.TrimSpace(assignee)
+	if assignee == "" {
 		return nil, nil, errors.Invalid("take needs an assignee (pass --assignee or set NORTH_AGENT)")
-	}
-	cfg, err := board.LoadConfig(boardDir)
-	if err != nil {
-		return nil, nil, err
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	// Config is read under the lock so a concurrent `config set max_wip`
+	// cannot be observed stale.
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err

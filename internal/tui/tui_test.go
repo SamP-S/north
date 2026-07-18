@@ -32,7 +32,7 @@ func mustActive(t *testing.T, dir, title string) *models.Task {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	task, err = tasks.SetState(dir, task.ID, "active")
+	task, _, err = tasks.SetState(dir, task.ID, "active")
 	if err != nil {
 		t.Fatalf("activate: %v", err)
 	}
@@ -255,8 +255,13 @@ func TestStatePickerOpensAndApplies(t *testing.T) {
 		t.Fatal("enter should produce a command")
 	}
 	msg, ok := cmd().(actionDoneMsg)
-	if !ok || msg.notice.level != noticeSuccess {
+	if !ok {
 		t.Fatalf("state change should succeed with a notice, got %v", msg)
+	}
+	// Archiving leaves the task inactive, so the advisory rides the warnings
+	// and escalates the notice.
+	if msg.notice.level != noticeWarn || !strings.Contains(msg.notice.text, "once active") {
+		t.Fatalf("archive should carry the inactive advisory, got %v", msg.notice)
 	}
 	task, err := tasks.Get(dir, active.ID)
 	if err != nil {
@@ -519,7 +524,7 @@ func TestLoadDataSevenColumns(t *testing.T) {
 	arch1 := mustActive(t, dir, "old archive")
 	arch2 := mustActive(t, dir, "new archive")
 	for _, id := range []string{arch1.ID, arch2.ID} {
-		if _, err := tasks.SetState(dir, id, "archive"); err != nil {
+		if _, _, err := tasks.SetState(dir, id, "archive"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -629,7 +634,7 @@ func TestCardTags(t *testing.T) {
 	if _, _, err := tasks.SetStatus(dir, "1", "failed"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tasks.SetState(dir, "1", "archive"); err != nil {
+	if _, _, err := tasks.SetState(dir, "1", "archive"); err != nil {
 		t.Fatal(err)
 	}
 	snap, err = tasks.Load(dir)
@@ -740,7 +745,7 @@ func TestDepsModalBuild(t *testing.T) {
 	if _, _, err := tasks.Create(dir, "Old", "", nil, nil, ""); err != nil { // 3
 		t.Fatal(err)
 	}
-	if _, err := tasks.SetState(dir, "3", "archive"); err != nil {
+	if _, _, err := tasks.SetState(dir, "3", "archive"); err != nil {
 		t.Fatal(err)
 	}
 

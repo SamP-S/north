@@ -7,7 +7,7 @@ emitted instead as `{"error":{"code":"…","message":"…"}}` so agents can pars
 it (codes: `not_found`, `conflict`, `invalid`, `internal`).
 
 Exit codes follow one contract in every output mode, mapped from the typed
-error codes: **0** success, **1** internal, **2** invalid/usage (including
+error codes: **0** success, **1** internal (or user-aborted), **2** invalid/usage (including
 flag/argument mistakes), **3** not_found, **4** conflict. A partially failed
 batch exits with the failure code shared by every failed id (1 when the codes
 differ).
