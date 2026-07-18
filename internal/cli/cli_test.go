@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1001,6 +1002,59 @@ func TestCLIConfigLastID(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "#") {
 		t.Errorf("config comments should survive allocation: %q", data)
+	}
+}
+
+func TestCLICleanupRejectsNegativeOlderThan(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "x")
+	run(t, dir, "task", "state", "1", "active")
+	run(t, dir, "task", "move", "1", "done")
+	_, err := run(t, dir, "cleanup", "--older-than", "-1")
+	if got := nerrors.ExitCode(err); got != 2 {
+		t.Errorf("negative --older-than exit = %d, want 2 (%v)", got, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "--older-than must not be negative") {
+		t.Errorf("expected the negative --older-than message, got %v", err)
+	}
+	// Nothing was archived by the refused run.
+	out, _ := run(t, dir, "task", "view", "1", "--json")
+	if !strings.Contains(out, `"state": "active"`) {
+		t.Errorf("refused cleanup must not archive: %q", out)
+	}
+}
+
+// TestCLIMutationJSONWrapped pins the mutation commands' JSON contract:
+// {"task": {…}, "warnings": […]} — the same wrapper next/take use, with
+// warnings always an array, never null.
+func TestCLIMutationJSONWrapped(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	for _, args := range [][]string{
+		{"task", "create", "Wrapped", "--json"},
+		{"task", "state", "1", "active", "--json"},
+		{"task", "move", "1", "done", "--json"},
+		{"task", "edit", "1", "--assignee", "sam", "--json"},
+		{"task", "delete", "1", "-y", "--json"},
+	} {
+		out, err := run(t, dir, args...)
+		if err != nil {
+			t.Fatalf("%v: %v (%s)", args, err, out)
+		}
+		var payload struct {
+			Task     map[string]any `json:"task"`
+			Warnings []string       `json:"warnings"`
+		}
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("%v: bad json %q: %v", args, out, err)
+		}
+		if payload.Task == nil || payload.Task["id"] != "1" {
+			t.Errorf("%v: task not wrapped under \"task\": %q", args, out)
+		}
+		if payload.Warnings == nil {
+			t.Errorf("%v: warnings must be an array, never null: %q", args, out)
+		}
 	}
 }
 

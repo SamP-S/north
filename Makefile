@@ -16,7 +16,7 @@ version:
 	@echo $(VERSION)
 
 # Cross-compile version-stamped release binaries into dist/.
-DIST_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+DIST_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 dist:
 	rm -rf dist && mkdir -p dist
@@ -27,6 +27,7 @@ dist:
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
 			go build -trimpath $(LDFLAGS) -o dist/north_$${os}_$${arch}$$ext ./cmd/north || exit 1; \
 	done
+	cd dist && sha256sum north_* > SHA256SUMS
 
 # Run the test suite.
 test:
@@ -46,3 +47,4 @@ fmt:
 
 clean:
 	rm -f bin/north
+	rm -rf dist

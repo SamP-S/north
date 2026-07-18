@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +67,10 @@ func parseDT(s string) *time.Time {
 	return nil
 }
 
+// taskIDRe restricts frontmatter ids to bare numbers: the id is interpolated
+// into filenames, so anything else could escape the board directory.
+var taskIDRe = regexp.MustCompile(`^[0-9]+$`)
+
 // loadTask parses one task file. Every error names the file.
 func loadTask(path string) (*models.Task, error) {
 	base := filepath.Base(path)
@@ -96,6 +101,9 @@ func loadTask(path string) (*models.Task, error) {
 	}
 	if fm.ID == "" || fm.Title == "" {
 		return nil, fail("missing id/title")
+	}
+	if !taskIDRe.MatchString(fm.ID) {
+		return nil, fail(fmt.Sprintf("id %q is not a bare number", fm.ID))
 	}
 	return &models.Task{
 		ID:        fm.ID,

@@ -170,6 +170,9 @@ plain/human modes, a `"warnings"` array in `--json` payloads.
   The default is human-formatted; always pass one of the two.
 - `task list --plain` columns: `id  state  status  assignee  labels  title`
   (tab-separated; assignee/labels empty when unset, labels comma-joined).
+- Mutation `--json` payloads are wrapped like `next`/`take`: a single id
+  returns `{"task": {…}, "warnings": […]}` (warnings always an array, never
+  null); a batch returns `{"tasks": […], "errors": […], "warnings": […]}`.
 - Exit codes are one contract in every output mode: **0** success,
   **1** internal, **2** invalid/usage, **3** not_found, **4** conflict.
   A partially failed batch exits with the shared failure code (1 when mixed).

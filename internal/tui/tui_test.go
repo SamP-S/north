@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/SamP-S/north/internal/board"
 	"github.com/SamP-S/north/internal/models"
@@ -1010,6 +1011,56 @@ func TestThemePresetsAreColorsOnly(t *testing.T) {
 		if got := themeChrome(tm); got != want {
 			t.Errorf("preset %q changes non-color chrome:\n got: %s\nwant: %s", name, got, want)
 		}
+	}
+}
+
+// TestPickerEntriesUseAxisColors pins that the state picker renders entries
+// through stateStyle and the status picker through statusStyle, while the
+// sort picker stays plain. Runs under a forced truecolor profile with the
+// saturated preset so the styles emit real color sequences.
+func TestPickerEntriesUseAxisColors(t *testing.T) {
+	prof := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(prof)
+		setTheme("")
+	})
+	if w := setTheme("saturated"); w != "" {
+		t.Fatalf("saturated should be a known preset, got warning %q", w)
+	}
+
+	dir := newTestBoard(t)
+	active := mustActive(t, dir, "Active task")
+
+	// State picker: each entry carries its state color (active stays plain).
+	m := rootWithTask(t, dir, active)
+	updated, _ := m.Update(keyRune('s'))
+	view := updated.(Model).modal.view()
+	for _, s := range []models.TaskState{models.StateDraft, models.StateArchive} {
+		want := stateStyle(s).Render(string(s))
+		if !strings.Contains(view, want) {
+			t.Errorf("state picker should render %q via stateStyle: %q", s, view)
+		}
+	}
+
+	// Status picker: each entry carries its status color.
+	m = rootWithTask(t, dir, active)
+	updated, _ = m.Update(keyRune('m'))
+	view = updated.(Model).modal.view()
+	for _, s := range models.Statuses {
+		want := statusStyle(string(s)).Render(string(s))
+		if !strings.Contains(view, want) {
+			t.Errorf("status picker should render %q via statusStyle: %q", s, view)
+		}
+	}
+
+	// Sort picker: entries stay plain — the label follows its prefix with no
+	// escape sequence in between.
+	m = rootWithTask(t, dir, active)
+	updated, _ = m.Update(keyRune('o'))
+	view = updated.(Model).modal.view()
+	if !strings.Contains(view, "> "+sortLabel(sortChoices()[0])) {
+		t.Errorf("sort picker entries should stay unstyled: %q", view)
 	}
 }
 

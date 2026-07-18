@@ -68,8 +68,9 @@ func printWarnings(cmd *cobra.Command, warnings []tasks.Warning) {
 // printTaskResult renders a mutated task in machine modes, returning true
 // when it printed. Plain prints the task as a single list row — the same
 // shape as batches and `task list --plain` (`view` alone shows the detail
-// record). Advisory op warnings go to stderr in human/plain modes and into a
-// "warnings" key in the JSON payload.
+// record). Advisory op warnings go to stderr in human/plain modes; the JSON
+// payload is {"task": {…}, "warnings": […]} — the same wrapper next/take use,
+// warnings always an array, never null.
 func printTaskResult(cmd *cobra.Command, task *models.Task, warns []string, plain, asJSON bool) (bool, error) {
 	if !asJSON {
 		for _, w := range warns {
@@ -78,12 +79,11 @@ func printTaskResult(cmd *cobra.Command, task *models.Task, warns []string, plai
 	}
 	switch {
 	case asJSON:
-		m := task.ToMap()
 		if warns == nil {
 			warns = []string{}
 		}
-		m["warnings"] = warns
-		data, err := json.MarshalIndent(m, "", "  ")
+		out := map[string]any{"task": task.ToMap(), "warnings": warns}
+		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			return false, err
 		}

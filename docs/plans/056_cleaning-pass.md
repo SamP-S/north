@@ -56,7 +56,29 @@ Todo:
 10. [x] Test hygiene: hermetic git tests (#15), theme invariant test (#16), pathspec test (#17)
 11. [x] `make fmt vet test` green; copy plan to docs/plans/056
 
-Change history: [2026-07-15] plan created from audit findings. [2026-07-15] all 11 todo items implemented via three parallel sub-agents; full suite green (go test -count=1 ./...), e2e-verified empty `next --plain` and single-run doctor --fix on a drifted duplicate. [2026-07-15] follow-up: release workflow now cross-compiles via new `make dist` (linux/darwin amd64+arm64, windows amd64) and attaches the stamped binaries to GitHub releases, closing the audit's ldflags-untested-in-CI note.
+Change history: [2026-07-15] plan created from audit findings. [2026-07-15] all 11 todo items implemented via three parallel sub-agents; full suite green (go test -count=1 ./...), e2e-verified empty `next --plain` and single-run doctor --fix on a drifted duplicate. [2026-07-15] follow-up: release workflow now cross-compiles via new `make dist` (linux/darwin amd64+arm64, windows amd64) and attaches the stamped binaries to GitHub releases, closing the audit's ldflags-untested-in-CI note. [2026-07-16] second-pass fixes landed: doctor no-clobber rename, numeric id validation, cleanup negative rejection, wrapped mutation JSON, SHA256SUMS + windows/arm64 + clean dist, fence/picker regression tests; e2e-verified no-clobber heal and traversal rejection.
+
+## Second pass (2026-07-15, post-4eceac7 audit)
+
+Findings (user-approved for fix; macOS CI matrix item explicitly skipped):
+
+- **S1 doctor --fix rename clobber (data loss)** — `internal/tasks/doctor.go:129`: id-drift repair `os.Rename` silently overwrites an existing target when a drifted duplicate shares the legit task's title slug (`5-foo.md` + `9-foo.md` id 5). Fix: refuse the rename when the target exists (leave issue unfixed for the duplicate pass to renumber first, or guard + report); add colliding-slug regression test.
+- **S2 path traversal via frontmatter id** — ids are interpolated raw into `TaskFilename` (`internal/board/board.go:469`) and never validated on load. Fix: `loadTask` rejects ids not matching `^[0-9]+$` as Invalid (doctor then surfaces such files as unparseable).
+- **S3 release checksums** — `make dist` now also writes `dist/SHA256SUMS`.
+- **S5 cleanup negative validation** — `cleanup --older-than` with negative value silently means "no age filter"; reject negatives with Invalid like `--limit` flags do (`internal/cli/board.go`).
+- **S6 JSON shape unification** — mutation commands (`task create/edit/move/state/delete`, batch ops) flatten task fields top-level with injected `warnings`; `next`/`take` wrap as `{"task":…,"warnings":[…]}`. DECIDED: unify on the wrapped shape everywhere a single task is returned; update embedded SKILL.md and tests. (Pre-1.0 breaking change, accepted.)
+- **S7 Makefile polish** — `clean` removes `dist/`; add `windows/arm64` to `DIST_PLATFORMS`.
+- **S8 test gaps** — pin fence edges (BOM, empty meta, fence at EOF, body starting with `---`) and the state-picker `stateStyle` rendering.
+
+Second-pass todo:
+1. [x] S1 rename guard + colliding-slug test
+2. [x] S2 id validation in loadTask + test
+3. [x] S8a fence edge tests
+4. [x] S5 negative --older-than rejection + test
+5. [x] S6 JSON unification + SKILL.md + tests
+6. [x] S8b picker style regression test
+7. [x] S3 SHA256SUMS; S7 clean/dist + windows/arm64
+8. [x] Full suite green; commit
 
 ## Verification
 `make fmt && make vet && make test`; manually exercise `north next -l 2 --plain` on an empty board and `north doctor --fix` on a board with a drifted duplicate.

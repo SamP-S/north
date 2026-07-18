@@ -30,6 +30,8 @@ func TestLoadToleratesMalformedFiles(t *testing.T) {
 		{"missing title", "3-a.md", "---\nid: \"3\"\nstatus: ready\n---\n"},
 		{"unknown status", "4-a.md", "---\nid: \"4\"\ntitle: a\nstatus: bogus\n---\n"},
 		{"broken yaml", "5-a.md", "---\nid: [unclosed\n---\n"},
+		{"traversal id", "6-a.md", "---\nid: \"../../evil\"\ntitle: a\nstatus: ready\n---\n"},
+		{"non-numeric id", "7-a.md", "---\nid: seven\ntitle: a\nstatus: ready\n---\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -120,6 +122,76 @@ func TestFrontmatterFenceIsExact(t *testing.T) {
 	}
 	if len(snap.Warnings) != 1 || !strings.Contains(snap.Warnings[0].Err, "unterminated frontmatter") {
 		t.Errorf("expected unterminated-frontmatter warning, got %v", snap.Warnings)
+	}
+}
+
+func TestLoadRejectsTraversalID(t *testing.T) {
+	boardDir := newBoard(t)
+	writeRaw(t, boardDir, "tasks", "1-evil.md",
+		"---\nid: \"../../evil\"\ntitle: evil\nstatus: ready\n---\n")
+	// The id is interpolated into filenames, so a non-numeric id must be an
+	// Invalid parse failure naming the file — never a loadable task.
+	snap, err := tasks.Load(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Tasks) != 0 {
+		t.Errorf("traversal id loaded as a task: %v", snap.Tasks)
+	}
+	if len(snap.Warnings) != 1 ||
+		!strings.Contains(snap.Warnings[0].Err, "failed to parse 1-evil.md") ||
+		!strings.Contains(snap.Warnings[0].Err, "not a bare number") {
+		t.Errorf("expected invalid-id warning naming the file, got %v", snap.Warnings)
+	}
+}
+
+func TestFrontmatterFenceEdges(t *testing.T) {
+	boardDir := newBoard(t)
+
+	// A leading UTF-8 BOM before the opening fence still parses.
+	writeRaw(t, boardDir, "tasks", "11-bom.md",
+		string(rune(0xFEFF))+"---\nid: \"11\"\ntitle: bom\nstatus: ready\n---\nbody here\n")
+	task, err := tasks.Get(boardDir, "11")
+	if err != nil {
+		t.Fatalf("BOM before fence should parse: %v", err)
+	}
+	if task.Title != "bom" || task.Body != "body here" {
+		t.Errorf("BOM parse mangled fields: %+v", task)
+	}
+
+	// A closing fence at EOF with no trailing newline still terminates.
+	writeRaw(t, boardDir, "tasks", "12-eof.md",
+		"---\nid: \"12\"\ntitle: eof fence\nstatus: ready\n---")
+	task, err = tasks.Get(boardDir, "12")
+	if err != nil {
+		t.Fatalf("fence at EOF should parse: %v", err)
+	}
+	if task.Body != "" {
+		t.Errorf("body after EOF fence should be empty: %q", task.Body)
+	}
+
+	// A body whose first line is "---" stays in the body: the first fence
+	// after the meta closes the block, later ones never extend it.
+	writeRaw(t, boardDir, "tasks", "13-hr.md",
+		"---\nid: \"13\"\ntitle: hr body\nstatus: ready\n---\n---\nafter rule\n")
+	task, err = tasks.Get(boardDir, "13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Body != "---\nafter rule" {
+		t.Errorf("body-leading --- mangled: %q", task.Body)
+	}
+
+	// Empty meta ("---\n---\nbody") is a valid fence pair — the load fails
+	// on the empty status field, never on the frontmatter block itself.
+	boardDir2 := newBoard(t)
+	writeRaw(t, boardDir2, "tasks", "1-empty.md", "---\n---\nbody\n")
+	snap, err := tasks.Load(boardDir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Warnings) != 1 || !strings.Contains(snap.Warnings[0].Err, "unknown status") {
+		t.Errorf("empty meta should fail on the status field, got %v", snap.Warnings)
 	}
 }
 

@@ -42,7 +42,9 @@ func (i Issue) String() string {
 // first. With fix true it also repairs: CRLF files are rewritten with LF,
 // duplicate ids are renumbered to fresh ids (the first holder keeps the id, so
 // existing depends_on references stay valid), drifted filenames are renamed to
-// match their frontmatter id, dangling depends_on references are removed, and
+// match their frontmatter id (never over an existing file — a drifted duplicate
+// of another task's name is renumbered instead), dangling depends_on references
+// are removed, and
 // a missing north/.gitattributes or north/.gitignore is restored. Unparseable
 // files and cycles are report-only.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
@@ -111,6 +113,7 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		deps []string
 	}
 	var tasksParsed []parsed
+	driftIdx := map[string]int{} // path -> issues index of a drift deferred to the duplicate-id repair
 	for _, path := range files {
 		task, err := loadTask(path)
 		if err != nil {
@@ -126,9 +129,18 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 				Detail: fmt.Sprintf("filename id %q != frontmatter id %q", m, task.ID)}
 			if fix {
 				target := filepath.Join(filepath.Dir(path), board.TaskFilename(task.ID, task.Title))
-				if err := os.Rename(path, target); err == nil {
-					issue.Fixed = true
-					path = target
+				// Never clobber an existing file: when the target name is
+				// taken (the drift duplicates that task's id and slug), the
+				// file keeps its drifted name and the duplicate-id repair
+				// below renumbers it — save writes the new id's filename,
+				// which heals the drift too.
+				if _, statErr := os.Lstat(target); os.IsNotExist(statErr) {
+					if err := os.Rename(path, target); err == nil {
+						issue.Fixed = true
+						path = target
+					}
+				} else {
+					driftIdx[path] = len(issues)
 				}
 			}
 			issues = append(issues, issue)
@@ -162,6 +174,11 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 							filepath.Join(boardDir, board.ConfigName)); err == nil {
 							issue.Fixed = true
 							idSet[task.ID] = true
+							// Renumbering wrote the new id's filename, so a
+							// drift deferred to this pass is now healed too.
+							if idx, ok := driftIdx[path]; ok {
+								issues[idx].Fixed = true
+							}
 						}
 					}
 				}

@@ -152,6 +152,89 @@ func TestDoctorFix(t *testing.T) {
 	}
 }
 
+func TestDoctorFixDriftedDuplicateSameSlugNoClobber(t *testing.T) {
+	boardDir := newBoard(t)
+	// The legitimate task and a drifted duplicate share the same title slug,
+	// so the drift repair's rename target ("1-foo.md") is already taken.
+	// Renaming would silently overwrite the original; instead the drifted
+	// file must keep its name and be renumbered by the duplicate-id repair,
+	// which writes the new id's filename and heals the drift as a side
+	// effect — a single --fix run leaves the board clean with no data loss.
+	writeRaw(t, boardDir, "tasks", "1-foo.md",
+		"---\nid: \"1\"\ntitle: foo\nstatus: ready\n---\noriginal body\n")
+	writeRaw(t, boardDir, "tasks", "9-foo.md",
+		"---\nid: \"1\"\ntitle: foo\nstatus: ready\n---\nduplicate body\n")
+
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := issueKinds(issues)
+	if kinds["id-drift"] != 1 || kinds["duplicate-id"] != 1 {
+		t.Fatalf("expected one id-drift and one duplicate-id, got %v", issues)
+	}
+	for _, i := range issues {
+		if !i.Fixed {
+			t.Errorf("issue not fixed in one run: %v", i)
+		}
+	}
+
+	// The original file survives with its content intact.
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "1-foo.md"))
+	if err != nil {
+		t.Fatalf("original file clobbered: %v", err)
+	}
+	if !strings.Contains(string(data), "original body") {
+		t.Errorf("original content lost:\n%s", data)
+	}
+	// No task lost: the duplicate was renumbered past the filename scan (9).
+	snap, err := tasks.Load(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Tasks) != 2 || snap.Get("1") == nil || snap.Get("10") == nil {
+		ids := make([]string, len(snap.Tasks))
+		for i, task := range snap.Tasks {
+			ids[i] = task.ID
+		}
+		t.Errorf("expected tasks 1 and 10, got ids %v", ids)
+	}
+	if dup := snap.Get("10"); dup != nil && dup.Body != "duplicate body" {
+		t.Errorf("duplicate content lost: %q", dup.Body)
+	}
+	// A single --fix run must leave the board healthy.
+	again, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("issues remain after --fix: %v", again)
+	}
+}
+
+func TestDoctorTraversalIDIsUnparseable(t *testing.T) {
+	boardDir := newBoard(t)
+	// A crafted frontmatter id must never reach a filename: the file is
+	// unparseable (report-only), even under --fix.
+	writeRaw(t, boardDir, "tasks", "1-evil.md",
+		"---\nid: \"../../evil\"\ntitle: evil\nstatus: ready\n---\n")
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := issueKinds(issues)
+	if kinds["unparseable"] != 1 || kinds["id-drift"] != 0 {
+		t.Fatalf("traversal id should surface as unparseable, got %v", issues)
+	}
+	// The file stays put; nothing was written outside the board.
+	if _, err := os.Stat(filepath.Join(boardDir, "tasks", "1-evil.md")); err != nil {
+		t.Errorf("file moved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, "..", "evil-evil.md")); !os.IsNotExist(err) {
+		t.Errorf("file escaped the board: %v", err)
+	}
+}
+
 func TestDoctorFixDriftedDuplicate(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "original") // 1 (drafts)

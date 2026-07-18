@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/SamP-S/north/internal/board"
+	nerrors "github.com/SamP-S/north/internal/errors"
 	"github.com/SamP-S/north/internal/models"
 	"github.com/SamP-S/north/internal/render"
 	"github.com/SamP-S/north/internal/tasks"
@@ -50,6 +52,9 @@ func newCleanupCmd() *cobra.Command {
 		Short: "archive done tasks",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if olderThan < 0 {
+				return nerrors.Invalid(fmt.Sprintf("--older-than must not be negative (got %d)", olderThan))
+			}
 			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
