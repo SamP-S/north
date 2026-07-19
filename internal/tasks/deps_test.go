@@ -163,12 +163,7 @@ func TestCreateDependsOnE2E(t *testing.T) {
 
 func setLevel(t *testing.T, boardDir string, level board.DepsEnforcement) {
 	t.Helper()
-	cfg, err := board.LoadConfig(boardDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.DepsEnforcement = level
-	if _, err := board.WriteConfig(boardDir, cfg); err != nil {
+	if err := board.SetConfigValue(boardDir, "deps_enforcement", string(level)); err != nil {
 		t.Fatal(err)
 	}
 }

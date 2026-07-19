@@ -159,17 +159,20 @@ func newTakeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Clean before the combination check so whitespace-only labels
+			// (which the filter drops anyway) don't trigger it.
+			labelFilter := cleanLabelFilter(labels)
 			taskID := ""
 			if len(args) == 1 {
 				taskID = args[0]
-				if len(labels) > 0 {
+				if len(labelFilter) > 0 {
 					return nerrors.Invalid("--label cannot be combined with an explicit task id")
 				}
 			}
 			if !cmd.Flags().Changed("assignee") {
 				assignee = os.Getenv("NORTH_AGENT")
 			}
-			task, warnings, err := tasks.Take(boardDir, assignee, taskID, cleanLabelFilter(labels))
+			task, warnings, err := tasks.Take(boardDir, assignee, taskID, labelFilter)
 			if err != nil {
 				return err
 			}

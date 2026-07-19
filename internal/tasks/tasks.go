@@ -329,15 +329,17 @@ func Create(boardDir, title, assignee string, labels, dependsOn []string, body s
 	if strings.TrimSpace(title) == "" {
 		return nil, nil, errors.Invalid("task title must not be empty")
 	}
-	level, err := depsPolicy(boardDir)
-	if err != nil {
-		return nil, nil, err
-	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	// Config is read under the lock so a concurrent `config set
+	// deps_enforcement` cannot be observed stale.
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err
@@ -390,15 +392,15 @@ type EditOpts struct {
 // Edit changes a task's fields/body. UpdatedAt is bumped. The returned
 // warnings are advisory dependency notes (hint level only).
 func Edit(boardDir, taskID string, opts EditOpts) (*models.Task, []string, error) {
-	level, err := depsPolicy(boardDir)
-	if err != nil {
-		return nil, nil, err
-	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err
@@ -458,15 +460,15 @@ func SetStatus(boardDir, taskID string, newStatus string) (*models.Task, []strin
 	if err != nil {
 		return nil, nil, err
 	}
-	level, err := depsPolicy(boardDir)
-	if err != nil {
-		return nil, nil, err
-	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err
@@ -600,15 +602,15 @@ func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, [
 // under the same lock hold); at hint the dangling references stay, warned.
 // Returned warnings describe either outcome.
 func Delete(boardDir, taskID string) (*models.Task, []string, error) {
-	level, err := depsPolicy(boardDir)
-	if err != nil {
-		return nil, nil, err
-	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	level, err := depsPolicy(boardDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	snap, err := Load(boardDir)
 	if err != nil {
 		return nil, nil, err

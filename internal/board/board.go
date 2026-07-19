@@ -319,26 +319,6 @@ func LoadConfig(board string) (Config, error) {
 	return cfg, nil
 }
 
-// WriteConfig writes config.yml, stamping the current format version when the
-// config carries none. Returns the path.
-func WriteConfig(board string, cfg Config) (string, error) {
-	if cfg.Version == 0 {
-		cfg.Version = FormatVersion
-	}
-	if cfg.DepsEnforcement == "" {
-		cfg.DepsEnforcement = DepsValidated
-	}
-	path := filepath.Join(board, ConfigName)
-	out, err := yaml.Marshal(cfg)
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
 // TaskFiles returns the task Markdown files in the given state folders (all
 // states if none are given), sorted within each folder.
 func TaskFiles(board string, states ...models.TaskState) ([]string, error) {
@@ -418,9 +398,9 @@ func setConfigLastID(board string, n int) error {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(n)})
 }
 
-// SetConfigValue rewrites config.yml with one key set to value, preserving
-// user comments, key order, and unknown keys (unlike WriteConfig, which
-// re-marshals the struct plain). The value's YAML type is inferred from its
+// SetConfigValue rewrites config.yml with one key set to value, going through
+// a yaml.Node round-trip so user comments, key order, and unknown keys all
+// survive the write. The value's YAML type is inferred from its
 // form: "true"/"false" → bool, digits → int, anything else → string. The
 // caller must hold the board lock and pass an already-validated value.
 func SetConfigValue(board, key, value string) error {

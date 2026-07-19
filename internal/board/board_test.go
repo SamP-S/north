@@ -53,7 +53,7 @@ func TestInitIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A custom config must survive a re-init.
-	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := board.InitBoard(root); err != nil {
@@ -112,7 +112,7 @@ func TestTaskFilename(t *testing.T) {
 
 func TestConfigRoundTrip(t *testing.T) {
 	boardDir := newBoard(t)
-	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := board.LoadConfig(boardDir)
@@ -183,13 +183,14 @@ func TestConfigVersionStamp(t *testing.T) {
 	if cfg.Version != board.FormatVersion {
 		t.Errorf("version = %d, want %d", cfg.Version, board.FormatVersion)
 	}
-	// A zero-version config write is normalised to the current format.
-	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+	// A version-less config file is read as the current format.
+	if err := os.WriteFile(filepath.Join(boardDir, "config.yml"),
+		[]byte("auto_commit: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ = board.LoadConfig(boardDir)
 	if cfg.Version != board.FormatVersion || !cfg.AutoCommit {
-		t.Errorf("normalised write: %+v", cfg)
+		t.Errorf("version-less load: %+v", cfg)
 	}
 }
 

@@ -648,6 +648,15 @@ func TestCLIEditAppendAndBodyFile(t *testing.T) {
 	if !strings.Contains(out, "from file") || strings.Contains(out, "original") {
 		t.Errorf("body-file not applied: %q", out)
 	}
+	// --body is exclusive with --body-file, on edit and create alike.
+	_, err := run(t, dir, "task", "edit", "1", "--body", "inline", "--body-file", bf)
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Errorf("edit body + body-file should be invalid, got %v", err)
+	}
+	_, err = run(t, dir, "task", "create", "y", "--body", "inline", "--body-file", bf)
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Errorf("create body + body-file should be invalid, got %v", err)
+	}
 }
 
 func TestCLICleanupMessages(t *testing.T) {
@@ -849,6 +858,17 @@ func TestCLIConfigOutputModes(t *testing.T) {
 	// set --plain: key\tvalue.
 	if out, err = run(t, dir, "config", "set", "auto_commit", "true", "--plain"); err != nil || strings.TrimSpace(out) != "auto_commit\ttrue" {
 		t.Errorf("config set --plain: %q %v", out, err)
+	}
+	// set echoes the canonical value in every mode, not the raw input.
+	if out, err = run(t, dir, "config", "set", "auto_commit", "TRUE"); err != nil || strings.TrimSpace(out) != "auto_commit: true" {
+		t.Errorf("config set canonical echo (human): %q %v", out, err)
+	}
+	if out, err = run(t, dir, "config", "set", "auto_commit", "FALSE", "--plain"); err != nil || strings.TrimSpace(out) != "auto_commit\tfalse" {
+		t.Errorf("config set canonical echo (--plain): %q %v", out, err)
+	}
+	if out, err = run(t, dir, "config", "set", "auto_commit", "1", "--json"); err != nil ||
+		!strings.Contains(out, `"value": true`) {
+		t.Errorf("config set canonical echo (--json): %q %v", out, err)
 	}
 }
 

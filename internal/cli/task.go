@@ -50,8 +50,11 @@ func newTaskCmd() *cobra.Command {
 }
 
 // readBody returns the body from --body / --body-file, or nil if neither
-// given. A body file of "-" reads stdin.
+// given. Giving both is invalid. A body file of "-" reads stdin.
 func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
+	if cmd.Flags().Changed("body") && cmd.Flags().Changed("body-file") {
+		return nil, nerrors.Invalid("--body cannot be combined with --body-file")
+	}
 	if cmd.Flags().Changed("body-file") {
 		var data []byte
 		var err error

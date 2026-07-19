@@ -77,13 +77,28 @@ func stealStale(path string) {
 	// our rename another waiter may have completed a steal and recreated a
 	// fresh lock, which our rename would then have grabbed.
 	if info, err := os.Stat(stolen); err == nil && time.Since(info.ModTime()) <= staleAfter {
-		// Fresh — undo the theft. Restore by hard link, which unlike rename
-		// fails with EEXIST rather than clobbering a newer lock that may
-		// have appeared at path meanwhile. If the restore loses that race
-		// the temp is simply dropped: the displaced holder's release then
-		// removes a path it no longer owns (or nothing at all), which is
-		// harmless — release already ignores Remove errors.
-		os.Link(stolen, path)
+		// Fresh — undo the theft.
+		if !restoreFresh(stolen, path) {
+			return
+		}
 	}
 	os.Remove(stolen)
+}
+
+// restoreFresh puts a stolen-but-fresh lock back at path. It restores by hard
+// link, which unlike rename fails with EEXIST rather than clobbering a newer
+// lock that may have appeared at path meanwhile; losing that race is fine —
+// the temp is dropped and the displaced holder's release then removes a path
+// it no longer owns (or nothing at all), which is harmless. On filesystems
+// without hard links (FAT/exFAT, some network mounts) the link fails with
+// something other than EEXIST — then fall back to renaming the lock back into
+// place, accepting the tiny clobber window only there. Reports whether the
+// stolen temp may be removed: false only when both restore paths failed,
+// leaving the temp as the sole copy of the live lock (its name matches the
+// board .gitignore's "*.tmp" glob, so it never dirties the repo).
+func restoreFresh(stolen, path string) bool {
+	if err := os.Link(stolen, path); err != nil && !os.IsExist(err) {
+		return os.Rename(stolen, path) == nil
+	}
+	return true
 }

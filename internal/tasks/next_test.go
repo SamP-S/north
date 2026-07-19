@@ -183,12 +183,7 @@ func TestTakeConcurrentDistinct(t *testing.T) {
 
 func TestTakeMaxWIP(t *testing.T) {
 	boardDir := newBoard(t)
-	cfg, err := board.LoadConfig(boardDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.MaxWIP = 1
-	if _, err := board.WriteConfig(boardDir, cfg); err != nil {
+	if err := board.SetConfigValue(boardDir, "max_wip", "1"); err != nil {
 		t.Fatal(err)
 	}
 	first := mustActive(t, boardDir, "first")

@@ -133,6 +133,11 @@ func TestCLITakeSpecificID(t *testing.T) {
 	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
 		t.Fatalf("expected invalid for --label with id, got %v", err)
 	}
+	// A whitespace-only --label is dropped by cleaning, so it does not count
+	// as a label filter combined with the explicit id.
+	if out, err := run(t, dir, "take", "1", "--assignee", "agent-b", "--label", " "); err != nil {
+		t.Fatalf("take id with whitespace-only --label: %v (%s)", err, out)
+	}
 }
 
 func TestCLINextTakeLabelAlias(t *testing.T) {

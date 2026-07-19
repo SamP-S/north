@@ -166,12 +166,14 @@ func newConfigSetCmd() *cobra.Command {
 				return err
 			}
 			defer unlock()
-			// Re-read under the lock so a concurrent writer's changes (e.g. a
-			// last_id bump from task creation) are seen, never overwritten.
+			// Malformed-config gate: refuse to patch a file LoadConfig would
+			// reject (the node round-trip in SetConfigValue is what preserves
+			// concurrent changes such as a last_id bump — this read only vets).
 			if _, err := board.LoadConfig(boardDir); err != nil {
 				return err
 			}
 			var canonical string
+			var typed any
 			switch key {
 			case "version":
 				return nerrors.Invalid("version is read-only (the board's format stamp)")
@@ -182,42 +184,35 @@ func newConfigSetCmd() *cobra.Command {
 				if err != nil {
 					return nerrors.Invalid(fmt.Sprintf("auto_commit must be true or false (got %q)", value))
 				}
-				canonical = strconv.FormatBool(b)
+				canonical, typed = strconv.FormatBool(b), b
 			case "deps_enforcement":
 				level, err := board.ParseDepsEnforcement(value)
 				if err != nil {
 					return err
 				}
-				canonical = string(level)
+				canonical, typed = string(level), string(level)
 			case "max_wip":
 				n, err := strconv.Atoi(value)
 				if err != nil || n < 0 {
 					return nerrors.Invalid(fmt.Sprintf(
 						"max_wip must be a non-negative integer, 0 = unlimited (got %q)", value))
 				}
-				canonical = strconv.Itoa(n)
+				canonical, typed = strconv.Itoa(n), n
 			default:
 				return nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
 			}
 			if err := board.SetConfigValue(boardDir, key, canonical); err != nil {
 				return err
 			}
-			if asJSON || plain {
-				cfg, err := board.LoadConfig(boardDir)
-				if err != nil {
-					return err
-				}
-				v, err := configTypedValue(cfg, key)
-				if err != nil {
-					return err
-				}
-				if asJSON {
-					return printKeyValueJSON(cmd, key, v)
-				}
-				cmd.Printf("%s\t%v\n", key, v)
+			// Echo the canonical value in every mode — no re-read of config.yml.
+			if asJSON {
+				return printKeyValueJSON(cmd, key, typed)
+			}
+			if plain {
+				cmd.Printf("%s\t%s\n", key, canonical)
 				return nil
 			}
-			cmd.Printf("%s: %s\n", key, value)
+			cmd.Printf("%s: %s\n", key, canonical)
 			return nil
 		},
 	}

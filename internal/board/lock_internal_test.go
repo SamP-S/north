@@ -45,3 +45,24 @@ func TestStealStaleRestoresFresh(t *testing.T) {
 		t.Errorf("steal temp files left behind: %v", leftovers)
 	}
 }
+
+func TestRestoreFreshKeepsNewerLock(t *testing.T) {
+	// EEXIST branch: a newer lock appeared at path before the restore — the
+	// hard link must lose without clobbering it, and the temp stays removable.
+	dir := t.TempDir()
+	path := filepath.Join(dir, LockName)
+	stolen := path + ".steal.1.tmp"
+	if err := os.WriteFile(stolen, []byte("stolen\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("newer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !restoreFresh(stolen, path) {
+		t.Error("restoreFresh must report the temp removable when a newer lock exists")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "newer\n" {
+		t.Errorf("newer lock must survive the restore, got %q (%v)", data, err)
+	}
+}

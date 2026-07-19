@@ -46,7 +46,7 @@ func commitMessages(t *testing.T, boardDir string) []string {
 
 func TestAutoCommitCreatesCommit(t *testing.T) {
 	boardDir := initRepo(t)
-	if _, err := board.WriteConfig(boardDir, board.Config{AutoCommit: true}); err != nil {
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := tasks.Create(boardDir, "committed task", "", nil, nil, ""); err != nil {
