@@ -221,6 +221,69 @@ func TestUnknownFrontmatterKeysSurviveRewrite(t *testing.T) {
 	}
 }
 
+func TestTimestampPreservationOnRewrite(t *testing.T) {
+	// An unparseable created_at must survive an edit verbatim rather than be
+	// nulled — North preserves what it cannot parse (like unknown keys).
+	t.Run("unparseable created_at survives edit", func(t *testing.T) {
+		boardDir := newBoard(t)
+		writeRaw(t, boardDir, "tasks", "1-bad.md",
+			"---\nid: \"1\"\ntitle: bad ts\nstatus: ready\ncreated_at: 24-06-2026 10:00\n---\nbody\n")
+		title := "renamed"
+		if _, _, err := tasks.Edit(boardDir, "1", tasks.EditOpts{Title: &title}); err != nil {
+			t.Fatal(err)
+		}
+		task, err := tasks.Get(boardDir, "1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(task.Path)
+		if !strings.Contains(string(data), "24-06-2026 10:00") {
+			t.Errorf("unparseable created_at destroyed on rewrite:\n%s", data)
+		}
+	})
+
+	// A normal RFC3339 created_at still round-trips (re-serialised as RFC3339).
+	t.Run("RFC3339 created_at round-trips", func(t *testing.T) {
+		boardDir := newBoard(t)
+		writeRaw(t, boardDir, "tasks", "1-good.md",
+			"---\nid: \"1\"\ntitle: good ts\nstatus: ready\ncreated_at: \"2026-06-24T10:00:00Z\"\n---\nbody\n")
+		title := "renamed"
+		if _, _, err := tasks.Edit(boardDir, "1", tasks.EditOpts{Title: &title}); err != nil {
+			t.Fatal(err)
+		}
+		task, err := tasks.Get(boardDir, "1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.CreatedAt == nil || task.CreatedAt.Format(time.RFC3339) != "2026-06-24T10:00:00Z" {
+			t.Errorf("RFC3339 created_at not preserved: %v", task.CreatedAt)
+		}
+	})
+
+	// A null created_at (nil time) stays null through a rewrite — the
+	// preservation rule only guards non-empty, non-null prior values.
+	t.Run("null created_at stays null", func(t *testing.T) {
+		boardDir := newBoard(t)
+		writeRaw(t, boardDir, "tasks", "1-null.md",
+			"---\nid: \"1\"\ntitle: null ts\nstatus: ready\ncreated_at: null\n---\nbody\n")
+		title := "renamed"
+		if _, _, err := tasks.Edit(boardDir, "1", tasks.EditOpts{Title: &title}); err != nil {
+			t.Fatal(err)
+		}
+		task, err := tasks.Get(boardDir, "1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(task.Path)
+		if task.CreatedAt != nil {
+			t.Errorf("null created_at should stay nil, got %v", task.CreatedAt)
+		}
+		if !strings.Contains(string(data), "created_at: null") {
+			t.Errorf("null created_at not written as null:\n%s", data)
+		}
+	})
+}
+
 func TestSnapshotFlagsDuplicateIDs(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "original") // 1

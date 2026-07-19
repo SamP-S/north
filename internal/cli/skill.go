@@ -2,11 +2,9 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/SamP-S/north/internal/board"
-	nerrors "github.com/SamP-S/north/internal/errors"
 	"github.com/SamP-S/north/internal/skill"
 	"github.com/spf13/cobra"
 )
@@ -44,23 +42,23 @@ func newSkillCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "report whether installed skills match this binary's version",
-		Args:  noArgs,
+		// Doctor-style: a completed check always exits 0. Outdated/missing
+		// installs are findings in the per-target report, not failures —
+		// scripts must gate on the --json targets payload, not the exit code.
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targets, err := skill.Targets(skillRoot(), global)
 			if err != nil {
 				return err
 			}
 			results := make([]checkTarget, 0, len(targets))
-			outdated, missing := 0, 0
 			for _, t := range targets {
 				ct := checkTarget{Agent: t.Agent, Path: t.Path, Binary: skill.Version}
 				data, err := os.ReadFile(t.Path)
 				if err != nil {
 					ct.Status = "missing"
-					missing++
 				} else if ct.Installed = skill.InstalledVersion(string(data)); ct.Installed != skill.Version {
 					ct.Status = "outdated"
-					outdated++
 				} else {
 					ct.Status = "ok"
 				}
@@ -92,12 +90,8 @@ func newSkillCheckCmd() *cobra.Command {
 					}
 				}
 			}
-			if outdated > 0 {
-				return nerrors.Conflict(fmt.Sprintf("%d skill install(s) outdated", outdated))
-			}
-			if missing == len(targets) {
-				return nerrors.NotFound("skill not installed anywhere — run `north skill install`")
-			}
+			// A completed check exits 0; outdated/missing are findings, not
+			// failures. The report above is the output.
 			return nil
 		},
 	}

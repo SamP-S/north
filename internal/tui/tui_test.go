@@ -464,8 +464,10 @@ func TestBoardColumnScrolls(t *testing.T) {
 	}
 }
 
-// TestDeleteConfirmAcceptsEnter verifies enter confirms a delete like y.
-func TestDeleteConfirmAcceptsEnter(t *testing.T) {
+// TestDeleteConfirmIgnoresEnter verifies enter is not a substitute for an
+// explicit "y": a reflexive Enter must not delete the task, and the modal
+// should stay open.
+func TestDeleteConfirmIgnoresEnter(t *testing.T) {
 	dir := newTestBoard(t)
 	active := mustActive(t, dir, "Doomed task")
 	m := rootWithTask(t, dir, active)
@@ -477,17 +479,30 @@ func TestDeleteConfirmAcceptsEnter(t *testing.T) {
 	}
 	updated, cmd := um.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	um = updated.(Model)
+	if um.modal.mode != modalConfirmDelete {
+		t.Fatal("enter should not close the confirm")
+	}
+	if cmd != nil {
+		t.Fatal("enter should not produce a delete command")
+	}
+	if _, err := tasks.Get(dir, active.ID); err != nil {
+		t.Errorf("task should still exist after enter, got %v", err)
+	}
+
+	// "y" still confirms the delete.
+	updated, cmd = um.Update(keyRune('y'))
+	um = updated.(Model)
 	if um.modal.mode != modalNone {
-		t.Fatal("enter should close the confirm")
+		t.Fatal("y should close the confirm")
 	}
 	if cmd == nil {
-		t.Fatal("enter should produce the delete command")
+		t.Fatal("y should produce the delete command")
 	}
 	if msg, ok := cmd().(actionDoneMsg); !ok || msg.notice.level != noticeSuccess {
 		t.Fatalf("delete should succeed, got %v", msg)
 	}
 	if _, err := tasks.Get(dir, active.ID); err == nil {
-		t.Error("task should be gone after enter-confirmed delete")
+		t.Error("task should be gone after y-confirmed delete")
 	}
 }
 

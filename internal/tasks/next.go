@@ -109,7 +109,7 @@ func claimable(snap *Snapshot, t *models.Task) error {
 func Take(boardDir, assignee, taskID string, labels []string) (*models.Task, []Warning, error) {
 	assignee = strings.TrimSpace(assignee)
 	if assignee == "" {
-		return nil, nil, errors.Invalid("take needs an assignee (pass --assignee or set NORTH_AGENT)")
+		return nil, nil, errors.Invalid("assignee must not be empty (pass --assignee or set NORTH_AGENT)")
 	}
 	unlock, err := board.Lock(boardDir)
 	if err != nil {

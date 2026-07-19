@@ -26,13 +26,13 @@ array (batch payloads too).
 |---|---|
 | `north init` | Scaffold `north/` (config with `version: 1`, `task-template.md`, `.gitattributes`, `.gitignore` for `.lock`/`*.tmp`, the `drafts/ tasks/ archive/` folders). Refuses (`conflict`) when a board already exists at or above the cwd. Human output ends with an "Optional next steps" epilogue (skill install, auto_commit) — suppressed under `--plain`/`--json` |
 | `north task create <title> [--assignee A] [--labels ...] [--depends-on ...] [--body \| --body-file] [--plain \| --json]` | Create a task (lands in `drafts/`, status `ready`). Bodyless creates fill from `north/task-template.md` (missing/empty template ⇒ blank body) |
-| `north task list [--state draft\|active\|archive\|all] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse] [-l/--limit N] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/assignee/labels/body (case-insensitive); `--label` is exact (repeatable); `--assignee` is case-insensitive (`--assignee ""` matches unassigned); `--deps met|unmet` filters on dependency resolution (resolved = done or archived); sort default: id, newest first; `--limit N` caps rows after filter+sort (0 = all) |
+| `north task list [--state draft\|active\|archive\|all] [--status S] [--assignee A] [--deps met\|unmet] [--search TEXT] [--label L] [--sort id\|updated\|title\|assignee] [--reverse] [-l/--limit N] [--plain \| --json]` | List tasks (default: active). `--search` matches id/title/assignee/labels/body (case-insensitive); `--label` is exact (repeatable); `--assignee` is case-insensitive (`--assignee ""` matches unassigned); `--deps met|unmet` filters on dependency resolution (resolved = done or archived); sort default: id, newest first; `--limit N` caps rows after filter+sort |
 | `north task view <id> [--plain \| --json]` | Show one task (state, status, fields + body) |
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
 | `north task move <id[,id…]> <status> [--plain \| --json]` | Set status, in place (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive> [--plain \| --json]` | Move tasks between lifecycle folders, preserving status (any → any) |
 | `north task delete <id[,id…]> [-y/--yes] [--plain \| --json]` | Delete tasks. With `--plain`/`--json`, non-TTY stdin, or a batch, `-y` is required (no prompt) |
-| `north next [-l/--limit N] [--label L] [--plain \| --json]` | Show the next **workable** task (active, `ready`, unassigned, deps met, lowest id; `--label` narrows, repeatable). Pure read. No workable task is a normal outcome: exit 0, `{"task": null}` under `--json`, empty output under `--plain`. `--limit N` (≥ 2) shows the next N in take order, rendered as a task list (`{"tasks": […]}` under `--json`); `--limit < 1` is `invalid` |
+| `north next [-l/--limit N] [--label L] [--plain \| --json]` | Show the next **workable** task (active, `ready`, unassigned, deps met, lowest id; `--label` narrows, repeatable). Pure read. No workable task is a normal outcome: exit 0, `{"task": null}` under `--json`, empty output under `--plain`. default (no flag) shows the single next pick; `--limit N` caps the pick — `N ≠ 1` renders as a task list (`{"tasks": […]}` under `--json`), `--limit 0` shows none; negative values are `invalid` |
 | `north take [id] [--assignee A] [--label L] [--plain \| --json]` | Atomically claim the next workable task: same pick as `next`, then `status=in_progress` + `assignee` in **one write under one lock hold**, so concurrent takes get different tasks. With `id`, claim that specific task instead — refused (`conflict`, naming the reason) unless it is active + `ready` + unassigned + deps met (no steal, no overrides; unknown id is `not_found`; `--label` with an id is `invalid`). Assignee falls back to `$NORTH_AGENT`; neither set is `invalid`. Refuses (`conflict`) when the assignee already holds `max_wip` active `in_progress` tasks (`max_wip > 0`). Same empty-result contract as `next` (queue mode only) |
 | `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--dry-run] [--plain \| --json]` | Archive active `done` tasks. The board lock is held for the whole run (snapshot + every archive), so a concurrent status change can never be archived stale. `--dry-run` lists what would be archived without locking or writing; `--json` payloads carry `"dry_run": true\|false` |
@@ -40,7 +40,7 @@ array (batch payloads too).
 | `north config list \| get <key> \| set <key> <value>` | Read/write `north/config.yml` settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` and `last_id` are read-only — `set` refuses them) |
 | `north skill install [--global]` | Install the agent skill (Claude Code + opencode) |
 | `north skill show` | Print the embedded skill |
-| `north skill check [--global]` | Compare installed skill version stamps against the binary |
+| `north skill check [--global]` | Compare installed skill version stamps against the binary. Exits 0 whenever the check completes — outdated/missing are report output, not a failure (human lines; `--json` `targets` array with per-target `status: ok\|outdated\|missing`, gate on that) |
 | `north tui` | Interactive terminal UI (human use only) |
 | `north completion <shell>` | Generate shell completions (bash/zsh/fish/powershell) |
 | `north version` | Print the version (also `north --version`) |
@@ -71,9 +71,9 @@ worktrees each checkout has its own board copy, so partition work up front
 ids). See `docs/plans/049_multi-agent-usage-review.md` for the full analysis.
 
 ## State vs. status
-`move` changes **status** (the workflow column) — in any state, with a
-stderr note when the task is not active (status only shows on the board once
-active). `state` changes **state** (the lifecycle folder) and preserves
+`move` changes **status** (the workflow column) — in any state, with an
+advisory warning when the task is not active (status only shows on the board
+once active). `state` changes **state** (the lifecycle folder) and preserves
 status. Both are freeform — any value to any other value in one call. See
 [02_board-data-model.md](02_board-data-model.md).
 

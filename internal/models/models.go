@@ -5,7 +5,8 @@
 //   - State is the lifecycle location — the folder a task lives in
 //     (drafts/ tasks/ archive/). It is the source of truth for "where" a task is.
 //   - Status is the workflow column (ready/in_progress/done/failed/blocked),
-//     stored only in frontmatter. It only changes while the task is active.
+//     stored only in frontmatter. It is settable in any state; it only
+//     shows on the board while the task is active.
 //
 // Both axes allow free movement within a fixed value set: any status can move
 // to any other status, and any state to any other state, in a single step —

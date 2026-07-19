@@ -4,8 +4,8 @@
 // paths only warn about (or cannot see at all): unparseable files, duplicate
 // ids (e.g. after a git merge of two branches that each created the same id),
 // filename↔frontmatter id drift, dangling depends_on references, dependency
-// cycles, and CRLF line endings. With fix enabled it repairs what is safe to
-// repair mechanically.
+// cycles, unparseable timestamps, and CRLF line endings. With fix enabled it
+// repairs what is safe to repair mechanically.
 package tasks
 
 import (
@@ -21,7 +21,7 @@ import (
 
 // Issue is one problem found by Doctor.
 type Issue struct {
-	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf | gitattributes | gitignore
+	Kind   string // unparseable | duplicate-id | id-drift | dangling-dep | cycle | crlf | gitattributes | gitignore | bad-timestamp
 	File   string // filename (base) the issue is about ("" for board-wide issues)
 	Detail string
 	Fixed  bool // true when fix mode repaired it
@@ -46,7 +46,8 @@ func (i Issue) String() string {
 // of another task's name is renumbered instead), dangling depends_on references
 // are removed, and
 // a missing north/.gitattributes or north/.gitignore is restored. Unparseable
-// files and cycles are report-only.
+// files, cycles, and bad-timestamp (a present-but-unparseable created_at or
+// updated_at, preserved verbatim on rewrite) are report-only.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	var issues []Issue
 	if fix {
@@ -113,7 +114,8 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		deps []string
 	}
 	var tasksParsed []parsed
-	driftIdx := map[string]int{} // path -> issues index of a drift deferred to the duplicate-id repair
+	parsedIdx := map[string]int{} // path -> tasksParsed index (kept current as repairs rename files)
+	driftIdx := map[string]int{}  // path -> issues index of a drift deferred to the duplicate-id repair
 	for _, path := range files {
 		task, err := loadTask(path)
 		if err != nil {
@@ -147,7 +149,21 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		}
 		byID[task.ID] = append(byID[task.ID], path)
 		idSet[task.ID] = true
+		parsedIdx[path] = len(tasksParsed)
 		tasksParsed = append(tasksParsed, parsed{path: path, id: task.ID, deps: task.DependsOn})
+
+		// Report-only: a present-but-unparseable created_at/updated_at is now
+		// preserved verbatim on rewrite (never nulled), so flag it for a human
+		// to correct rather than let it drift silently.
+		craw, uraw := rawTimestamps(path)
+		if craw != "" && parseDT(craw) == nil {
+			issues = append(issues, Issue{Kind: "bad-timestamp", File: filepath.Base(path),
+				Detail: fmt.Sprintf("created_at %q is not a parseable timestamp", craw)})
+		}
+		if uraw != "" && parseDT(uraw) == nil {
+			issues = append(issues, Issue{Kind: "bad-timestamp", File: filepath.Base(path),
+				Detail: fmt.Sprintf("updated_at %q is not a parseable timestamp", uraw)})
+		}
 	}
 
 	// Duplicate ids: first file keeps the id, later ones are renumbered.
@@ -169,11 +185,22 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 					// the renumbered id can never be reissued later.
 					if newID, err := board.AllocateID(boardDir); err == nil {
 						task.ID = newID
-						if _, err := save(boardDir, task, path,
+						if saved, err := save(boardDir, task, path,
 							fmt.Sprintf("north: doctor renumber %s → %s", id, task.ID),
 							filepath.Join(boardDir, board.ConfigName)); err == nil {
 							issue.Fixed = true
 							idSet[task.ID] = true
+							// The renumber wrote a new path and removed the old
+							// one, so the later dangling-dep repair and the cycle
+							// graph must see the new path and id — otherwise they
+							// operate on a removed file / stale id (deps are
+							// unchanged by a renumber).
+							if pi, ok := parsedIdx[path]; ok {
+								delete(parsedIdx, path)
+								parsedIdx[saved.Path] = pi
+								tasksParsed[pi].path = saved.Path
+								tasksParsed[pi].id = saved.ID
+							}
 							// Renumbering wrote the new id's filename, so a
 							// drift deferred to this pass is now healed too.
 							if idx, ok := driftIdx[path]; ok {
@@ -232,6 +259,26 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	}
 
 	return issues, nil
+}
+
+// rawTimestamps re-reads a task file's frontmatter and returns its raw
+// created_at/updated_at scalar values (as written, before parseDT). Empty on
+// any read/parse failure — the caller has already loaded the task, so a failure
+// here just suppresses the report-only bad-timestamp check.
+func rawTimestamps(path string) (created, updated string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	meta, _, err := splitFrontmatter(normalizeNewlines(string(data)))
+	if err != nil {
+		return "", ""
+	}
+	_, fm, err := parseFront(meta)
+	if err != nil {
+		return "", ""
+	}
+	return fm.CreatedAt, fm.UpdatedAt
 }
 
 // filenameID extracts the leading numeric id from a task filename ("" if none).

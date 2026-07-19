@@ -212,6 +212,87 @@ func TestDoctorFixDriftedDuplicateSameSlugNoClobber(t *testing.T) {
 	}
 }
 
+func TestDoctorFixDuplicateWithDanglingDepOneRun(t *testing.T) {
+	boardDir := newBoard(t)
+	// One file is BOTH a duplicate id AND carries a dangling depends_on. The
+	// duplicate-id repair renumbers it (new path, new id); the dangling-dep
+	// repair must then load the renamed file — not the removed original — so a
+	// single --fix run heals both problems.
+	writeRaw(t, boardDir, "tasks", "2-beta.md",
+		"---\nid: \"2\"\ntitle: beta\nstatus: ready\n---\n")
+	writeRaw(t, boardDir, "tasks", "2-dupe.md",
+		"---\nid: \"2\"\ntitle: dupe\nstatus: ready\ndepends_on: [\"99\"]\n---\n")
+
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dupFixed, danglingFixed bool
+	for _, i := range issues {
+		switch i.Kind {
+		case "duplicate-id":
+			dupFixed = i.Fixed
+		case "dangling-dep":
+			danglingFixed = i.Fixed
+		}
+	}
+	if !dupFixed {
+		t.Errorf("duplicate-id not fixed in one run: %v", issues)
+	}
+	if !danglingFixed {
+		t.Errorf("dangling-dep not fixed in one run (needs the renamed path): %v", issues)
+	}
+
+	// A second run must find nothing — the dangling dep did not survive.
+	again, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("issues remain after one --fix run: %v", again)
+	}
+}
+
+func TestDoctorFlagsBadTimestamp(t *testing.T) {
+	boardDir := newBoard(t)
+	// A hand-edited, unparseable created_at is report-only: doctor flags it but
+	// --fix must not touch the value.
+	writeRaw(t, boardDir, "tasks", "1-bad.md",
+		"---\nid: \"1\"\ntitle: bad ts\nstatus: ready\ncreated_at: 24-06-2026 10:00\n---\n")
+
+	issues, err := tasks.Doctor(boardDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var badTS []tasks.Issue
+	for _, i := range issues {
+		if i.Kind == "bad-timestamp" {
+			badTS = append(badTS, i)
+		}
+	}
+	if len(badTS) != 1 {
+		t.Fatalf("expected exactly one bad-timestamp issue, got %v", issues)
+	}
+	if badTS[0].File != "1-bad.md" || !strings.Contains(badTS[0].Detail, "created_at") {
+		t.Errorf("bad-timestamp issue should name the file and key: %+v", badTS[0])
+	}
+	if badTS[0].Fixed {
+		t.Errorf("bad-timestamp must be report-only: %+v", badTS[0])
+	}
+
+	// --fix must leave the value untouched (report-only) and still report it.
+	if _, err := tasks.Doctor(boardDir, true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "1-bad.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "24-06-2026 10:00") {
+		t.Errorf("report-only bad timestamp was modified:\n%s", data)
+	}
+}
+
 func TestDoctorTraversalIDIsUnparseable(t *testing.T) {
 	boardDir := newBoard(t)
 	// A crafted frontmatter id must never reach a filename: the file is

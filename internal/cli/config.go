@@ -161,17 +161,8 @@ func newConfigSetCmd() *cobra.Command {
 				return err
 			}
 			key, value := args[0], args[1]
-			unlock, err := board.Lock(boardDir)
-			if err != nil {
-				return err
-			}
-			defer unlock()
-			// Malformed-config gate: refuse to patch a file LoadConfig would
-			// reject (the node round-trip in SetConfigValue is what preserves
-			// concurrent changes such as a last_id bump — this read only vets).
-			if _, err := board.LoadConfig(boardDir); err != nil {
-				return err
-			}
+			// Validate the key/value before taking the lock so invalid input
+			// never steals it from a concurrent writer.
 			var canonical string
 			var typed any
 			switch key {
@@ -200,6 +191,17 @@ func newConfigSetCmd() *cobra.Command {
 				canonical, typed = strconv.Itoa(n), n
 			default:
 				return nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
+			}
+			unlock, err := board.Lock(boardDir)
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			// Malformed-config gate: refuse to patch a file LoadConfig would
+			// reject (the node round-trip in SetConfigValue is what preserves
+			// concurrent changes such as a last_id bump — this read only vets).
+			if _, err := board.LoadConfig(boardDir); err != nil {
+				return err
 			}
 			if err := board.SetConfigValue(boardDir, key, canonical); err != nil {
 				return err

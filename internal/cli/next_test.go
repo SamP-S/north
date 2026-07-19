@@ -196,7 +196,7 @@ func TestCLINextLimit(t *testing.T) {
 	if out, err := run(t, dir, "next", "-l", "2", "--plain"); err != nil || len(strings.Split(strings.TrimSpace(out), "\n")) != 2 {
 		t.Fatalf("plain rows: %v (%q)", err, out)
 	}
-	// Limit 0 means all workable tasks, rendered as a list.
+	// Limit 0 means no tasks: exit 0 with an empty {"tasks": []} payload.
 	out, err = run(t, dir, "next", "-l", "0", "--json")
 	if err != nil {
 		t.Fatalf("next -l 0: %v (%s)", err, out)
@@ -205,8 +205,8 @@ func TestCLINextLimit(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("bad json %q: %v", out, err)
 	}
-	if len(payload.Tasks) != 2 {
-		t.Fatalf("-l 0 should return all workable, got %v", payload.Tasks)
+	if len(payload.Tasks) != 0 {
+		t.Fatalf("-l 0 should return no tasks, got %v", payload.Tasks)
 	}
 	// Only negative limits are invalid.
 	_, err = run(t, dir, "next", "-l", "-1")

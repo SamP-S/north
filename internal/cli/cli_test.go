@@ -321,9 +321,10 @@ func TestCLISkillInstall(t *testing.T) {
 func TestCLISkillCheck(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")
-	// Before install: nothing anywhere → non-zero exit.
-	if _, err := run(t, dir, "skill", "check"); err == nil {
-		t.Error("skill check should fail before install")
+	// Before install: nothing anywhere, but a completed check still exits 0
+	// (doctor-style) — missing installs are findings, not failures.
+	if out, err := run(t, dir, "skill", "check"); err != nil {
+		t.Errorf("skill check before install should exit 0, got %v (%s)", err, out)
 	}
 	run(t, dir, "skill", "install")
 	out, err := run(t, dir, "skill", "check")
@@ -426,14 +427,15 @@ func TestCLISkillCheckOutputModes(t *testing.T) {
 		t.Errorf("check plain: %q", pl)
 	}
 
-	// Stale stamp → outdated status and conflict exit, in JSON mode too.
+	// Stale stamp → outdated status, but a completed check exits 0 (doctor
+	// style): the finding lives in the payload, not the exit code.
 	stale := filepath.Join(dir, ".claude", "skills", "north", "SKILL.md")
 	if err := os.WriteFile(stale, []byte("<!-- north-skill-version: 0.0.0-old -->\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, dir, "skill", "check", "--json")
-	if errorCode(t, err) != "conflict" {
-		t.Errorf("outdated should be conflict, got %v", err)
+	if err != nil {
+		t.Errorf("completed check should exit 0, got %v", err)
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("outdated check --json: %v (%s)", err, out)
@@ -449,6 +451,31 @@ func TestCLISkillCheckOutputModes(t *testing.T) {
 	}
 	if !found {
 		t.Error("Claude Code target missing from payload")
+	}
+}
+
+// TestCLISkillCheckNoInstalls verifies a board with no skill installed at all
+// still checks out with exit 0 (doctor-style): every target reports missing,
+// but a completed check is not a failure.
+func TestCLISkillCheckNoInstalls(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	out, err := run(t, dir, "skill", "check", "--json")
+	if err != nil {
+		t.Fatalf("no-installs check should exit 0, got %v (%s)", err, out)
+	}
+	var payload struct {
+		Targets []struct {
+			Status string `json:"status"`
+		} `json:"targets"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("no-installs check --json: %v (%s)", err, out)
+	}
+	for _, tg := range payload.Targets {
+		if tg.Status != "missing" {
+			t.Errorf("expected all missing, got %q", tg.Status)
+		}
 	}
 }
 
@@ -656,6 +683,16 @@ func TestCLIEditAppendAndBodyFile(t *testing.T) {
 	_, err = run(t, dir, "task", "create", "y", "--body", "inline", "--body-file", bf)
 	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
 		t.Errorf("create body + body-file should be invalid, got %v", err)
+	}
+	// A body-file read failure is an I/O failure, not a usage mistake, so it
+	// stays internal (exit 1). Reading a directory fails reliably on every
+	// platform and without relying on chmod (tests may run as root).
+	_, err = run(t, dir, "task", "create", "z", "--body-file", dir)
+	if err == nil {
+		t.Fatal("reading a directory as a body file should fail")
+	}
+	if got := errCode(err); got != "internal" {
+		t.Errorf("body-file read failure should be internal (exit 1), got %q (%v)", got, err)
 	}
 }
 
@@ -1329,6 +1366,22 @@ func TestCLIListLimit(t *testing.T) {
 	}
 	if rows := strings.Split(strings.TrimSpace(out), "\n"); len(rows) != 2 {
 		t.Errorf("want 2 rows, got %d: %q", len(rows), out)
+	}
+	// --limit 0 (git log -n semantics) yields no rows: exit 0, empty output.
+	out, err = run(t, dir, "task", "list", "--state", "draft", "--limit", "0", "--plain")
+	if err != nil {
+		t.Fatalf("list --limit 0: %v (%q)", err, out)
+	}
+	if out != "" {
+		t.Errorf("--limit 0 should print nothing, got %q", out)
+	}
+	// Omitting --limit leaves the list uncapped: all three tasks show.
+	out, err = run(t, dir, "task", "list", "--state", "draft", "--plain")
+	if err != nil {
+		t.Fatalf("list no limit: %v (%q)", err, out)
+	}
+	if rows := strings.Split(strings.TrimSpace(out), "\n"); len(rows) != 3 {
+		t.Errorf("no --limit should return all 3, got %d: %q", len(rows), out)
 	}
 	if _, err := run(t, dir, "task", "list", "--limit", "-1"); err == nil {
 		t.Error("negative --limit should be invalid")

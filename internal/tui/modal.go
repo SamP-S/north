@@ -232,7 +232,9 @@ func (m modal) update(km tea.KeyMsg, boardDir string) (modal, tea.Cmd) {
 
 	case modalConfirmDelete:
 		switch strings.ToLower(km.String()) {
-		case "y", "enter":
+		// Only "y" confirms; enter is not a substitute for an explicit yes,
+		// since a reflexive Enter must not permanently delete a task.
+		case "y":
 			taskID := m.taskID
 			m.mode = modalNone
 			return m, runTaskOp(

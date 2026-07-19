@@ -67,9 +67,9 @@ func newNextCmd() *cobra.Command {
 		Long: "Show the next workable task: active, status ready, unassigned, all\n" +
 			"dependencies met, lowest id first. A pure read — nothing is claimed.\n" +
 			"No workable task is a normal outcome: exit 0 with {\"task\": null}\n" +
-			"under --json, empty output under --plain. With -l/--limit N (N ≥ 2,\n" +
-			"or 0 = all) the next N tasks are shown in take order, rendered as a\n" +
-			"task list ({\"tasks\": […]} under --json).",
+			"under --json, empty output under --plain. With -l/--limit N the pick\n" +
+			"is capped at N (N ≠ 1 renders as a task list, {\"tasks\": […]} under\n" +
+			"--json; N == 0 yields no tasks).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if limit < 0 {
@@ -79,9 +79,19 @@ func newNextCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			picked, warnings, err := tasks.Next(boardDir, cleanLabelFilter(labels), limit)
+			// tasks.Next treats limit <= 0 as "all"; -l 0 must instead mean
+			// "no tasks". Fetch with limit 1 for the snapshot warnings, then
+			// render an empty list via printPickList.
+			pickLimit := limit
+			if limit == 0 {
+				pickLimit = 1
+			}
+			picked, warnings, err := tasks.Next(boardDir, cleanLabelFilter(labels), pickLimit)
 			if err != nil {
 				return err
+			}
+			if limit == 0 {
+				return printPickList(cmd, nil, warnings, plain, asJSON)
 			}
 			if limit != 1 {
 				return printPickList(cmd, picked, warnings, plain, asJSON)
@@ -95,7 +105,7 @@ func newNextCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().IntVarP(&limit, "limit", "l", 1, "how many workable tasks to show, in take order (0 = all)")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 1, "cap the pick at N workable tasks, in take order (N ≠ 1 renders as a list)")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "only consider tasks carrying this label (exact match; repeatable)")
 	addOutputFlags(cmd, &plain, &asJSON)
 	cmd.Flags().SetNormalizeFunc(aliasFlag("labels", "label"))

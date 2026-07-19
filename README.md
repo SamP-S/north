@@ -103,7 +103,7 @@ Malformed files never break the board — they surface as warnings, and
 | `north task move <id[,id…]> <status>` | Set status (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive>` | Set lifecycle state (any → any) |
 | `north task delete <id[,id…]> [-y]` | Delete tasks (`-y` required in machine/non-TTY modes and for batches) |
-| `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met; `-l 0` = all) — read-only |
+| `north next [-l N] [--label L]` | Show the next workable task(s) (active, ready, unassigned, deps met; `-l N` shows at most N, `-l 0` = none) — read-only |
 | `north take [id] [--assignee A] [--label L]` | Atomically claim the next workable task (or a specific id) — `in_progress` + assignee in one lock hold |
 | `north board` | Active counts per status + draft/archive tally |
 | `north cleanup [--older-than DAYS] [--dry-run]` | Archive active done tasks (`--dry-run` previews) |

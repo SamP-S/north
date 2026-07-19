@@ -28,8 +28,9 @@ command; there is no required path.
   - `draft` — captured but not yet on the active board (a human gate).
   - `active` — on the board, being worked.
   - `archive` — off the board, kept for history.
-- **Status** = the workflow column, only meaningful (and only changeable)
-  while the task is **active**:
+- **Status** = the workflow column, settable in any state (an advisory
+  warning otherwise) but only visible on the board while the task is
+  **active**:
   - `ready` — available to be picked up.
   - `in_progress` — actively being worked.
   - `done` — finished successfully.
@@ -120,8 +121,9 @@ north next [-l N] [--label L] [--plain | --json]               # peek at the nex
 north take [id] [--assignee A] [--label L] [--plain | --json]  # claim atomically (assignee falls back to $NORTH_AGENT)
 ```
 
-`next -l N` previews the next N in take order, 0 = all (`{"tasks": […]}`
-under `--json`). `take <id>` claims a specific task instead of the queue head —
+Omitting `-l` shows the single next pick; `next -l N` (N ≠ 1) previews the
+next N in take order as a task list (`{"tasks": […]}` under `--json`);
+`-l 0` shows none. `take <id>` claims a specific task instead of the queue head —
 refused (`conflict`) unless it is active, ready, unassigned, and its
 dependencies are met; never steal a refused task by editing around the
 error. When the user resets a task with `move <id> ready`, its assignee must
@@ -139,7 +141,7 @@ north doctor [--fix]                  # board integrity check (duplicates, cycle
 north config get|set|list             # board settings (auto_commit, deps_enforcement, max_wip)
 ```
 
-`list -l/--limit N` caps the rows after filtering and sorting (0 = all).
+`list -l/--limit N` caps the rows after filtering and sorting.
 `cleanup --json` payloads carry `"dry_run": true|false`, so check that key to
 confirm archiving actually happened. `doctor` exits 0 whenever the scan
 completes — issues found are its *output* (gate on the `--json` issues array),

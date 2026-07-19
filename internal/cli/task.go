@@ -50,7 +50,8 @@ func newTaskCmd() *cobra.Command {
 }
 
 // readBody returns the body from --body / --body-file, or nil if neither
-// given. Giving both is invalid. A body file of "-" reads stdin.
+// given. Giving both is invalid (a usage mistake, exit 2); a read failure is
+// internal (exit 1). A body file of "-" reads stdin.
 func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
 	if cmd.Flags().Changed("body") && cmd.Flags().Changed("body-file") {
 		return nil, nerrors.Invalid("--body cannot be combined with --body-file")
@@ -64,7 +65,7 @@ func readBody(cmd *cobra.Command, body, bodyFile string) (*string, error) {
 			data, err = os.ReadFile(bodyFile)
 		}
 		if err != nil {
-			return nil, nerrors.Invalid(fmt.Sprintf("cannot read body file %s: %v", bodyFile, err))
+			return nil, fmt.Errorf("cannot read body file %s: %w", bodyFile, err)
 		}
 		s := string(data)
 		return &s, nil
@@ -363,11 +364,13 @@ func newTaskListCmd() *cobra.Command {
 				desc = !desc
 			}
 			tasks.Sort(ts, key, desc)
-			if limit < 0 {
-				return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
-			}
-			if limit > 0 && len(ts) > limit {
-				ts = ts[:limit]
+			// --limit mimics `git log -n`: when given, keep at most N rows
+			// (N == 0 keeps none). Omitting the flag leaves the list uncapped.
+			if cmd.Flags().Changed("limit") {
+				if limit < 0 {
+					return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
+				}
+				ts = ts[:min(limit, len(ts))]
 			}
 			if !asJSON {
 				printWarnings(cmd, snap.Warnings)
@@ -392,7 +395,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&deps, "deps", "", "filter by dependency resolution: met|unmet (a dep resolves when done or archived)")
 	cmd.Flags().StringVar(&sortBy, "sort", "id", "sort by: id|updated|title|assignee (id/updated newest-first, title/assignee A→Z)")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "reverse the sort direction")
-	cmd.Flags().IntVarP(&limit, "limit", "l", 0, "show at most N tasks after filtering and sorting (0 = unlimited)")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 0, "show at most N tasks after filtering and sorting")
 	addOutputFlags(cmd, &plain, &asJSON)
 	cmd.Flags().SetNormalizeFunc(aliasFlag("labels", "label"))
 	return cmd

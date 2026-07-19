@@ -14,8 +14,8 @@ func newDoctorCmd() *cobra.Command {
 		Short: "check the board for integrity problems",
 		Long: "Scan every task file for problems: unparseable files, duplicate ids,\n" +
 			"filename/frontmatter id drift, dangling depends_on references, dependency\n" +
-			"cycles, and CRLF line endings. With --fix, safe repairs are applied\n" +
-			"(CRLF rewrite, duplicate renumbering, filename renames).",
+			"cycles, unparseable timestamps, and CRLF line endings. With --fix, safe\n" +
+			"repairs are applied (CRLF rewrite, duplicate renumbering, filename renames).",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")

@@ -129,8 +129,8 @@ func renderTask(task *models.Task, prev *yaml.Node) (string, error) {
 	setKey(m, "assignee", strScalar(task.Assignee, false))
 	setKey(m, "labels", seqScalar(task.Labels, false))
 	setKey(m, "depends_on", seqScalar(task.DependsOn, true))
-	setKey(m, "created_at", timeScalar(task.CreatedAt))
-	setKey(m, "updated_at", timeScalar(task.UpdatedAt))
+	setTimeKey(m, "created_at", task.CreatedAt)
+	setTimeKey(m, "updated_at", task.UpdatedAt)
 
 	out, err := yaml.Marshal(m)
 	if err != nil {
@@ -182,6 +182,30 @@ func seqStrings(n *yaml.Node) []string {
 		}
 	}
 	return out
+}
+
+// setTimeKey overlays a time-valued frontmatter key, but preserves an existing
+// unparseable value. When t is nil — parseDT could not read the on-disk value —
+// and the mapping already holds a non-empty, non-null scalar for key, the node
+// is left untouched rather than overwritten with null: a hand-edited timestamp
+// North cannot parse must survive a rewrite, not be destroyed by it (the same
+// treatment unknown keys get). With t non-nil, or no usable prior value, it
+// writes the normal scalar.
+func setTimeKey(m *yaml.Node, key string, t *time.Time) {
+	if t == nil && scalarString(mapValue(m, key)) != "" {
+		return
+	}
+	setKey(m, key, timeScalar(t))
+}
+
+// mapValue returns the value node for key in a mapping node (nil when absent).
+func mapValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
 }
 
 // setKey replaces key's value in a mapping node, appending the pair when the
