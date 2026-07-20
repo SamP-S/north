@@ -125,9 +125,13 @@ domain:
 | delete with dependents | warn, refs left dangling | heal: id dropped from dependents | heal |
 
 Delete-healing runs under the same lock hold and bumps the dependents'
-`updated_at`. `north doctor` flags dangling refs and cycles at every level;
-`--fix` removes dangling refs (including deliberate forward references —
-running `--fix` is an explicit ask).
+`updated_at`; broken dependents whose `depends_on` is still readable are
+healed too (with a warning recommending `north doctor`), and only files whose
+frontmatter cannot be read at all are skipped with a warning. `north doctor`
+flags dangling refs and cycles at every level; `--fix` removes dangling refs
+(including deliberate forward references — running `--fix` is an explicit ask),
+except a dep referencing a task whose file exists but is unparseable is never
+removed — it is reported with a pointer to repair that file first.
 
 ## Tolerant loading
 

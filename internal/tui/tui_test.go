@@ -1094,3 +1094,59 @@ func TestNewModelThemeWarningPrecedence(t *testing.T) {
 		t.Errorf("ThemeWarning should win, got %v: %q", m.notice.level, m.notice.text)
 	}
 }
+
+// TestTaskPopupWrapsAtPopupWidth verifies the read-only task popup wraps its
+// Markdown body at the popup's own viewport width, not at the (much
+// narrower) list view's cached detail-pane width. Regression test for a bug
+// where the popup rendered through the list pane's cached renderer.
+func TestTaskPopupWrapsAtPopupWidth(t *testing.T) {
+	dir := newTestBoard(t)
+	body := strings.Repeat("lorem ipsum dolor sit amet consectetur adipiscing ", 10) // >500 chars, one paragraph
+	task, _, err := tasks.Create(dir, "Wide task", "", nil, nil, body)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	task, _, err = tasks.SetState(dir, task.ID, "active")
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	m := NewModel(dir, Options{})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	m = updated.(Model)
+	m.board.columns = []boardColumn{
+		{status: string(task.Status), tasks: []*models.Task{task}, cursor: 0},
+	}
+	m.list.allTasks = []*models.Task{task}
+
+	// listWidth is the (narrow) width the list pane's cached renderer uses;
+	// popupWidth is what the popup viewport should use instead.
+	listWidth := m.list.vp.Width
+	popupWidth := max(20, m.width-14)
+	if popupWidth <= listWidth {
+		t.Fatalf("test setup: popup width %d should exceed list width %d", popupWidth, listWidth)
+	}
+
+	// Reference line counts: wrapping the same body narrower produces more,
+	// shorter lines than wrapping it wider.
+	narrowLines := strings.Count(m.list.renderDetailAt(task, listWidth), "\n")
+	wideLines := strings.Count(m.list.renderDetailAt(task, popupWidth), "\n")
+	if wideLines >= narrowLines {
+		t.Fatalf("test setup: wrapping at popup width (%d lines) should need fewer lines than at list width (%d lines)", wideLines, narrowLines)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+	if um.modal.mode != modalTaskView {
+		t.Fatalf("enter should open the task popup, got %v", um.modal.mode)
+	}
+	if um.modal.vp.Width != popupWidth {
+		t.Fatalf("popup viewport width = %d, want %d", um.modal.vp.Width, popupWidth)
+	}
+
+	gotLines := um.modal.vp.TotalLineCount()
+	if gotLines != wideLines+1 { // TotalLineCount counts the split, renderDetailAt's \n count is one less
+		t.Errorf("popup content has %d lines, want %d (wrapped at popup width %d, not list width %d)",
+			gotLines, wideLines+1, popupWidth, listWidth)
+	}
+}

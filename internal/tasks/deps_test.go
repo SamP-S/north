@@ -1,6 +1,8 @@
 package tasks_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -295,6 +297,65 @@ func TestDeleteLeavesDanglingAtHint(t *testing.T) {
 	child, _ := tasks.Get(boardDir, "2")
 	if len(child.DependsOn) != 1 || child.DependsOn[0] != "1" {
 		t.Errorf("hint delete must leave refs untouched: %v", child.DependsOn)
+	}
+}
+
+// TestDeleteHealsBrokenDependent checks that a dependent whose file the
+// snapshot excluded (unknown status) is still healed surgically: only the
+// depends_on entry is removed, everything else — the bogus status included —
+// stays byte-identical.
+func TestDeleteHealsBrokenDependent(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "base") // 1
+	writeRaw(t, boardDir, "tasks", "2-broken.md",
+		"---\nid: \"2\"\ntitle: broken\nstatus: bogus\ndepends_on: [\"1\"]\n---\n\nkeep this body\n")
+
+	_, warns, err := tasks.Delete(boardDir, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(warns, "\n")
+	if !strings.Contains(joined, "2-broken.md") || !strings.Contains(joined, "removed it from depends_on") {
+		t.Errorf("expected a broken-dependent healing warning, got %v", warns)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-broken.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"1"`) {
+		t.Errorf("deleted id still referenced:\n%s", data)
+	}
+	if !strings.Contains(string(data), "status: bogus") {
+		t.Errorf("healing touched more than depends_on:\n%s", data)
+	}
+	if !strings.Contains(string(data), "keep this body") {
+		t.Errorf("body lost:\n%s", data)
+	}
+}
+
+// TestDeleteWarnsUncheckableBrokenFile checks that a file whose frontmatter
+// cannot be read at all is left untouched, with a warning that it could not
+// be checked.
+func TestDeleteWarnsUncheckableBrokenFile(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "base")                                   // 1
+	content := "---\nid: \"2\"\ntitle: broken\ndepends_on: [\"1\"]\n" // unterminated fence
+	writeRaw(t, boardDir, "tasks", "2-broken.md", content)
+
+	_, warns, err := tasks.Delete(boardDir, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(warns, "\n")
+	if !strings.Contains(joined, "2-broken.md") || !strings.Contains(joined, "could not be checked") {
+		t.Errorf("expected a could-not-be-checked warning, got %v", warns)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-broken.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Errorf("unreadable file was modified:\n%s", data)
 	}
 }
 

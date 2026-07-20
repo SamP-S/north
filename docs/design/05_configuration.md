@@ -4,8 +4,8 @@
 Created by `north init`. It is both the **board-discovery marker** (North walks
 up looking for it) and the home for per-board settings. `init` scaffolds it as
 a commented template (the valid values live in the file itself, mirroring the
-user-level TUI config); note that `north config set` re-marshals the file and
-drops the comments — the template's header says so.
+user-level TUI config); `north config set` uses a YAML node round-trip that
+preserves comments, key order, and unknown keys.
 
 ```yaml
 version: 1                   # board format stamp (read-only; written by init)

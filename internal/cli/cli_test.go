@@ -454,6 +454,67 @@ func TestCLISkillCheckOutputModes(t *testing.T) {
 	}
 }
 
+// TestCLISkillCheckUnstampedAndModified verifies the two grading tiers between
+// "installed" and "outdated": a file with no version comment at all reports
+// unstamped, and a file whose stamp matches but whose body was hand-edited
+// reports modified. Both are findings, not failures (exit 0).
+func TestCLISkillCheckUnstampedAndModified(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "skill", "install", "--target", "claude")
+	target := filepath.Join(dir, ".claude", "skills", "north", "SKILL.md")
+
+	// Strip the stamp entirely → unstamped.
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.ReplaceAll(string(data), "north-skill-version:", "not-a-stamp:")
+	if err := os.WriteFile(target, []byte(stripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, dir, "skill", "check")
+	if err != nil {
+		t.Fatalf("check with unstamped install should exit 0, got %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "unstamped") || !strings.Contains(out, "north skill install") {
+		t.Errorf("unstamped check output: %q", out)
+	}
+	js, err := run(t, dir, "skill", "check", "--json")
+	if err != nil {
+		t.Fatalf("check --json with unstamped install should exit 0, got %v (%s)", err, js)
+	}
+	if !strings.Contains(js, `"status": "unstamped"`) {
+		t.Errorf("unstamped check --json: %q", js)
+	}
+
+	// Reinstall (restores a clean, correctly stamped file), then edit the body
+	// while keeping the stamp intact → modified.
+	run(t, dir, "skill", "install", "--target", "claude")
+	data, err = os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := string(data) + "\nhand-edited addition\n"
+	if err := os.WriteFile(target, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, dir, "skill", "check")
+	if err != nil {
+		t.Fatalf("check with modified install should exit 0, got %v (%s)", err, out)
+	}
+	if !strings.Contains(out, "modified since install") || !strings.Contains(out, "north skill install") {
+		t.Errorf("modified check output: %q", out)
+	}
+	js, err = run(t, dir, "skill", "check", "--json")
+	if err != nil {
+		t.Fatalf("check --json with modified install should exit 0, got %v (%s)", err, js)
+	}
+	if !strings.Contains(js, `"status": "modified"`) {
+		t.Errorf("modified check --json: %q", js)
+	}
+}
+
 // TestCLISkillCheckNoInstalls verifies a board with no skill installed at all
 // still checks out with exit 0 (doctor-style): every target reports missing,
 // but a completed check is not a failure.
@@ -1385,6 +1446,26 @@ func TestCLIListLimit(t *testing.T) {
 	}
 	if _, err := run(t, dir, "task", "list", "--limit", "-1"); err == nil {
 		t.Error("negative --limit should be invalid")
+	}
+}
+
+// TestCLIListValidatesFlagsBeforeBoard verifies that `task list` rejects bad
+// usage flags before ever locating a board: run in a directory with no board
+// at all, these must still fail as invalid (exit 2), not not_found (exit 3).
+func TestCLIListValidatesFlagsBeforeBoard(t *testing.T) {
+	dir := t.TempDir() // no `init` — no board here
+
+	_, err := run(t, dir, "task", "list", "--sort", "bogus")
+	if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("--sort bogus without a board: %v", err)
+	}
+	_, err = run(t, dir, "task", "list", "--deps", "bogus")
+	if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "unknown --deps") {
+		t.Errorf("--deps bogus without a board: %v", err)
+	}
+	_, err = run(t, dir, "task", "list", "--limit", "-1")
+	if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "must not be negative") {
+		t.Errorf("--limit -1 without a board: %v", err)
 	}
 }
 

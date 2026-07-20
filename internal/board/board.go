@@ -460,9 +460,19 @@ func configMapping(doc *yaml.Node) *yaml.Node {
 	return &yaml.Node{Kind: yaml.MappingNode}
 }
 
-// Slug builds a filename-safe slug from a title (Backlog.md-style, dash-separated).
+// slugMaxLen caps a slug's byte length so the resulting filename stays well
+// under filesystem name limits (a create must never fail after its id was
+// allocated just because the title is long).
+const slugMaxLen = 80
+
+// Slug builds a filename-safe slug from a title (Backlog.md-style,
+// dash-separated), truncated to at most 80 bytes with no trailing dash.
+// Never empty: a title with no usable characters falls back to "task".
 func Slug(title string) string {
 	cleaned := strings.Trim(nonAlnumRe.ReplaceAllString(strings.ToLower(title), "-"), "-")
+	if len(cleaned) > slugMaxLen {
+		cleaned = strings.TrimRight(cleaned[:slugMaxLen], "-")
+	}
 	if cleaned == "" {
 		return "task"
 	}

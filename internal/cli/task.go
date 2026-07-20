@@ -316,24 +316,36 @@ func newTaskListCmd() *cobra.Command {
 		Short: "list tasks (default: active)",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
+			// All usage validation happens before touching the board: an
+			// invalid flag should fail the same way regardless of whether a
+			// board exists to find.
+			if cmd.Flags().Changed("limit") && limit < 0 {
+				return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
+			}
+			key, err := tasks.ParseSortKey(sortBy)
 			if err != nil {
 				return err
 			}
-			states, err := listStates(state)
-			if err != nil {
-				return err
+			switch deps {
+			case "", "met", "unmet":
+			default:
+				return nerrors.Invalid(fmt.Sprintf("unknown --deps %q (expected met or unmet)", deps))
 			}
 			if status != "" {
 				if _, err := tasks.ParseStatus(status); err != nil {
 					return err
 				}
 			}
-			snap, err := tasks.Load(boardDir)
+			states, err := listStates(state)
 			if err != nil {
 				return err
 			}
-			key, err := tasks.ParseSortKey(sortBy)
+
+			boardDir, err := board.LocateBoard("")
+			if err != nil {
+				return err
+			}
+			snap, err := tasks.Load(boardDir)
 			if err != nil {
 				return err
 			}
@@ -343,9 +355,7 @@ func newTaskListCmd() *cobra.Command {
 			if cmd.Flags().Changed("assignee") {
 				ts = filterAssignee(ts, assignee)
 			}
-			switch deps {
-			case "":
-			case "met", "unmet":
+			if deps == "met" || deps == "unmet" {
 				wantUnmet := deps == "unmet"
 				kept := make([]*models.Task, 0, len(ts))
 				for _, t := range ts {
@@ -354,8 +364,6 @@ func newTaskListCmd() *cobra.Command {
 					}
 				}
 				ts = kept
-			default:
-				return nerrors.Invalid(fmt.Sprintf("unknown --deps %q (expected met or unmet)", deps))
 			}
 			// Natural directions: newest first for id/updated, A→Z for
 			// title/assignee; --reverse flips.
@@ -367,9 +375,6 @@ func newTaskListCmd() *cobra.Command {
 			// --limit mimics `git log -n`: when given, keep at most N rows
 			// (N == 0 keeps none). Omitting the flag leaves the list uncapped.
 			if cmd.Flags().Changed("limit") {
-				if limit < 0 {
-					return nerrors.Invalid(fmt.Sprintf("--limit must not be negative (got %d)", limit))
-				}
 				ts = ts[:min(limit, len(ts))]
 			}
 			if !asJSON {

@@ -413,15 +413,22 @@ func (m *listModel) ensureRenderer() {
 	if m.md != nil && m.mdWidth == m.vp.Width {
 		return
 	}
-	r, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle(m.mdStyle),
-		glamour.WithWordWrap(m.vp.Width),
-	)
+	r, err := newMarkdownRenderer(m.mdStyle, m.vp.Width)
 	if err != nil {
 		return // keep the previous renderer (or none: plain-text fallback)
 	}
 	m.md = r
 	m.mdWidth = m.vp.Width
+}
+
+// newMarkdownRenderer builds a glamour renderer word-wrapped to width.
+// WithStandardStyle deliberately avoids WithAutoStyle, which queries the
+// terminal and would fight Bubble Tea for input.
+func newMarkdownRenderer(style string, width int) (*glamour.TermRenderer, error) {
+	return glamour.NewTermRenderer(
+		glamour.WithStandardStyle(style),
+		glamour.WithWordWrap(width),
+	)
 }
 
 // renderMarkdown renders body text as styled Markdown via the cached Glamour
@@ -435,6 +442,22 @@ func (m listModel) renderMarkdown(body string) string {
 		return body
 	}
 	return out
+}
+
+// renderDetailAt renders a task's detail content at an explicit width,
+// independent of the cached list-pane renderer — used by the read-only task
+// popup, whose viewport width differs from the list view's detail pane.
+// Built fresh each call (no caching): popups open rarely, so the cost of
+// constructing a renderer per open is not worth the bookkeeping. m is a
+// value receiver, so swapping m.md here does not disturb the caller's copy.
+func (m listModel) renderDetailAt(t *models.Task, width int) string {
+	if t == nil {
+		return "(no task selected)"
+	}
+	if r, err := newMarkdownRenderer(m.mdStyle, width); err == nil {
+		m.md = r
+	}
+	return m.renderDetail(t)
 }
 
 // paneWidths returns the outer dimensions (borders included) of each pane and

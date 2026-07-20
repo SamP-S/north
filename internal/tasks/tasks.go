@@ -145,41 +145,52 @@ func targetPath(boardDir string, task *models.Task) string {
 	return filepath.Join(board.StateDir(boardDir, task.State), board.TaskFilename(task.ID, task.Title))
 }
 
-// save writes the task to its target path (atomically: temp file + rename),
-// removes the old file on a move/rename, and auto-commits when configured.
+// save writes the task via persist and auto-commits when configured.
 // extraPaths are committed alongside the task file (e.g. the config.yml
 // last_id bump an allocation just wrote).
 func save(boardDir string, task *models.Task, oldPath, message string, extraPaths ...string) (*models.Task, error) {
-	target := targetPath(boardDir, task)
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return nil, err
-	}
-	content, err := renderTask(task, loadPrevFront(oldPath))
+	saved, removed, err := persist(boardDir, task, oldPath)
 	if err != nil {
 		return nil, err
 	}
+	if err := commit(boardDir, append([]string{saved.Path}, extraPaths...), removed, message); err != nil {
+		return nil, err
+	}
+	return saved, nil
+}
+
+// persist writes the task to its target path (atomically: temp file + rename)
+// and removes the old file on a move/rename, without committing anything.
+// Returns the saved task and the old paths it removed, so callers that batch
+// repairs (doctor --fix) can make one commit covering every change.
+func persist(boardDir string, task *models.Task, oldPath string) (*models.Task, []string, error) {
+	target := targetPath(boardDir, task)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return nil, nil, err
+	}
+	content, err := renderTask(task, loadPrevFront(oldPath))
+	if err != nil {
+		return nil, nil, err
+	}
 	tmp := target + ".tmp"
 	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.Rename(tmp, target); err != nil {
 		os.Remove(tmp)
-		return nil, err
+		return nil, nil, err
 	}
 	var removed []string
 	if oldPath != "" && !samePath(oldPath, target) {
 		if _, err := os.Stat(oldPath); err == nil {
 			if err := os.Remove(oldPath); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			removed = append(removed, oldPath)
 		}
 	}
 	task.Path = target
-	if err := commit(boardDir, append([]string{target}, extraPaths...), removed, message); err != nil {
-		return nil, err
-	}
-	return task, nil
+	return task, removed, nil
 }
 
 func commit(boardDir string, paths, removed []string, message string) error {
@@ -626,34 +637,158 @@ func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 	if err := commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID)); err != nil {
 		return nil, nil, err
 	}
-	if len(dependents) == 0 {
-		return task, nil, nil
+	var warns []string
+	if len(dependents) > 0 {
+		ids := make([]string, len(dependents))
+		for i, d := range dependents {
+			ids[i] = d.ID
+		}
+		if level == board.DepsHint {
+			warns = append(warns, fmt.Sprintf(
+				"%s depended on %s — their depends_on now dangles", strings.Join(ids, ", "), taskID))
+		} else {
+			// Heal: rewrite each dependent without the deleted id (save directly —
+			// we already hold the lock, so Edit would deadlock).
+			for _, d := range dependents {
+				kept := d.DependsOn[:0]
+				for _, id := range d.DependsOn {
+					if id != taskID {
+						kept = append(kept, id)
+					}
+				}
+				d.DependsOn = kept
+				n := now()
+				d.UpdatedAt = &n
+				if _, err := save(boardDir, d, d.Path, fmt.Sprintf("north: heal deps of %s after delete %s", d.ID, taskID)); err != nil {
+					return nil, nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
+				}
+			}
+			warns = append(warns, fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", ")))
+		}
 	}
-	ids := make([]string, len(dependents))
-	for i, d := range dependents {
-		ids[i] = d.ID
+	// Files the snapshot could not use (unparseable or duplicate-id) are
+	// invisible to Dependents, but their depends_on may still reference the
+	// deleted task — heal that key surgically when it is readable.
+	brokenWarns, err := healBrokenDependents(boardDir, snap.Warnings, taskID, level)
+	if err != nil {
+		return nil, nil, err
 	}
-	if level == board.DepsHint {
-		return task, []string{fmt.Sprintf(
-			"%s depended on %s — their depends_on now dangles", strings.Join(ids, ", "), taskID)}, nil
+	warns = append(warns, brokenWarns...)
+	return task, warns, nil
+}
+
+// healBrokenDependents drops the deleted id from the depends_on of task files
+// the snapshot excluded (unparseable or duplicate-id), touching nothing else
+// in them: only the depends_on sequence node is edited in place, every other
+// key — including whatever made the file unparseable — is preserved verbatim.
+// A file whose frontmatter cannot be read at all is warned about instead. At
+// hint level files are never modified; a readable reference only adds a
+// warning line. Returns the warnings to surface to the caller.
+func healBrokenDependents(boardDir string, warnings []Warning, deletedID string, level board.DepsEnforcement) ([]string, error) {
+	unchecked := func(file string) string {
+		return fmt.Sprintf(
+			"%s could not be checked for dependency healing — repair it, then run `north doctor`", file)
 	}
-	// Heal: rewrite each dependent without the deleted id (save directly —
-	// we already hold the lock, so Edit would deadlock).
-	for _, d := range dependents {
-		kept := d.DependsOn[:0]
-		for _, id := range d.DependsOn {
-			if id != taskID {
-				kept = append(kept, id)
+	var warns []string
+	for _, w := range warnings {
+		path := findTaskFile(boardDir, w.File)
+		if path == "" {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		meta, body, err := splitFrontmatter(normalizeNewlines(string(data)))
+		if err != nil {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		doc, _, err := parseFront(meta)
+		if err != nil {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		m := mappingOf(doc)
+		if m == nil {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		depsNode := mapValue(m, "depends_on")
+		if depsNode == nil || depsNode.Tag == "!!null" {
+			continue // no dependencies — nothing to heal
+		}
+		if depsNode.Kind != yaml.SequenceNode {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		refers := false
+		for _, dep := range seqStrings(depsNode) {
+			if dep == deletedID {
+				refers = true
+				break
 			}
 		}
-		d.DependsOn = kept
-		n := now()
-		d.UpdatedAt = &n
-		if _, err := save(boardDir, d, d.Path, fmt.Sprintf("north: heal deps of %s after delete %s", d.ID, taskID)); err != nil {
-			return nil, nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
+		if !refers {
+			continue
+		}
+		if level == board.DepsHint {
+			warns = append(warns, fmt.Sprintf(
+				"%s also depended on %s — its depends_on now dangles; run `north doctor` to repair the file",
+				w.File, deletedID))
+			continue
+		}
+		// Remove exactly the matching scalar entries, then re-serialize the
+		// same way renderTask does — mapping marshal, "---" fences, body as
+		// split — so no other key (updated_at included) changes.
+		kept := depsNode.Content[:0]
+		for _, c := range depsNode.Content {
+			if scalarString(c) != deletedID {
+				kept = append(kept, c)
+			}
+		}
+		depsNode.Content = kept
+		out, err := yaml.Marshal(m)
+		if err != nil {
+			warns = append(warns, unchecked(w.File))
+			continue
+		}
+		front := strings.TrimRight(string(out), "\n")
+		trimmed := strings.Trim(body, "\n")
+		content := fmt.Sprintf("---\n%s\n---\n", front)
+		if trimmed != "" {
+			content = fmt.Sprintf("---\n%s\n---\n\n%s\n", front, trimmed)
+		}
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+			return nil, err
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			os.Remove(tmp)
+			return nil, err
+		}
+		if err := commit(boardDir, []string{path}, nil,
+			fmt.Sprintf("north: heal deps of %s after delete %s", w.File, deletedID)); err != nil {
+			return nil, err
+		}
+		warns = append(warns, fmt.Sprintf(
+			"%s is broken but depended on %s — removed it from depends_on; run `north doctor` to repair the file",
+			w.File, deletedID))
+	}
+	return warns, nil
+}
+
+// findTaskFile locates a task file by base name across the state folders
+// ("" when absent from all of them).
+func findTaskFile(boardDir, base string) string {
+	for _, state := range models.StateOrder {
+		p := filepath.Join(board.StateDir(boardDir, state), base)
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
-	return task, []string{fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", "))}, nil
+	return ""
 }
 
 // StatusCount is one row of the board summary.

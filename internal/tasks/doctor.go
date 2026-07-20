@@ -46,10 +46,15 @@ func (i Issue) String() string {
 // of another task's name is renumbered instead), dangling depends_on references
 // are removed, and
 // a missing north/.gitattributes or north/.gitignore is restored. Unparseable
-// files, cycles, and bad-timestamp (a present-but-unparseable created_at or
-// updated_at, preserved verbatim on rewrite) are report-only.
+// files, cycles, bad-timestamp (a present-but-unparseable created_at or
+// updated_at, preserved verbatim on rewrite), and deps that reference an
+// unparseable file's id (the dep may be valid once that file is repaired) are
+// report-only. All successful repairs land in one auto-commit ("north: doctor
+// fixes") when auto_commit is on.
 func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	var issues []Issue
+	// Paths every successful repair touched, committed once at the end.
+	var fixedPaths, removedPaths []string
 	if fix {
 		unlock, err := board.Lock(boardDir)
 		if err != nil {
@@ -65,6 +70,7 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		if fix {
 			if err := board.WriteGitattributes(boardDir); err == nil {
 				issue.Fixed = true
+				fixedPaths = append(fixedPaths, filepath.Join(boardDir, board.GitattributesName))
 			}
 		}
 		issues = append(issues, issue)
@@ -75,6 +81,7 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		if fix {
 			if err := board.WriteGitignore(boardDir); err == nil {
 				issue.Fixed = true
+				fixedPaths = append(fixedPaths, filepath.Join(boardDir, board.GitignoreName))
 			}
 		}
 		issues = append(issues, issue)
@@ -95,6 +102,7 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 			if fix {
 				if err := os.WriteFile(path, []byte(normalizeNewlines(string(raw))), 0o644); err == nil {
 					issue.Fixed = true
+					fixedPaths = append(fixedPaths, path)
 				}
 			}
 			issues = append(issues, issue)
@@ -108,6 +116,7 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	}
 	byID := map[string][]string{} // id -> files (in listing order)
 	idSet := map[string]bool{}
+	unparseableIDs := map[string]bool{} // filename ids of files loadTask rejected
 	type parsed struct {
 		path string
 		id   string
@@ -120,6 +129,10 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 		task, err := loadTask(path)
 		if err != nil {
 			issues = append(issues, Issue{Kind: "unparseable", File: filepath.Base(path), Detail: err.Error()})
+			// Every scanned file matches taskFileRe, so it has a leading id.
+			// Deps referencing it must survive --fix: the reference may be
+			// valid once the file is repaired.
+			unparseableIDs[filenameID(filepath.Base(path))] = true
 			continue
 		}
 		// Filename ↔ frontmatter id drift. Checked before recording the path:
@@ -139,6 +152,8 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 				if _, statErr := os.Lstat(target); os.IsNotExist(statErr) {
 					if err := os.Rename(path, target); err == nil {
 						issue.Fixed = true
+						fixedPaths = append(fixedPaths, target)
+						removedPaths = append(removedPaths, path)
 						path = target
 					}
 				} else {
@@ -185,11 +200,12 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 					// the renumbered id can never be reissued later.
 					if newID, err := board.AllocateID(boardDir); err == nil {
 						task.ID = newID
-						if saved, err := save(boardDir, task, path,
-							fmt.Sprintf("north: doctor renumber %s → %s", id, task.ID),
-							filepath.Join(boardDir, board.ConfigName)); err == nil {
+						if saved, removed, err := persist(boardDir, task, path); err == nil {
 							issue.Fixed = true
 							idSet[task.ID] = true
+							fixedPaths = append(fixedPaths, saved.Path,
+								filepath.Join(boardDir, board.ConfigName))
+							removedPaths = append(removedPaths, removed...)
 							// The renumber wrote a new path and removed the old
 							// one, so the later dangling-dep repair and the cycle
 							// graph must see the new path and id — otherwise they
@@ -217,34 +233,45 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	// Dangling depends_on. With fix, the unknown ids are removed from the
 	// file's depends_on in one rewrite. (Deliberate forward references on
 	// hint-level boards are removed too — running --fix is an explicit ask.)
+	// A dep whose id belongs to an unparseable file is report-only and kept:
+	// it may be valid once that file is repaired.
 	for _, p := range tasksParsed {
-		var dangling []string
+		var removable, unparseableRefs []string
 		for _, dep := range p.deps {
-			if !idSet[dep] {
-				dangling = append(dangling, dep)
+			switch {
+			case idSet[dep]:
+			case unparseableIDs[dep]:
+				unparseableRefs = append(unparseableRefs, dep)
+			default:
+				removable = append(removable, dep)
 			}
 		}
-		if len(dangling) == 0 {
+		if len(removable)+len(unparseableRefs) == 0 {
 			continue
 		}
 		fixed := false
-		if fix {
+		if fix && len(removable) > 0 {
 			if task, err := loadTask(p.path); err == nil {
 				kept := task.DependsOn[:0]
 				for _, dep := range task.DependsOn {
-					if idSet[dep] {
+					if idSet[dep] || unparseableIDs[dep] {
 						kept = append(kept, dep)
 					}
 				}
 				task.DependsOn = kept
-				if _, err := save(boardDir, task, p.path, fmt.Sprintf("north: doctor remove dangling deps of %s", task.ID)); err == nil {
+				if saved, _, err := persist(boardDir, task, p.path); err == nil {
 					fixed = true
+					fixedPaths = append(fixedPaths, saved.Path)
 				}
 			}
 		}
-		for _, dep := range dangling {
+		for _, dep := range removable {
 			issues = append(issues, Issue{Kind: "dangling-dep", File: filepath.Base(p.path),
 				Detail: fmt.Sprintf("depends_on references unknown task %q", dep), Fixed: fixed})
+		}
+		for _, dep := range unparseableRefs {
+			issues = append(issues, Issue{Kind: "dangling-dep", File: filepath.Base(p.path),
+				Detail: fmt.Sprintf("depends_on references task %q whose file is unparseable — repair that file first", dep)})
 		}
 	}
 
@@ -256,6 +283,14 @@ func Doctor(boardDir string, fix bool) ([]Issue, error) {
 	if cycle := findCycle(deps); len(cycle) > 0 {
 		issues = append(issues, Issue{Kind: "cycle",
 			Detail: fmt.Sprintf("dependency cycle: %s", strings.Join(cycle, " → "))})
+	}
+
+	// One commit for the whole fix run — repairs above only write files, so a
+	// half-committed tree is impossible (commit no-ops when auto_commit is off).
+	if fix && len(fixedPaths)+len(removedPaths) > 0 {
+		if err := commit(boardDir, fixedPaths, removedPaths, "north: doctor fixes"); err != nil {
+			return issues, err
+		}
 	}
 
 	return issues, nil

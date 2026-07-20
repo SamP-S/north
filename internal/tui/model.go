@@ -293,7 +293,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			vpW := max(20, m.width-14)
 			vpH := max(5, m.height-8)
 			vp := viewport.New(vpW, vpH)
-			vp.SetContent(m.list.renderDetail(t))
+			vp.SetContent(m.list.renderDetailAt(t, vpW))
 			m.modal = modal{mode: modalTaskView, taskID: t.ID, taskState: t.State, vp: vp}
 		}
 		return m, nil

@@ -34,7 +34,7 @@ type checkTarget struct {
 	Path      string `json:"path"`
 	Installed string `json:"installed"` // "" when missing or unstamped
 	Binary    string `json:"binary"`
-	Status    string `json:"status"` // ok|outdated|missing
+	Status    string `json:"status"` // ok|outdated|modified|unstamped|missing
 }
 
 func newSkillCheckCmd() *cobra.Command {
@@ -55,12 +55,21 @@ func newSkillCheckCmd() *cobra.Command {
 			for _, t := range targets {
 				ct := checkTarget{Agent: t.Agent, Path: t.Path, Binary: skill.Version}
 				data, err := os.ReadFile(t.Path)
-				if err != nil {
+				switch {
+				case err != nil:
 					ct.Status = "missing"
-				} else if ct.Installed = skill.InstalledVersion(string(data)); ct.Installed != skill.Version {
-					ct.Status = "outdated"
-				} else {
-					ct.Status = "ok"
+				case skill.InstalledVersion(string(data)) == "":
+					ct.Status = "unstamped"
+				default:
+					ct.Installed = skill.InstalledVersion(string(data))
+					switch {
+					case ct.Installed != skill.Version:
+						ct.Status = "outdated"
+					case string(data) != skill.Content():
+						ct.Status = "modified"
+					default:
+						ct.Status = "ok"
+					}
 				}
 				results = append(results, ct)
 			}
@@ -82,9 +91,13 @@ func newSkillCheckCmd() *cobra.Command {
 						// Missing is only a warning — installs may be selective
 						// (`install --target`), so absence is not an error.
 						cmd.Printf("%s: not installed (%s)\n", ct.Agent, ct.Path)
+					case "unstamped":
+						cmd.Printf("%s: installed but unstamped (%s) — run `north skill install`\n", ct.Agent, ct.Path)
 					case "outdated":
 						cmd.Printf("%s: outdated (installed %s, binary %s) — run `north skill install`\n",
 							ct.Agent, ct.Installed, ct.Binary)
+					case "modified":
+						cmd.Printf("%s: modified since install (%s) — run `north skill install`\n", ct.Agent, ct.Path)
 					default:
 						cmd.Printf("%s: up to date (%s)\n", ct.Agent, ct.Installed)
 					}

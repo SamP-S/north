@@ -110,6 +110,22 @@ func TestTaskFilename(t *testing.T) {
 	}
 }
 
+func TestSlugCapsLength(t *testing.T) {
+	long := strings.Repeat("word ", 60) // ~300 chars
+	got := board.Slug(long)
+	if len(got) > 80 {
+		t.Errorf("slug not capped: %d bytes: %q", len(got), got)
+	}
+	if strings.HasSuffix(got, "-") {
+		t.Errorf("slug has trailing dash: %q", got)
+	}
+	// The resulting filename stays well-formed and under filesystem limits.
+	name := board.TaskFilename("123", long)
+	if len(name) > 100 || !strings.HasPrefix(name, "123-") || !strings.HasSuffix(name, ".md") {
+		t.Errorf("filename malformed: %q (%d bytes)", name, len(name))
+	}
+}
+
 func TestConfigRoundTrip(t *testing.T) {
 	boardDir := newBoard(t)
 	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {

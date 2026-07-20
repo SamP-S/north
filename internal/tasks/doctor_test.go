@@ -2,10 +2,12 @@ package tasks_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/SamP-S/north/internal/board"
 	"github.com/SamP-S/north/internal/tasks"
 )
 
@@ -250,6 +252,122 @@ func TestDoctorFixDuplicateWithDanglingDepOneRun(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Errorf("issues remain after one --fix run: %v", again)
+	}
+}
+
+func TestDoctorFixKeepsDepsOnUnparseableFiles(t *testing.T) {
+	boardDir := newBoard(t)
+	// Task 1 exists but its file is unparseable (unknown status); task 2
+	// depends on it and on a genuinely missing 99. --fix must remove only 99:
+	// the reference to 1 may be valid once the file is repaired.
+	writeRaw(t, boardDir, "tasks", "1-broken.md",
+		"---\nid: \"1\"\ntitle: broken\nstatus: bogus\n---\n")
+	writeRaw(t, boardDir, "tasks", "2-child.md",
+		"---\nid: \"2\"\ntitle: child\nstatus: ready\ndepends_on: [\"1\", \"99\"]\n---\n")
+
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issueKinds(issues)["unparseable"] != 1 {
+		t.Errorf("expected one unparseable issue for 1-broken.md: %v", issues)
+	}
+	var reportOnly, removed bool
+	for _, i := range issues {
+		if i.Kind != "dangling-dep" {
+			continue
+		}
+		switch {
+		case strings.Contains(i.Detail, "unparseable"):
+			reportOnly = true
+			if i.Fixed {
+				t.Errorf("unparseable-ref dep must be report-only: %+v", i)
+			}
+		case strings.Contains(i.Detail, `"99"`):
+			removed = true
+			if !i.Fixed {
+				t.Errorf("dangling dep on 99 should be fixed: %+v", i)
+			}
+		}
+	}
+	if !reportOnly || !removed {
+		t.Fatalf("expected both dangling-dep issues, got %v", issues)
+	}
+
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-child.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"1"`) {
+		t.Errorf("dep on unparseable task 1 was removed:\n%s", data)
+	}
+	if strings.Contains(string(data), "99") {
+		t.Errorf("dangling dep 99 not removed:\n%s", data)
+	}
+}
+
+func TestDoctorFixSingleCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	boardDir := initRepo(t)
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
+		t.Fatal(err)
+	}
+	// Three distinct repairs across three passes: a CRLF file, a duplicate id,
+	// and a dangling depends_on.
+	writeRaw(t, boardDir, "tasks", "1-orig.md",
+		"---\nid: \"1\"\ntitle: orig\nstatus: ready\n---\n")
+	writeRaw(t, boardDir, "tasks", "2-crlf.md",
+		"---\r\nid: \"2\"\r\ntitle: crlf\r\nstatus: ready\r\n---\r\n")
+	writeRaw(t, boardDir, "drafts", "3-dup.md",
+		"---\nid: \"1\"\ntitle: dup\nstatus: ready\n---\n")
+	writeRaw(t, boardDir, "tasks", "5-child.md",
+		"---\nid: \"5\"\ntitle: child\nstatus: ready\ndepends_on: [\"99\"]\n---\n")
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "setup"}} {
+		if out, err := gitOut(t, boardDir, args...); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	issues, err := tasks.Doctor(boardDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range issues {
+		if !i.Fixed {
+			t.Errorf("issue not fixed: %v", i)
+		}
+	}
+	msgs := commitMessages(t, boardDir)
+	if len(msgs) != 2 || msgs[0] != "north: doctor fixes" {
+		t.Fatalf("expected exactly one new commit 'north: doctor fixes', got %v", msgs)
+	}
+	// Every repaired path landed in that commit; nothing left dirty.
+	if out, err := gitOut(t, boardDir, "status", "--porcelain", "--", "."); err != nil || out != "" {
+		t.Errorf("board not clean after doctor --fix: %v\n%s", err, out)
+	}
+	show, err := gitOut(t, boardDir, "show", "--name-only", "--format=", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The dangling-dep rewrite and the renumber's last_id bump come from
+	// different passes; both must ride in that single commit. The CRLF repair
+	// is deliberately not asserted here: .gitattributes ("* text eol=lf") means
+	// git already stored the file LF-normalised, so rewriting it produces an
+	// identical blob and git rightly omits it — the clean-tree check above is
+	// what proves that repair left nothing behind.
+	for _, want := range []string{"5-child.md", "config.yml"} {
+		if !strings.Contains(show, want) {
+			t.Errorf("commit missing %s:\n%s", want, show)
+		}
+	}
+	crlf, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-crlf.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(crlf), "\r") {
+		t.Errorf("CRLF not normalised:\n%q", crlf)
 	}
 }
 

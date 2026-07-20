@@ -163,8 +163,10 @@ North ships an installable **skill** that teaches agents the CLI — the
 state/status model, the command surface, a typical work loop, and the
 output/error contract:
 ```bash
-north skill install                    # ./.claude/skills + ./.opencode/skills
-north skill install --global           # ~/.claude/skills + ~/.config/opencode/skills
+north skill install                    # ./.claude/skills + ./.opencode/skills (both targets)
+north skill install --target claude    # ./.claude/skills only
+north skill install --global           # ~/.claude/skills + ~/.config/opencode/skills (both targets)
+north skill install --global --target opencode  # global opencode only
 north skill check                      # is the installed skill this binary's version?
 ```
 It works with Claude Code and opencode (and any agent that reads
