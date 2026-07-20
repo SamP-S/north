@@ -66,16 +66,22 @@ func Targets(projectRoot string, global bool, names ...string) ([]Target, error)
 }
 
 // selectAgents maps names to registry entries; empty names selects all.
+// Repeated names select the agent once, in first-mention order, so a
+// duplicated --target neither installs nor reports twice.
 func selectAgents(names []string) ([]Agent, error) {
 	if len(names) == 0 {
 		return agents, nil
 	}
 	var out []Agent
+	seen := map[string]bool{}
 	for _, n := range names {
 		found := false
 		for _, a := range agents {
 			if a.Name == n {
-				out = append(out, a)
+				if !seen[n] {
+					seen[n] = true
+					out = append(out, a)
+				}
 				found = true
 				break
 			}

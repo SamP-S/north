@@ -165,12 +165,9 @@ func newTakeCmd() *cobra.Command {
 			"--plain.",
 		Args: maxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
-			if err != nil {
-				return err
-			}
 			// Clean before the combination check so whitespace-only labels
-			// (which the filter drops anyway) don't trigger it.
+			// (which the filter drops anyway) don't trigger it. Usage
+			// validation precedes board discovery.
 			labelFilter := cleanLabelFilter(labels)
 			taskID := ""
 			if len(args) == 1 {
@@ -178,6 +175,10 @@ func newTakeCmd() *cobra.Command {
 				if len(labelFilter) > 0 {
 					return nerrors.Invalid("--label cannot be combined with an explicit task id")
 				}
+			}
+			boardDir, err := board.LocateBoard("")
+			if err != nil {
+				return err
 			}
 			if !cmd.Flags().Changed("assignee") {
 				assignee = os.Getenv("NORTH_AGENT")

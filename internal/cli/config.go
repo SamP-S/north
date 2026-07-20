@@ -66,6 +66,19 @@ func configValue(cfg board.Config, key string) (string, error) {
 
 func joinKeys() string { return strings.Join(configKeys, ", ") }
 
+// checkConfigKey rejects an unknown key, so `config get` can validate its
+// argument before locating the board and loading the config. configTypedValue
+// repeats the check (it stays total for its other callers); the message text
+// is identical either way.
+func checkConfigKey(key string) error {
+	for _, k := range configKeys {
+		if k == key {
+			return nil
+		}
+	}
+	return nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
+}
+
 // printKeyValueJSON prints the {"key": …, "value": …} payload shared by
 // config get and set, value typed.
 func printKeyValueJSON(cmd *cobra.Command, key string, value any) error {
@@ -129,6 +142,10 @@ func newConfigGetCmd() *cobra.Command {
 		Short: "print one config value",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Usage validation precedes board discovery.
+			if err := checkConfigKey(args[0]); err != nil {
+				return err
+			}
 			_, cfg, err := loadBoardConfig()
 			if err != nil {
 				return err
@@ -156,13 +173,11 @@ func newConfigSetCmd() *cobra.Command {
 		Short: "set one config value",
 		Args:  exactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
-			if err != nil {
-				return err
-			}
 			key, value := args[0], args[1]
-			// Validate the key/value before taking the lock so invalid input
-			// never steals it from a concurrent writer.
+			// Validate the key/value before locating the board and before
+			// taking the lock, so a usage mistake fails as invalid whether or
+			// not a board exists, and never steals the lock from a concurrent
+			// writer.
 			var canonical string
 			var typed any
 			switch key {
@@ -191,6 +206,10 @@ func newConfigSetCmd() *cobra.Command {
 				canonical, typed = strconv.Itoa(n), n
 			default:
 				return nerrors.Invalid(fmt.Sprintf("unknown config key %q (known: %s)", key, joinKeys()))
+			}
+			boardDir, err := board.LocateBoard("")
+			if err != nil {
+				return err
 			}
 			unlock, err := board.Lock(boardDir)
 			if err != nil {

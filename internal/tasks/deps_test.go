@@ -359,6 +359,146 @@ func TestDeleteWarnsUncheckableBrokenFile(t *testing.T) {
 	}
 }
 
+// TestDeleteMakesOneCommit checks that deleting a task with several dependents
+// records the removal and every heal in a single commit, leaving a clean tree.
+func TestDeleteMakesOneCommit(t *testing.T) {
+	boardDir := initRepo(t)
+	if err := board.SetConfigValue(boardDir, "auto_commit", "true"); err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, boardDir, "base") // 1
+	for _, title := range []string{"child a", "child b", "child c"} {
+		if _, _, err := tasks.Create(boardDir, title, "", nil, []string{"1"}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := len(commitMessages(t, boardDir))
+
+	if _, _, err := tasks.Delete(boardDir, "1"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := commitMessages(t, boardDir)
+	if len(msgs)-before != 1 {
+		t.Errorf("expected exactly one delete commit, got %d: %v", len(msgs)-before, msgs)
+	}
+	if msgs[0] != "north: delete 1" {
+		t.Errorf("unexpected commit message %q", msgs[0])
+	}
+	// Task files only: init's scaffolding is never auto-committed.
+	status, err := gitOut(t, boardDir, "status", "--porcelain", "--", "drafts", "tasks", "archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != "" {
+		t.Errorf("task files not committed after delete:\n%s", status)
+	}
+}
+
+// TestDeleteHealsDuplicateIDDependent checks that a dependent excluded from the
+// snapshot for a duplicate id — a well-formed file — heals through the normal
+// path: updated_at is bumped and the warning talks about the duplicate id
+// rather than calling the file broken.
+func TestDeleteHealsDuplicateIDDependent(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "base") // 1
+	mustCreate(t, boardDir, "dup")  // 2, drafts/2-dup.md — keeps the id
+	writeRaw(t, boardDir, "tasks", "2-dup.md",
+		"---\nid: \"2\"\ntitle: dup\nstatus: ready\nupdated_at: \"2020-01-01T00:00:00Z\"\n"+
+			"depends_on: [\"1\"]\n---\n\nbody\n")
+
+	_, warns, err := tasks.Delete(boardDir, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(warns, "\n")
+	if !strings.Contains(joined, "2-dup.md has a duplicate id but depended on 1") {
+		t.Errorf("expected a duplicate-id healing warning, got %v", warns)
+	}
+	if strings.Contains(joined, "2-dup.md is broken") {
+		t.Errorf("a duplicate-id file must not be called broken: %v", warns)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-dup.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"1"`) {
+		t.Errorf("deleted id still referenced:\n%s", data)
+	}
+	if strings.Contains(string(data), "2020-01-01") {
+		t.Errorf("duplicate-id heal must bump updated_at:\n%s", data)
+	}
+}
+
+// TestDeleteHealsRightFileWhenNamesCollide checks that healing follows the
+// warning's path, not its base name: two files can share a name across state
+// folders, and only the one that actually carries the dependency is rewritten.
+func TestDeleteHealsRightFileWhenNamesCollide(t *testing.T) {
+	boardDir := newBoard(t)
+	mustCreate(t, boardDir, "base") // 1
+	// drafts/2-dup.md holds id 2 and no deps; the same-named active file is the
+	// duplicate, and is the only one referencing the deleted task.
+	original := "---\nid: \"2\"\ntitle: dup\nstatus: ready\n---\n\ndraft body\n"
+	writeRaw(t, boardDir, "drafts", "2-dup.md", original)
+	writeRaw(t, boardDir, "tasks", "2-dup.md",
+		"---\nid: \"2\"\ntitle: dup\nstatus: ready\ndepends_on: [\"1\"]\n---\n\nactive body\n")
+
+	if _, _, err := tasks.Delete(boardDir, "1"); err != nil {
+		t.Fatal(err)
+	}
+	draft, err := os.ReadFile(filepath.Join(boardDir, "drafts", "2-dup.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(draft) != original {
+		t.Errorf("the wrong file was rewritten:\n%s", draft)
+	}
+	active, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-dup.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(active), `"1"`) {
+		t.Errorf("the dependent file was not healed:\n%s", active)
+	}
+}
+
+// TestDeleteHealDoesNotClobberIDNamesake guards the heal paths against being
+// routed through persist, whose target path is recomputed from id+title. Here
+// the duplicate-id dependent also has filename drift, so that computed path is
+// the *other* task's file: healing there overwrote one task and deleted the
+// other. Heals must rewrite in place.
+func TestDeleteHealDoesNotClobberIDNamesake(t *testing.T) {
+	boardDir := newBoard(t)
+	// Both files claim id "1" and title "a"; 2-a.md is the drifted duplicate
+	// and the only one depending on the task being deleted.
+	keeper := "---\nid: \"1\"\ntitle: a\nstatus: ready\n---\n\nkeeper body\n"
+	writeRaw(t, boardDir, "tasks", "1-a.md", keeper)
+	writeRaw(t, boardDir, "tasks", "2-a.md",
+		"---\nid: \"1\"\ntitle: a\nstatus: ready\ndepends_on: [\"3\"]\n---\n\nduplicate body\n")
+	writeRaw(t, boardDir, "tasks", "3-target.md",
+		"---\nid: \"3\"\ntitle: target\nstatus: ready\n---\n")
+
+	if _, _, err := tasks.Delete(boardDir, "3"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(boardDir, "tasks", "1-a.md"))
+	if err != nil {
+		t.Fatalf("the namesake task was destroyed: %v", err)
+	}
+	if string(got) != keeper {
+		t.Errorf("the namesake task was overwritten:\n%s", got)
+	}
+	dup, err := os.ReadFile(filepath.Join(boardDir, "tasks", "2-a.md"))
+	if err != nil {
+		t.Fatalf("the healed file was moved away: %v", err)
+	}
+	if strings.Contains(string(dup), `"3"`) {
+		t.Errorf("dependent not healed:\n%s", dup)
+	}
+	if !strings.Contains(string(dup), "duplicate body") {
+		t.Errorf("healed file lost its body:\n%s", dup)
+	}
+}
+
 func TestDepsDeduped(t *testing.T) {
 	boardDir := newBoard(t)
 	mustCreate(t, boardDir, "a") // 1

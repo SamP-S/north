@@ -239,11 +239,13 @@ func newTaskCreateCmd() *cobra.Command {
 		Short: "create a task (lands in draft)",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
+			// Usage validation precedes board discovery: bad flags fail the
+			// same way whether or not a board exists to find.
+			bodyPtr, err := readBody(cmd, body, bodyFile)
 			if err != nil {
 				return err
 			}
-			bodyPtr, err := readBody(cmd, body, bodyFile)
+			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
@@ -485,15 +487,16 @@ func newTaskEditCmd() *cobra.Command {
 		Short: "edit a task's fields/body",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
-			if err != nil {
-				return err
-			}
+			// Usage validation precedes board discovery.
 			if cmd.Flags().Changed("append-body") &&
 				(cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file")) {
 				return nerrors.Invalid("--append-body cannot be combined with --body/--body-file")
 			}
 			bodyPtr, err := readBody(cmd, body, bodyFile)
+			if err != nil {
+				return err
+			}
+			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
@@ -537,11 +540,18 @@ func newTaskMoveCmd() *cobra.Command {
 		Short: "set task status (any status → any status, any state)",
 		Args:  exactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
+			// Usage validation precedes board discovery. The status is a
+			// single positional, so it is parsed once here rather than once
+			// per id — a bad status is one error, not one per id. The parse
+			// inside tasks.SetStatus stays as the library-level guard.
+			ids, err := splitIDs(args[0])
 			if err != nil {
 				return err
 			}
-			ids, err := splitIDs(args[0])
+			if _, err := tasks.ParseStatus(args[1]); err != nil {
+				return err
+			}
+			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
@@ -584,11 +594,16 @@ func newTaskStateCmd() *cobra.Command {
 		Short: "set task lifecycle state (any state → any state)",
 		Args:  exactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
+			// Usage validation precedes board discovery; the state positional
+			// is parsed once here, not once per id (see move).
+			ids, err := splitIDs(args[0])
 			if err != nil {
 				return err
 			}
-			ids, err := splitIDs(args[0])
+			if _, err := tasks.ParseState(args[1]); err != nil {
+				return err
+			}
+			boardDir, err := board.LocateBoard("")
 			if err != nil {
 				return err
 			}
@@ -631,18 +646,19 @@ func newTaskDeleteCmd() *cobra.Command {
 		Short: "delete tasks",
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			boardDir, err := board.LocateBoard("")
-			if err != nil {
-				return err
-			}
+			// Usage validation precedes board discovery.
 			ids, err := splitIDs(args[0])
 			if err != nil {
 				return err
 			}
+			if len(ids) > 1 && !yes {
+				return nerrors.Invalid("deleting multiple tasks requires -y")
+			}
+			boardDir, err := board.LocateBoard("")
+			if err != nil {
+				return err
+			}
 			if len(ids) > 1 {
-				if !yes {
-					return nerrors.Invalid("deleting multiple tasks requires -y")
-				}
 				var done []*models.Task
 				var errs []batchErr
 				var warnsAll []string

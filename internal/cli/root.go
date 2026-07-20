@@ -102,6 +102,19 @@ func newRootCmd() *cobra.Command {
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// --plain and --json are alternatives, never a pair: the docs write
+		// them as `--plain | --json` and state no precedence, so asking for
+		// both is a usage mistake rather than a silent win for JSON. Checked
+		// once here for the whole tree; no subcommand defines its own
+		// PersistentPreRunE, so this is never shadowed.
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			plain := cmd.Flags().Lookup("plain")
+			asJSON := cmd.Flags().Lookup("json")
+			if plain != nil && asJSON != nil && plain.Changed && asJSON.Changed {
+				return nerrors.Invalid("--plain cannot be combined with --json")
+			}
+			return nil
+		},
 	}
 	// Cobra's Print helpers fall back to stderr when no out-writer is set;
 	// command output must land on stdout so `north … --json | jq` works.

@@ -5,7 +5,9 @@ Created by `north init`. It is both the **board-discovery marker** (North walks
 up looking for it) and the home for per-board settings. `init` scaffolds it as
 a commented template (the valid values live in the file itself, mirroring the
 user-level TUI config); `north config set` uses a YAML node round-trip that
-preserves comments, key order, and unknown keys.
+preserves comments, key order, and unknown keys. Every write to `config.yml`
+lands atomically (temp file + rename), so a crash mid-write cannot truncate
+the discovery marker.
 
 ```yaml
 version: 1                   # board format stamp (read-only; written by init)
@@ -42,7 +44,10 @@ last_id: 0                   # id high-water mark (read-only; bumped by allocati
   by task creation (and doctor renumbering) via a comment-preserving rewrite,
   so ids are never reused even after deleting the newest task. Read-only:
   shows in `list`/`get`, `set` refuses it. The bump rides in the create's
-  auto-commit when `auto_commit` is on.
+  auto-commit when `auto_commit` is on. A present but unreadable value is an
+  `invalid` hard error, same as a malformed `auto_commit`/`max_wip`/
+  `deps_enforcement` — a silently ignored typo here would silently re-enable
+  id reuse. An absent key means a pre-mark board and stays 0.
 
 Read and write settings with the CLI rather than editing by hand:
 
@@ -53,7 +58,8 @@ north config set auto_commit true
 ```
 
 A malformed `config.yml` is a hard error (`invalid`), not a silent fallback —
-a YAML typo must not silently change behaviour.
+a YAML typo in any key, `last_id` included, must not silently change
+behaviour.
 
 States, statuses, and the id scheme are hardcoded for now (making them
 configurable here is future work). The task body template is deliberately a

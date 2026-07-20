@@ -140,6 +140,16 @@ func TestCLITakeSpecificID(t *testing.T) {
 	}
 }
 
+// TestCLITakeValidatesBeforeBoard pins that take's --label/id combination
+// check runs before board discovery: invalid (exit 2), not not_found.
+func TestCLITakeValidatesBeforeBoard(t *testing.T) {
+	dir := t.TempDir() // no board here
+	_, err := run(t, dir, "take", "1", "--label", "x")
+	if be, ok := nerrors.As(err); !ok || be.Code() != "invalid" {
+		t.Fatalf("expected invalid without a board, got %v", err)
+	}
+}
+
 func TestCLINextTakeLabelAlias(t *testing.T) {
 	dir := pickBoard(t)
 	if out, err := run(t, dir, "task", "edit", "1", "--labels", "x"); err != nil {

@@ -142,11 +142,14 @@ north config get|set|list             # board settings (auto_commit, deps_enforc
 ```
 
 `list -l/--limit N` caps the rows after filtering and sorting.
-`cleanup --json` payloads carry `"dry_run": true|false`, so check that key to
-confirm archiving actually happened. `doctor` exits 0 whenever the scan
-completes — issues found are its *output* (gate on the `--json` issues array),
-not a failure. Task ids are never reused: `config get last_id` shows the
-id high-water mark north maintains itself (read-only; `set` refuses it).
+`cleanup --older-than DAYS` skips a done task whose `updated_at` is missing or
+unparseable (its age cannot be judged) and reports it as a warning rather than
+silently omitting it. `cleanup --json` payloads carry `"dry_run": true|false`,
+so check that key to confirm archiving actually happened. `doctor` exits 0
+whenever the scan completes — issues found are its *output* (gate on the
+`--json` issues array), not a failure. Task ids are never reused:
+`config get last_id` shows the id high-water mark north maintains itself
+(read-only; `set` refuses it).
 `config` under `--json`: `list` → `{"config": {…}}` (typed values),
 `get`/`set` → `{"key": …, "value": …}`.
 
@@ -172,7 +175,8 @@ plain/human modes, a `"warnings"` array in `--json` payloads.
 
 - Every task/board command — plus `config`, `skill check`, and `version` —
   supports `--plain` (tab-separated) and `--json`. The default is
-  human-formatted; always pass one of the two.
+  human-formatted; always pass one of the two. They are mutually exclusive:
+  passing both is `invalid` (exit 2).
 - `task list --plain` columns: `id  state  status  assignee  labels  title`
   (tab-separated; assignee/labels empty when unset, labels comma-joined).
 - Mutation and `task view` `--json` payloads are wrapped like `next`/`take`:

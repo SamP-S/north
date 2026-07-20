@@ -14,8 +14,16 @@ func newDoctorCmd() *cobra.Command {
 		Short: "check the board for integrity problems",
 		Long: "Scan every task file for problems: unparseable files, duplicate ids,\n" +
 			"filename/frontmatter id drift, dangling depends_on references, dependency\n" +
-			"cycles, unparseable timestamps, and CRLF line endings. With --fix, safe\n" +
-			"repairs are applied (CRLF rewrite, duplicate renumbering, filename renames).",
+			"cycles, unparseable timestamps, and CRLF line endings; a missing\n" +
+			"north/.gitattributes or north/.gitignore is reported too.\n\n" +
+			"With --fix, safe repairs are applied: CRLF files are rewritten with LF,\n" +
+			"duplicate ids are renumbered (the first holder keeps the id), drifted\n" +
+			"filenames are renamed to match their frontmatter id, dangling depends_on\n" +
+			"references are removed, and a missing .gitattributes/.gitignore is\n" +
+			"restored. Unparseable files, cycles, unparseable timestamps, and deps\n" +
+			"pointing at an unparseable file (the dep may be valid once that file is\n" +
+			"repaired) are reported but never changed. With auto_commit on, all\n" +
+			"repairs land in a single commit (\"north: doctor fixes\").",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			boardDir, err := board.LocateBoard("")

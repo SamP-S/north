@@ -88,6 +88,26 @@ func TestTargetsUnknownName(t *testing.T) {
 	}
 }
 
+// TestTargetsDeduplicatesNames pins that a repeated --target selects the agent
+// once, so the install neither writes nor reports it twice.
+func TestTargetsDeduplicatesNames(t *testing.T) {
+	targets, err := Targets(t.TempDir(), false, "claude", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("duplicate --target claude: got %d targets, want 1 (%v)", len(targets), targets)
+	}
+	// Order is first-mention order across distinct names.
+	targets, err = Targets(t.TempDir(), false, "opencode", "claude", "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 || targets[0].Agent != "opencode" || targets[1].Agent != "Claude Code" {
+		t.Fatalf("dedupe should preserve first-mention order, got %v", targets)
+	}
+}
+
 func TestInstallGlobalTargetsHome(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

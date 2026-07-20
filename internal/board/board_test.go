@@ -259,6 +259,50 @@ func TestLoadConfigRejectsMalformedAutoCommit(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsMalformedLastID(t *testing.T) {
+	// A corrupt high-water mark must not silently fall back to 0: that would
+	// let the file scan alone pick the next id and reissue a deleted one.
+	for _, value := range []string{"garbage", "-1"} {
+		boardDir := newBoard(t)
+		if err := os.WriteFile(filepath.Join(boardDir, board.ConfigName), []byte("last_id: "+value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := board.LoadConfig(boardDir)
+		be, ok := nerrors.As(err)
+		if !ok || be.Code() != "invalid" {
+			t.Fatalf("last_id: %s: expected invalid error, got %v", value, err)
+		}
+		if !strings.Contains(err.Error(), "last_id") {
+			t.Errorf("last_id: %s: error does not name the key: %v", value, err)
+		}
+	}
+}
+
+func TestLoadConfigLastIDAbsentOrZero(t *testing.T) {
+	// Absent means a board from before the mark existed — 0, not an error.
+	boardDir := newBoard(t)
+	if err := os.WriteFile(filepath.Join(boardDir, board.ConfigName), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatalf("absent last_id: %v", err)
+	}
+	if cfg.LastID != 0 {
+		t.Errorf("absent last_id: got %d, want 0", cfg.LastID)
+	}
+	if err := os.WriteFile(filepath.Join(boardDir, board.ConfigName), []byte("last_id: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = board.LoadConfig(boardDir)
+	if err != nil {
+		t.Fatalf("last_id 0: %v", err)
+	}
+	if cfg.LastID != 0 {
+		t.Errorf("last_id 0: got %d", cfg.LastID)
+	}
+}
+
 func TestSetConfigValuePreservesFile(t *testing.T) {
 	boardDir := newBoard(t)
 	content := "# my board notes\n" +
@@ -298,6 +342,16 @@ func TestSetConfigValuePreservesFile(t *testing.T) {
 	}
 	if !cfg.AutoCommit || cfg.LastID != 41 {
 		t.Errorf("after bool set: %+v", cfg)
+	}
+	// The write is atomic (temp + rename), so no temp file survives it.
+	entries, err := os.ReadDir(boardDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("config set left a temp file behind: %s", e.Name())
+		}
 	}
 }
 

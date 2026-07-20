@@ -2,6 +2,7 @@ package tasks_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,41 @@ func TestCleanupArchivesActiveDone(t *testing.T) {
 	active := list(t, boardDir, []models.TaskState{models.StateActive}, "")
 	if len(active) != 1 || active[0].ID != "2" {
 		t.Errorf("active: %v", active)
+	}
+}
+
+// TestCleanupWarnsOnUndatedTask: a done task with no readable updated_at
+// cannot be judged against --older-than, so it is skipped — but never
+// silently. Without a cutoff it is archived as normal.
+func TestCleanupWarnsOnUndatedTask(t *testing.T) {
+	boardDir := newBoard(t)
+	writeRaw(t, boardDir, "tasks", "1-undated.md",
+		"---\nid: \"1\"\ntitle: undated\nstatus: done\n---\n\nbody\n")
+
+	archived, warns, err := tasks.Cleanup(boardDir, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived) != 0 {
+		t.Errorf("undated task must not be archived under --older-than: %v", archived)
+	}
+	found := false
+	for _, w := range warns {
+		if w.File == "1-undated.md" && strings.Contains(w.Err, "no readable updated_at") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an undated-task warning, got %v", warns)
+	}
+
+	// No cutoff: age is irrelevant, so it archives as before.
+	archived, _, err = tasks.Cleanup(boardDir, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived) != 1 || archived[0].ID != "1" {
+		t.Errorf("undated task should archive without a cutoff: %v", archived)
 	}
 }
 

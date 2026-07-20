@@ -201,13 +201,13 @@ func InitBoard(root string) (string, error) {
 	}
 	configPath := filepath.Join(board, ConfigName)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := os.WriteFile(configPath, []byte(defaultConfigContent), 0o644); err != nil {
+		if err := writeFileAtomic(configPath, []byte(defaultConfigContent), 0o644); err != nil {
 			return "", err
 		}
 	}
 	templatePath := filepath.Join(board, TemplateName)
 	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
-		if err := os.WriteFile(templatePath, []byte(DefaultTaskTemplate), 0o644); err != nil {
+		if err := writeFileAtomic(templatePath, []byte(DefaultTaskTemplate), 0o644); err != nil {
 			return "", err
 		}
 	}
@@ -229,13 +229,13 @@ func InitBoard(root string) (string, error) {
 // WriteGitignore writes the board's .gitignore (".lock", "*.tmp"),
 // overwriting. Used by init and `doctor --fix`.
 func WriteGitignore(board string) error {
-	return os.WriteFile(filepath.Join(board, GitignoreName), []byte(gitignoreContent), 0o644)
+	return writeFileAtomic(filepath.Join(board, GitignoreName), []byte(gitignoreContent), 0o644)
 }
 
 // WriteGitattributes writes the board's .gitattributes ("* text eol=lf"),
 // overwriting. Used by init and `doctor --fix`.
 func WriteGitattributes(board string) error {
-	return os.WriteFile(filepath.Join(board, GitattributesName), []byte(gitattributesContent), 0o644)
+	return writeFileAtomic(filepath.Join(board, GitattributesName), []byte(gitattributesContent), 0o644)
 }
 
 // checkVersion refuses a config.yml stamped with a newer format version.
@@ -308,9 +308,12 @@ func LoadConfig(board string) (Config, error) {
 		cfg.MaxWIP = n
 	}
 	if v, ok := raw["last_id"]; ok {
-		if n := toInt(v, 0); n > 0 {
-			cfg.LastID = n
+		n := toInt(v, -1)
+		if n < 0 {
+			return cfg, errors.Invalid(fmt.Sprintf(
+				"%s: last_id must be a non-negative integer (got %v)", path, v))
 		}
+		cfg.LastID = n
 	}
 	cfg.Version, err = configVersion(raw)
 	if err != nil {
@@ -448,7 +451,23 @@ func setConfigKey(board, key string, val *yaml.Node) error {
 	if err := enc.Close(); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(buf.String()), 0o644)
+	return writeFileAtomic(path, []byte(buf.String()), 0o644)
+}
+
+// writeFileAtomic writes data to path via a temp file + rename, so a crash
+// or full disk can never leave a truncated file behind. The temp name ends
+// in ".tmp", which the board .gitignore already covers.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // configMapping returns the top-level mapping of a parsed config document,

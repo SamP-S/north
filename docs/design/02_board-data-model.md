@@ -81,7 +81,9 @@ file lock (`north/.lock`, created `O_CREATE|O_EXCL`, stolen when stale), so
 concurrent `north` processes cannot mint the same id. Duplicate ids can still
 arrive from outside (a git merge where two branches each created the same
 id): they are detected on every load (warning) and repaired by
-`north doctor --fix`.
+`north doctor --fix`. Deleting a task heals a duplicate-id dependent
+normally too — it is well-formed, only its id is shared — while an
+unparseable dependent gets the surgical `depends_on`-only edit instead.
 
 ## Board files
 
@@ -127,11 +129,13 @@ domain:
 Delete-healing runs under the same lock hold and bumps the dependents'
 `updated_at`; broken dependents whose `depends_on` is still readable are
 healed too (with a warning recommending `north doctor`), and only files whose
-frontmatter cannot be read at all are skipped with a warning. `north doctor`
-flags dangling refs and cycles at every level; `--fix` removes dangling refs
-(including deliberate forward references — running `--fix` is an explicit ask),
-except a dep referencing a task whose file exists but is unparseable is never
-removed — it is reported with a pointer to repair that file first.
+frontmatter cannot be read at all are skipped with a warning. With
+`auto_commit` on, the whole delete (removal plus every heal) is one commit.
+`north doctor` flags dangling refs and cycles at every level; `--fix` removes
+dangling refs (including deliberate forward references — running `--fix` is an
+explicit ask), except a dep referencing a task whose file exists but is
+unparseable is never removed — it is reported with a pointer to repair that
+file first.
 
 ## Tolerant loading
 

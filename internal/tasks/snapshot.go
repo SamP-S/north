@@ -20,6 +20,8 @@ import (
 type Warning struct {
 	File string // filename (base) the warning is about
 	Err  string // human-readable problem
+	Kind string // unparseable | duplicate-id | bad-timestamp
+	Path string // full path to the file the warning is about
 }
 
 func (w Warning) String() string { return fmt.Sprintf("%s: %s", w.File, w.Err) }
@@ -42,13 +44,20 @@ func Load(boardDir string) (*Snapshot, error) {
 	for _, path := range files {
 		task, err := loadTask(path)
 		if err != nil {
-			snap.Warnings = append(snap.Warnings, Warning{File: filepath.Base(path), Err: err.Error()})
+			snap.Warnings = append(snap.Warnings, Warning{
+				File: filepath.Base(path),
+				Err:  err.Error(),
+				Kind: "unparseable",
+				Path: path,
+			})
 			continue
 		}
 		if prev, ok := snap.byID[task.ID]; ok {
 			snap.Warnings = append(snap.Warnings, Warning{
 				File: filepath.Base(path),
 				Err:  fmt.Sprintf("duplicate id %q (already used by %s); run `north doctor --fix`", task.ID, filepath.Base(prev.Path)),
+				Kind: "duplicate-id",
+				Path: path,
 			})
 			continue
 		}

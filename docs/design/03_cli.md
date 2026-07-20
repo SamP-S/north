@@ -31,11 +31,11 @@ array (batch payloads too).
 | `north task edit <id> [--title --assignee --labels --depends-on --body \| --body-file \| --append-body] [--plain \| --json]` | Edit fields/body (bumps `updated_at`). `--append-body` appends with a blank-line separator and is exclusive with `--body`/`--body-file` |
 | `north task move <id[,id…]> <status> [--plain \| --json]` | Set status, in place (any → any, in any state) |
 | `north task state <id[,id…]> <draft\|active\|archive> [--plain \| --json]` | Move tasks between lifecycle folders, preserving status (any → any) |
-| `north task delete <id[,id…]> [-y/--yes] [--plain \| --json]` | Delete tasks. With `--plain`/`--json`, non-TTY stdin, or a batch, `-y` is required (no prompt) |
+| `north task delete <id[,id…]> [-y/--yes] [--plain \| --json]` | Delete tasks. With `--plain`/`--json`, non-TTY stdin, or a batch, `-y` is required (no prompt). With `auto_commit` on, the removal and any dependent healing land in a single commit |
 | `north next [-l/--limit N] [--label L] [--plain \| --json]` | Show the next **workable** task (active, `ready`, unassigned, deps met, lowest id; `--label` narrows, repeatable). Pure read. No workable task is a normal outcome: exit 0, `{"task": null}` under `--json`, empty output under `--plain`. default (no flag) shows the single next pick; `--limit N` caps the pick — `N ≠ 1` renders as a task list (`{"tasks": […]}` under `--json`), `--limit 0` shows none; negative values are `invalid` |
 | `north take [id] [--assignee A] [--label L] [--plain \| --json]` | Atomically claim the next workable task: same pick as `next`, then `status=in_progress` + `assignee` in **one write under one lock hold**, so concurrent takes get different tasks. With `id`, claim that specific task instead — refused (`conflict`, naming the reason) unless it is active + `ready` + unassigned + deps met (no steal, no overrides; unknown id is `not_found`; `--label` with an id is `invalid`). Assignee falls back to `$NORTH_AGENT`; neither set is `invalid`. Refuses (`conflict`) when the assignee already holds `max_wip` active `in_progress` tasks (`max_wip > 0`). Same empty-result contract as `next` (queue mode only) |
 | `north board [--plain \| --json]` | Active counts per status + draft/archive tally |
-| `north cleanup [--older-than DAYS] [--dry-run] [--plain \| --json]` | Archive active `done` tasks. The board lock is held for the whole run (snapshot + every archive), so a concurrent status change can never be archived stale. `--dry-run` lists what would be archived without locking or writing; `--json` payloads carry `"dry_run": true\|false` |
+| `north cleanup [--older-than DAYS] [--dry-run] [--plain \| --json]` | Archive active `done` tasks. The board lock is held for the whole run (snapshot + every archive), so a concurrent status change can never be archived stale. With `--older-than`, a done task whose `updated_at` is missing or unparseable is skipped and reported as a warning (its age cannot be judged) rather than silently omitted. `--dry-run` lists what would be archived without locking or writing; `--json` payloads carry `"dry_run": true\|false` |
 | `north doctor [--fix] [--plain \| --json]` | Board integrity check. Exits 0 whenever the scan completes — issues found are the report, not a failure (gate on the `--json` issues array). With `auto_commit` on, all `--fix` repairs land in a single local commit ("north: doctor fixes") |
 | `north config list \| get <key> \| set <key> <value>` | Read/write `north/config.yml` settings (`auto_commit`, `deps_enforcement`, `max_wip`; `version` and `last_id` are read-only — `set` refuses them) |
 | `north skill install [--global] [--target claude\|opencode]` | Install the agent skill (Claude Code + opencode); `--target` repeatable, defaults to both |
@@ -89,7 +89,8 @@ design, not an oversight).
 ## Output modes
 `--plain` (stable, line/tab-oriented text for scripts) and `--json` (the
 `Task` dict, or board/list summaries where applicable) are supported uniformly
-across the CLI. The default is human-readable. `task list --plain` columns
+across the CLI. The default is human-readable. `--plain` and `--json` are
+mutually exclusive: passing both is `invalid` (exit 2). `task list --plain` columns
 are `id  state  status  assignee  labels  title` (tab-separated;
 assignee/labels empty when unset, labels comma-joined, title last). Mutations
 (`create`/`edit`/`move`/`state`/`delete`, and `next`/`take`) print the same

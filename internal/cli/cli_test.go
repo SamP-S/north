@@ -1469,6 +1469,103 @@ func TestCLIListValidatesFlagsBeforeBoard(t *testing.T) {
 	}
 }
 
+// TestCLIValidatesUsageBeforeBoard covers the rest of the tree: every usage
+// mistake below must fail as invalid (exit 2) from a directory with no board,
+// never as not_found (exit 3) from board discovery running first.
+func TestCLIValidatesUsageBeforeBoard(t *testing.T) {
+	dir := t.TempDir() // no `init` — no board here
+
+	cases := []struct {
+		name string
+		args []string
+		want string // substring of the expected message
+	}{
+		{"create body+body-file", []string{"task", "create", "x", "--body", "a", "--body-file", "b"},
+			"--body cannot be combined with --body-file"},
+		{"edit append+body", []string{"task", "edit", "1", "--append-body", "a", "--body", "b"},
+			"--append-body cannot be combined"},
+		{"edit body+body-file", []string{"task", "edit", "1", "--body", "a", "--body-file", "b"},
+			"--body cannot be combined with --body-file"},
+		{"move empty ids", []string{"task", "move", ",", "ready"}, "no task ids given"},
+		{"state empty ids", []string{"task", "state", " ", "active"}, "no task ids given"},
+		{"delete empty ids", []string{"task", "delete", ","}, "no task ids given"},
+		{"delete many without -y", []string{"task", "delete", "1,2"}, "requires -y"},
+		{"move unknown status", []string{"task", "move", "1", "bogus"}, "bogus"},
+		{"state unknown state", []string{"task", "state", "1", "bogus"}, "bogus"},
+		{"config set unknown key", []string{"config", "set", "bogus", "1"}, "unknown config key"},
+		{"config get unknown key", []string{"config", "get", "bogus"}, "unknown config key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := run(t, dir, tc.args...)
+			if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%v without a board: %v", tc.args, err)
+			}
+		})
+	}
+}
+
+// TestCLIBatchStatusValidatedOnce pins that the status positional is parsed
+// once, not once per id: a bad batch status is a single error, exit 2.
+func TestCLIBatchStatusValidatedOnce(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	for _, title := range []string{"a", "b", "c"} {
+		run(t, dir, "task", "create", title)
+	}
+	out, err := run(t, dir, "task", "move", "1,2,3", "bogus")
+	if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "bogus") {
+		t.Fatalf("bad batch status: %v (%s)", err, out)
+	}
+	if n := strings.Count(out+err.Error(), "bogus"); n != 1 {
+		t.Errorf("expected exactly one error mentioning the status, got %d in %q / %q", n, out, err.Error())
+	}
+	if strings.Contains(out, "failed") {
+		t.Errorf("no batch summary expected for a rejected status: %q", out)
+	}
+	// Same for state.
+	out, err = run(t, dir, "task", "state", "1,2,3", "bogus")
+	if errorCode(t, err) != "invalid" {
+		t.Fatalf("bad batch state: %v (%s)", err, out)
+	}
+	if n := strings.Count(out+err.Error(), "bogus"); n != 1 {
+		t.Errorf("expected exactly one error mentioning the state, got %d in %q / %q", n, out, err.Error())
+	}
+}
+
+// TestCLIPlainWithJSONIsInvalid pins that the two output modes are
+// alternatives: asking for both is a usage error, checked for the whole tree
+// in the root PersistentPreRunE. Commands registering neither flag are
+// unaffected.
+func TestCLIPlainWithJSONIsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init")
+	run(t, dir, "task", "create", "a")
+
+	for _, args := range [][]string{
+		{"task", "list", "--plain", "--json"},
+		{"task", "view", "1", "--plain", "--json"},
+		{"next", "--plain", "--json"},
+		{"config", "list", "--plain", "--json"},
+	} {
+		_, err := run(t, dir, args...)
+		if errorCode(t, err) != "invalid" || !strings.Contains(err.Error(), "--plain cannot be combined with --json") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	// Either flag alone still works.
+	if _, err := run(t, dir, "task", "list", "--json"); err != nil {
+		t.Errorf("--json alone: %v", err)
+	}
+	if _, err := run(t, dir, "task", "list", "--plain"); err != nil {
+		t.Errorf("--plain alone: %v", err)
+	}
+	// A command registering neither flag is untouched by the check.
+	if _, err := run(t, dir, "skill", "install"); err != nil {
+		t.Errorf("skill install: %v", err)
+	}
+}
+
 func TestCLIConfigLastID(t *testing.T) {
 	dir := t.TempDir()
 	run(t, dir, "init")

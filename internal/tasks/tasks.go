@@ -586,8 +586,20 @@ func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, [
 		return nil, nil, err
 	}
 	var archived []*models.Task
+	warnings := snap.Warnings
 	for _, task := range snap.Filter([]models.TaskState{models.StateActive}, string(models.Done)) {
-		if cutoff != nil && (task.UpdatedAt == nil || task.UpdatedAt.After(*cutoff)) {
+		if cutoff != nil && task.UpdatedAt == nil {
+			// The part being judged is the missing part: skip the task, but
+			// never silently — it would be invisible to --older-than forever.
+			warnings = append(warnings, Warning{
+				File: filepath.Base(task.Path),
+				Err:  "has no readable updated_at — cannot judge its age; run `north doctor`",
+				Kind: "bad-timestamp",
+				Path: task.Path,
+			})
+			continue
+		}
+		if cutoff != nil && task.UpdatedAt.After(*cutoff) {
 			continue
 		}
 		if dryRun {
@@ -605,13 +617,14 @@ func Cleanup(boardDir string, olderThanDays int, dryRun bool) ([]*models.Task, [
 		}
 		archived = append(archived, a)
 	}
-	return archived, snap.Warnings, nil
+	return archived, warnings, nil
 }
 
 // Delete removes a task file, returning the removed task. At validated/strict
 // the dependents are healed (the deleted id is dropped from their depends_on,
 // under the same lock hold); at hint the dangling references stay, warned.
-// Returned warnings describe either outcome.
+// Returned warnings describe either outcome. The removal and every heal land
+// in one auto-commit, so a delete is never half-recorded.
 func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 	unlock, err := board.Lock(boardDir)
 	if err != nil {
@@ -634,9 +647,9 @@ func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 	if err := os.Remove(task.Path); err != nil {
 		return nil, nil, err
 	}
-	if err := commit(boardDir, nil, []string{task.Path}, fmt.Sprintf("north: delete %s", task.ID)); err != nil {
-		return nil, nil, err
-	}
+	// Every write below is commit-free; one commit covers the whole delete.
+	changedPaths := []string{}
+	removedPaths := []string{task.Path}
 	var warns []string
 	if len(dependents) > 0 {
 		ids := make([]string, len(dependents))
@@ -647,8 +660,9 @@ func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 			warns = append(warns, fmt.Sprintf(
 				"%s depended on %s — their depends_on now dangles", strings.Join(ids, ", "), taskID))
 		} else {
-			// Heal: rewrite each dependent without the deleted id (save directly —
-			// we already hold the lock, so Edit would deadlock).
+			// Heal: rewrite each dependent without the deleted id (persist
+			// directly — we already hold the lock, so Edit would deadlock, and
+			// the commit is deferred to the end).
 			for _, d := range dependents {
 				kept := d.DependsOn[:0]
 				for _, id := range d.DependsOn {
@@ -659,39 +673,50 @@ func Delete(boardDir, taskID string) (*models.Task, []string, error) {
 				d.DependsOn = kept
 				n := now()
 				d.UpdatedAt = &n
-				if _, err := save(boardDir, d, d.Path, fmt.Sprintf("north: heal deps of %s after delete %s", d.ID, taskID)); err != nil {
+				saved, removed, err := persist(boardDir, d, d.Path)
+				if err != nil {
 					return nil, nil, fmt.Errorf("healing depends_on of %s: %w", d.ID, err)
 				}
+				changedPaths = append(changedPaths, saved.Path)
+				removedPaths = append(removedPaths, removed...)
 			}
 			warns = append(warns, fmt.Sprintf("removed %s from depends_on of %s", taskID, strings.Join(ids, ", ")))
 		}
 	}
 	// Files the snapshot could not use (unparseable or duplicate-id) are
 	// invisible to Dependents, but their depends_on may still reference the
-	// deleted task — heal that key surgically when it is readable.
-	brokenWarns, err := healBrokenDependents(boardDir, snap.Warnings, taskID, level)
+	// deleted task — heal that key when it is readable.
+	brokenWarns, healed, err := healBrokenDependents(boardDir, snap.Warnings, taskID, level)
 	if err != nil {
 		return nil, nil, err
 	}
 	warns = append(warns, brokenWarns...)
+	changedPaths = append(changedPaths, healed...)
+	if err := commit(boardDir, changedPaths, removedPaths, fmt.Sprintf("north: delete %s", task.ID)); err != nil {
+		return nil, nil, err
+	}
 	return task, warns, nil
 }
 
 // healBrokenDependents drops the deleted id from the depends_on of task files
-// the snapshot excluded (unparseable or duplicate-id), touching nothing else
-// in them: only the depends_on sequence node is edited in place, every other
-// key — including whatever made the file unparseable — is preserved verbatim.
-// A file whose frontmatter cannot be read at all is warned about instead. At
-// hint level files are never modified; a readable reference only adds a
-// warning line. Returns the warnings to surface to the caller.
-func healBrokenDependents(boardDir string, warnings []Warning, deletedID string, level board.DepsEnforcement) ([]string, error) {
+// the snapshot excluded (unparseable or duplicate-id). An unparseable file is
+// edited surgically — only the depends_on sequence node changes, every other
+// key (including whatever made it unparseable, and updated_at) is preserved
+// verbatim. A duplicate-id file is well-formed, so it is re-rendered normally
+// with an updated_at bump. Either way the file is rewritten *in place*: these
+// files are excluded from the snapshot precisely because their id or syntax is
+// untrustworthy, so a path recomputed from that id could belong to another
+// task. A file whose frontmatter cannot be read at all is warned about
+// instead. At hint level files are never modified; a readable reference only
+// adds a warning line. Returns the warnings to surface, plus the paths
+// written, so the caller can make one commit covering the whole operation.
+func healBrokenDependents(boardDir string, warnings []Warning, deletedID string, level board.DepsEnforcement) (warns, changed []string, err error) {
 	unchecked := func(file string) string {
 		return fmt.Sprintf(
 			"%s could not be checked for dependency healing — repair it, then run `north doctor`", file)
 	}
-	var warns []string
 	for _, w := range warnings {
-		path := findTaskFile(boardDir, w.File)
+		path := w.Path
 		if path == "" {
 			continue
 		}
@@ -739,6 +764,41 @@ func healBrokenDependents(boardDir string, warnings []Warning, deletedID string,
 				w.File, deletedID))
 			continue
 		}
+		if w.Kind == "duplicate-id" {
+			// The file itself is well-formed — only its id is shared — so heal
+			// it the ordinary way, updated_at bump included.
+			task, err := loadTask(path)
+			if err != nil {
+				warns = append(warns, unchecked(w.File))
+				continue
+			}
+			kept := task.DependsOn[:0]
+			for _, id := range task.DependsOn {
+				if id != deletedID {
+					kept = append(kept, id)
+				}
+			}
+			task.DependsOn = kept
+			n := now()
+			task.UpdatedAt = &n
+			// Render and write in place — never through persist. Its target
+			// path is recomputed from id+title, and this file shares its id
+			// with another task, so that path can be the *other* file: healing
+			// there would overwrite a task and delete this one.
+			content, err := renderTask(task, loadPrevFront(path))
+			if err != nil {
+				warns = append(warns, unchecked(w.File))
+				continue
+			}
+			if err := writeTaskInPlace(path, content); err != nil {
+				return nil, nil, fmt.Errorf("healing depends_on of %s: %w", w.File, err)
+			}
+			changed = append(changed, path)
+			warns = append(warns, fmt.Sprintf(
+				"%s has a duplicate id but depended on %s — removed it from depends_on; run `north doctor --fix`",
+				w.File, deletedID))
+			continue
+		}
 		// Remove exactly the matching scalar entries, then re-serialize the
 		// same way renderTask does — mapping marshal, "---" fences, body as
 		// split — so no other key (updated_at included) changes.
@@ -760,35 +820,32 @@ func healBrokenDependents(boardDir string, warnings []Warning, deletedID string,
 		if trimmed != "" {
 			content = fmt.Sprintf("---\n%s\n---\n\n%s\n", front, trimmed)
 		}
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-			return nil, err
+		if err := writeTaskInPlace(path, content); err != nil {
+			return nil, nil, err
 		}
-		if err := os.Rename(tmp, path); err != nil {
-			os.Remove(tmp)
-			return nil, err
-		}
-		if err := commit(boardDir, []string{path}, nil,
-			fmt.Sprintf("north: heal deps of %s after delete %s", w.File, deletedID)); err != nil {
-			return nil, err
-		}
+		changed = append(changed, path)
 		warns = append(warns, fmt.Sprintf(
 			"%s is broken but depended on %s — removed it from depends_on; run `north doctor` to repair the file",
 			w.File, deletedID))
 	}
-	return warns, nil
+	return warns, changed, nil
 }
 
-// findTaskFile locates a task file by base name across the state folders
-// ("" when absent from all of them).
-func findTaskFile(boardDir, base string) string {
-	for _, state := range models.StateOrder {
-		p := filepath.Join(board.StateDir(boardDir, state), base)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+// writeTaskInPlace atomically replaces path's contents (temp file + rename),
+// leaving the file exactly where it is. Used by the heal paths, which must not
+// move a file: unlike persist, no target path is recomputed from the task's id
+// and title, so a task with a duplicate or drifted id cannot be written over
+// its namesake.
+func writeTaskInPlace(path, content string) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return err
 	}
-	return ""
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // StatusCount is one row of the board summary.
